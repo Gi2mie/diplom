@@ -1,44 +1,61 @@
-import { neon } from "@neondatabase/serverless"
-import { hashSync } from "bcryptjs"
+import { PrismaClient, UserRole } from "@prisma/client"
+import { hash } from "bcryptjs"
 
-const sql = neon(process.env.DATABASE_URL!)
+const prisma = new PrismaClient()
 
 async function seedUsers() {
-  const adminHash = hashSync("admin123", 10)
-  const teacherHash = hashSync("teacher123", 10)
+  const adminPasswordHash = await hash("admin123", 12)
+  const teacherPasswordHash = await hash("teacher123", 12)
 
-  // Удаляем существующих пользователей если есть
-  await sql`DELETE FROM users WHERE email IN ('admin@edutrack.ru', 'teacher@edutrack.ru')`
+  await prisma.user.upsert({
+    where: { email: "admin@edutrack.ru" },
+    update: {
+      passwordHash: adminPasswordHash,
+      role: UserRole.ADMIN,
+      isActive: true,
+      firstName: "Администратор",
+      lastName: "Системный",
+      middleName: "Владимирович",
+    },
+    create: {
+      email: "admin@edutrack.ru",
+      passwordHash: adminPasswordHash,
+      role: UserRole.ADMIN,
+      isActive: true,
+      firstName: "Администратор",
+      lastName: "Системный",
+      middleName: "Владимирович",
+    },
+  })
 
-  // Добавляем администратора
-  await sql`
-    INSERT INTO users (id, email, password_hash, name, role, is_active)
-    VALUES (
-      gen_random_uuid(),
-      'admin@edutrack.ru',
-      ${adminHash},
-      'Администратор Системный Владимирович',
-      'ADMIN',
-      true
-    )
-  `
-
-  // Добавляем преподавателя
-  await sql`
-    INSERT INTO users (id, email, password_hash, name, role, is_active)
-    VALUES (
-      gen_random_uuid(),
-      'teacher@edutrack.ru',
-      ${teacherHash},
-      'Петров Иван Сергеевич',
-      'TEACHER',
-      true
-    )
-  `
+  await prisma.user.upsert({
+    where: { email: "teacher@edutrack.ru" },
+    update: {
+      passwordHash: teacherPasswordHash,
+      role: UserRole.TEACHER,
+      isActive: true,
+      firstName: "Иван",
+      lastName: "Петров",
+      middleName: "Сергеевич",
+    },
+    create: {
+      email: "teacher@edutrack.ru",
+      passwordHash: teacherPasswordHash,
+      role: UserRole.TEACHER,
+      isActive: true,
+      firstName: "Иван",
+      lastName: "Петров",
+      middleName: "Сергеевич",
+    },
+  })
 
   console.log("Users seeded successfully:")
   console.log("  Admin:   admin@edutrack.ru / admin123")
   console.log("  Teacher: teacher@edutrack.ru / teacher123")
 }
 
-seedUsers().catch(console.error)
+seedUsers()
+  .catch(console.error)
+  .finally(async () => {
+    await prisma.$disconnect()
+  })

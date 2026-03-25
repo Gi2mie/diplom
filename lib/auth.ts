@@ -2,7 +2,6 @@ import NextAuth, { type NextAuthConfig, type User as NextAuthUser } from "next-a
 import Credentials from "next-auth/providers/credentials"
 import { getUserByEmail, verifyPassword } from "@/lib/auth-db"
 
-// Extend the built-in session types
 declare module "next-auth" {
   interface Session {
     user: {
@@ -21,7 +20,7 @@ declare module "next-auth" {
   }
 }
 
-declare module "next-auth" {
+declare module "@auth/core/jwt" {
   interface JWT {
     id: string
     role: string
@@ -48,21 +47,25 @@ export const authConfig: NextAuthConfig = {
         try {
           const user = await getUserByEmail(email)
 
-          if (!user || !user.is_active) {
+          if (!user || !user.isActive) {
             return null
           }
 
-          const isPasswordValid = await verifyPassword(password, user.password_hash)
+          const isPasswordValid = await verifyPassword(password, user.passwordHash)
 
           if (!isPasswordValid) {
             return null
           }
 
+          const name = [user.lastName, user.firstName, user.middleName]
+            .filter(Boolean)
+            .join(" ")
+
           return {
-            id: user.id,
+            id: String(user.id),
             email: user.email,
             role: user.role,
-            name: user.name,
+            name,
           } as NextAuthUser
         } catch (error) {
           console.error("Auth error:", error)
@@ -80,7 +83,7 @@ export const authConfig: NextAuthConfig = {
       return token
     },
     async session({ session, token }) {
-      if (token) {
+      if (token && session.user) {
         session.user.id = token.id as string
         session.user.role = token.role as string
       }
@@ -92,7 +95,7 @@ export const authConfig: NextAuthConfig = {
   },
   session: {
     strategy: "jwt",
-    maxAge: 24 * 60 * 60, // 24 hours
+    maxAge: 24 * 60 * 60,
   },
 }
 
