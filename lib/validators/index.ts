@@ -1,0 +1,305 @@
+import { z } from "zod"
+import {
+  UserRole,
+  EquipmentStatus,
+  EquipmentType,
+  ComponentType,
+  IssueStatus,
+  IssuePriority,
+  RepairStatus,
+  NotificationType,
+  EntityType,
+  CustomFieldType,
+} from "@prisma/client"
+
+// ==========================================
+// ПОЛЬЗОВАТЕЛИ
+// ==========================================
+
+export const createUserSchema = z.object({
+  email: z.string().email("Некорректный email"),
+  password: z.string().min(8, "Пароль должен быть не менее 8 символов"),
+  firstName: z.string().min(1, "Имя обязательно"),
+  lastName: z.string().min(1, "Фамилия обязательна"),
+  middleName: z.string().optional(),
+  role: z.nativeEnum(UserRole).optional(),
+})
+
+export const updateUserSchema = createUserSchema.partial().extend({
+  isActive: z.boolean().optional(),
+})
+
+export const loginSchema = z.object({
+  email: z.string().email("Некорректный email"),
+  password: z.string().min(1, "Пароль обязателен"),
+})
+
+// ==========================================
+// КАБИНЕТЫ
+// ==========================================
+
+export const createClassroomSchema = z.object({
+  number: z.string().min(1, "Номер кабинета обязателен"),
+  name: z.string().optional(),
+  building: z.string().optional(),
+  floor: z.number().int().optional(),
+  description: z.string().optional(),
+  responsibleId: z.string().cuid().optional(),
+})
+
+export const updateClassroomSchema = createClassroomSchema.partial().extend({
+  isActive: z.boolean().optional(),
+})
+
+// ==========================================
+// РАБОЧИЕ МЕСТА
+// ==========================================
+
+export const createWorkstationSchema = z.object({
+  number: z.number().int().positive("Номер должен быть положительным"),
+  classroomId: z.string().cuid("Некорректный ID кабинета"),
+  name: z.string().optional(),
+  description: z.string().optional(),
+})
+
+export const updateWorkstationSchema = createWorkstationSchema
+  .omit({ classroomId: true })
+  .partial()
+  .extend({
+    isActive: z.boolean().optional(),
+  })
+
+// ==========================================
+// ОБОРУДОВАНИЕ
+// ==========================================
+
+export const createEquipmentSchema = z.object({
+  inventoryNumber: z.string().min(1, "Инвентарный номер обязателен"),
+  name: z.string().min(1, "Наименование обязательно"),
+  type: z.nativeEnum(EquipmentType),
+  status: z.nativeEnum(EquipmentStatus).optional(),
+  workstationId: z.string().cuid().optional().nullable(),
+  manufacturer: z.string().optional(),
+  model: z.string().optional(),
+  serialNumber: z.string().optional(),
+  purchaseDate: z.coerce.date().optional(),
+  warrantyUntil: z.coerce.date().optional(),
+  description: z.string().optional(),
+})
+
+export const updateEquipmentSchema = createEquipmentSchema.partial().extend({
+  isActive: z.boolean().optional(),
+})
+
+export const updateEquipmentStatusSchema = z.object({
+  status: z.nativeEnum(EquipmentStatus),
+})
+
+// ==========================================
+// КОМПОНЕНТЫ
+// ==========================================
+
+export const createComponentSchema = z.object({
+  equipmentId: z.string().cuid("Некорректный ID оборудования"),
+  type: z.nativeEnum(ComponentType),
+  name: z.string().min(1, "Наименование обязательно"),
+  manufacturer: z.string().optional(),
+  model: z.string().optional(),
+  serialNumber: z.string().optional(),
+  specifications: z.record(z.unknown()).optional(),
+  description: z.string().optional(),
+})
+
+export const updateComponentSchema = createComponentSchema
+  .omit({ equipmentId: true })
+  .partial()
+
+// ==========================================
+// ПРОГРАММНОЕ ОБЕСПЕЧЕНИЕ
+// ==========================================
+
+export const createSoftwareSchema = z.object({
+  name: z.string().min(1, "Название ПО обязательно"),
+  vendor: z.string().optional(),
+  licenseType: z.string().optional(),
+  description: z.string().optional(),
+})
+
+export const updateSoftwareSchema = createSoftwareSchema.partial()
+
+export const createInstalledSoftwareSchema = z.object({
+  equipmentId: z.string().cuid("Некорректный ID оборудования"),
+  softwareId: z.string().cuid("Некорректный ID ПО"),
+  version: z.string().optional(),
+  licenseKey: z.string().optional(),
+  installedAt: z.coerce.date().optional(),
+  expiresAt: z.coerce.date().optional(),
+  notes: z.string().optional(),
+})
+
+export const updateInstalledSoftwareSchema = createInstalledSoftwareSchema
+  .omit({ equipmentId: true, softwareId: true })
+  .partial()
+
+// ==========================================
+// ОБРАЩЕНИЯ
+// ==========================================
+
+export const createIssueReportSchema = z.object({
+  equipmentId: z.string().cuid("Некорректный ID оборудования"),
+  title: z.string().min(1, "Заголовок обязателен"),
+  description: z.string().min(1, "Описание обязательно"),
+  priority: z.nativeEnum(IssuePriority).optional(),
+})
+
+export const updateIssueReportSchema = z.object({
+  title: z.string().min(1).optional(),
+  description: z.string().min(1).optional(),
+  status: z.nativeEnum(IssueStatus).optional(),
+  priority: z.nativeEnum(IssuePriority).optional(),
+  resolution: z.string().optional(),
+})
+
+// ==========================================
+// РЕМОНТЫ
+// ==========================================
+
+export const createRepairSchema = z.object({
+  equipmentId: z.string().cuid("Некорректный ID оборудования"),
+  issueReportId: z.string().cuid().optional(),
+  assignedToId: z.string().cuid().optional(),
+  description: z.string().min(1, "Описание обязательно"),
+  diagnosis: z.string().optional(),
+})
+
+export const updateRepairSchema = z.object({
+  status: z.nativeEnum(RepairStatus).optional(),
+  description: z.string().optional(),
+  diagnosis: z.string().optional(),
+  workPerformed: z.string().optional(),
+  partsUsed: z.string().optional(),
+  cost: z.number().positive().optional(),
+  assignedToId: z.string().cuid().optional().nullable(),
+})
+
+export const completeRepairSchema = z.object({
+  workPerformed: z.string().min(1, "Описание выполненных работ обязательно"),
+  partsUsed: z.string().optional(),
+  cost: z.number().positive().optional(),
+})
+
+// ==========================================
+// ПОЛЬЗОВАТЕЛЬСКИЕ ПОЛЯ
+// ==========================================
+
+export const createCustomFieldDefinitionSchema = z.object({
+  name: z.string().min(1, "Название поля обязательно"),
+  fieldKey: z
+    .string()
+    .min(1)
+    .regex(/^[a-z_][a-z0-9_]*$/, "Ключ должен содержать только латинские буквы, цифры и подчёркивания"),
+  fieldType: z.nativeEnum(CustomFieldType),
+  entityType: z.nativeEnum(EntityType),
+  options: z.array(z.string()).optional(),
+  isRequired: z.boolean().optional(),
+  defaultValue: z.string().optional(),
+  description: z.string().optional(),
+  sortOrder: z.number().int().optional(),
+})
+
+export const updateCustomFieldDefinitionSchema = createCustomFieldDefinitionSchema
+  .omit({ fieldKey: true, entityType: true })
+  .partial()
+  .extend({
+    isActive: z.boolean().optional(),
+  })
+
+export const setCustomFieldValueSchema = z.object({
+  definitionId: z.string().cuid("Некорректный ID определения"),
+  value: z.string(),
+})
+
+// ==========================================
+// ПАГИНАЦИЯ И ФИЛЬТРЫ
+// ==========================================
+
+export const paginationSchema = z.object({
+  page: z.coerce.number().int().positive().optional().default(1),
+  limit: z.coerce.number().int().positive().max(100).optional().default(10),
+  sortBy: z.string().optional(),
+  sortOrder: z.enum(["asc", "desc"]).optional().default("desc"),
+})
+
+export const equipmentFiltersSchema = paginationSchema.extend({
+  status: z.union([z.nativeEnum(EquipmentStatus), z.array(z.nativeEnum(EquipmentStatus))]).optional(),
+  type: z.union([z.nativeEnum(EquipmentType), z.array(z.nativeEnum(EquipmentType))]).optional(),
+  workstationId: z.string().cuid().optional(),
+  classroomId: z.string().cuid().optional(),
+  search: z.string().optional(),
+  isActive: z.coerce.boolean().optional(),
+})
+
+export const issueReportFiltersSchema = paginationSchema.extend({
+  status: z.union([z.nativeEnum(IssueStatus), z.array(z.nativeEnum(IssueStatus))]).optional(),
+  priority: z.union([z.nativeEnum(IssuePriority), z.array(z.nativeEnum(IssuePriority))]).optional(),
+  equipmentId: z.string().cuid().optional(),
+  reporterId: z.string().cuid().optional(),
+  search: z.string().optional(),
+})
+
+export const repairFiltersSchema = paginationSchema.extend({
+  status: z.union([z.nativeEnum(RepairStatus), z.array(z.nativeEnum(RepairStatus))]).optional(),
+  equipmentId: z.string().cuid().optional(),
+  assignedToId: z.string().cuid().optional(),
+  createdById: z.string().cuid().optional(),
+})
+
+export const changeHistoryFiltersSchema = paginationSchema.extend({
+  entityType: z.nativeEnum(EntityType).optional(),
+  entityId: z.string().optional(),
+  equipmentId: z.string().cuid().optional(),
+  userId: z.string().cuid().optional(),
+  dateFrom: z.coerce.date().optional(),
+  dateTo: z.coerce.date().optional(),
+})
+
+// ==========================================
+// ID ПАРАМЕТР
+// ==========================================
+
+export const idParamSchema = z.object({
+  id: z.string().cuid("Некорректный ID"),
+})
+
+// ==========================================
+// ТИПЫ
+// ==========================================
+
+export type CreateUserInput = z.infer<typeof createUserSchema>
+export type UpdateUserInput = z.infer<typeof updateUserSchema>
+export type LoginInput = z.infer<typeof loginSchema>
+export type CreateClassroomInput = z.infer<typeof createClassroomSchema>
+export type UpdateClassroomInput = z.infer<typeof updateClassroomSchema>
+export type CreateWorkstationInput = z.infer<typeof createWorkstationSchema>
+export type UpdateWorkstationInput = z.infer<typeof updateWorkstationSchema>
+export type CreateEquipmentInput = z.infer<typeof createEquipmentSchema>
+export type UpdateEquipmentInput = z.infer<typeof updateEquipmentSchema>
+export type CreateComponentInput = z.infer<typeof createComponentSchema>
+export type UpdateComponentInput = z.infer<typeof updateComponentSchema>
+export type CreateSoftwareInput = z.infer<typeof createSoftwareSchema>
+export type UpdateSoftwareInput = z.infer<typeof updateSoftwareSchema>
+export type CreateInstalledSoftwareInput = z.infer<typeof createInstalledSoftwareSchema>
+export type UpdateInstalledSoftwareInput = z.infer<typeof updateInstalledSoftwareSchema>
+export type CreateIssueReportInput = z.infer<typeof createIssueReportSchema>
+export type UpdateIssueReportInput = z.infer<typeof updateIssueReportSchema>
+export type CreateRepairInput = z.infer<typeof createRepairSchema>
+export type UpdateRepairInput = z.infer<typeof updateRepairSchema>
+export type CompleteRepairInput = z.infer<typeof completeRepairSchema>
+export type CreateCustomFieldDefinitionInput = z.infer<typeof createCustomFieldDefinitionSchema>
+export type UpdateCustomFieldDefinitionInput = z.infer<typeof updateCustomFieldDefinitionSchema>
+export type SetCustomFieldValueInput = z.infer<typeof setCustomFieldValueSchema>
+export type PaginationInput = z.infer<typeof paginationSchema>
+export type EquipmentFiltersInput = z.infer<typeof equipmentFiltersSchema>
+export type IssueReportFiltersInput = z.infer<typeof issueReportFiltersSchema>
+export type RepairFiltersInput = z.infer<typeof repairFiltersSchema>
+export type ChangeHistoryFiltersInput = z.infer<typeof changeHistoryFiltersSchema>

@@ -1,0 +1,7 @@
+export { addSoftware, type AddSoftwareResult } from "./addSoftware"
+export { updateSoftware, type UpdateSoftwareResult } from "./updateSoftware"
+export { deleteSoftware, type DeleteSoftwareResult } from "./deleteSoftware"
+export { getAllSoftware, type GetAllSoftwareResult, type GetAllSoftwareFilters } from "./getAllSoftware"
+export { installSoftware, type InstallSoftwareResult } from "./installSoftware"
+export { uninstallSoftware, type UninstallSoftwareResult } from "./uninstallSoftware"
+export { getSoftwareByEquipment, type GetSoftwareByEquipmentResult } from "./getSoftwareByEquipment"

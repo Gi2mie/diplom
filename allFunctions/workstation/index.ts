@@ -1,0 +1,5 @@
+export { addWorkstation, type AddWorkstationResult } from "./addWorkstation"
+export { updateWorkstation, type UpdateWorkstationResult } from "./updateWorkstation"
+export { deleteWorkstation, type DeleteWorkstationResult } from "./deleteWorkstation"
+export { getWorkstationById, type GetWorkstationByIdResult } from "./getWorkstationById"
+export { getWorkstationsByClassroom, type GetWorkstationsByClassroomResult } from "./getWorkstationsByClassroom"

@@ -1,0 +1,423 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==========================================
+// ПОЛЬЗОВАТЕЛИ И РОЛИ
+// ==========================================
+
+enum UserRole {
+  ADMIN       // Администратор системы
+  TEACHER     // Преподаватель
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  passwordHash  String    @map("password_hash")
+  firstName     String    @map("first_name")
+  lastName      String    @map("last_name")
+  middleName    String?   @map("middle_name")
+  role          UserRole  @default(TEACHER)
+  isActive      Boolean   @default(true) @map("is_active")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  // Связи
+  issueReports      IssueReport[]       // Созданные обращения
+  assignedRepairs   Repair[]            @relation("AssignedRepairs") // Назначенные ремонты
+  createdRepairs    Repair[]            @relation("CreatedRepairs")  // Созданные ремонты
+  notifications     Notification[]      // Уведомления пользователя
+  changeHistories   ChangeHistory[]     // История изменений, созданная пользователем
+  responsibleRooms  Classroom[]         // Кабинеты, за которые отвечает
+
+  @@map("users")
+}
+
+// ==========================================
+// КАБИНЕТЫ
+// ==========================================
+
+model Classroom {
+  id              String    @id @default(cuid())
+  number          String    @unique // Номер кабинета (например, "301", "А-15")
+  name            String?   // Название кабинета (например, "Компьютерный класс №1")
+  building        String?   // Корпус
+  floor           Int?      // Этаж
+  description     String?   // Описание
+  responsibleId   String?   @map("responsible_id") // Ответственный преподаватель
+  isActive        Boolean   @default(true) @map("is_active")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  // Связи
+  responsible   User?         @relation(fields: [responsibleId], references: [id], onDelete: SetNull)
+  workstations  Workstation[] // Рабочие места в кабинете
+
+  @@map("classrooms")
+}
+
+// ==========================================
+// РАБОЧИЕ МЕСТА
+// ==========================================
+
+model Workstation {
+  id            String    @id @default(cuid())
+  number        Int       // Номер рабочего места в кабинете
+  classroomId   String    @map("classroom_id")
+  name          String?   // Название (например, "Рабочее место преподавателя")
+  description   String?   // Описание
+  isActive      Boolean   @default(true) @map("is_active")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  // Связи
+  classroom   Classroom   @relation(fields: [classroomId], references: [id], onDelete: Cascade)
+  equipment   Equipment[] // Оборудование на рабочем месте
+
+  @@unique([classroomId, number]) // Уникальность номера в рамках кабинета
+  @@map("workstations")
+}
+
+// ==========================================
+// ОБОРУДОВАНИЕ
+// ==========================================
+
+enum EquipmentStatus {
+  OPERATIONAL       // Исправно
+  NEEDS_CHECK       // Требует проверки
+  IN_REPAIR         // В ремонте
+  DECOMMISSIONED    // Списано
+  NOT_IN_USE        // Не используется
+}
+
+enum EquipmentType {
+  COMPUTER          // Компьютер
+  MONITOR           // Монитор
+  PRINTER           // Принтер
+  PROJECTOR         // Проектор
+  INTERACTIVE_BOARD // Интерактивная доска
+  SCANNER           // Сканер
+  NETWORK_DEVICE    // Сетевое оборудование
+  PERIPHERAL        // Периферия
+  OTHER             // Прочее
+}
+
+model Equipment {
+  id              String          @id @default(cuid())
+  inventoryNumber String          @unique @map("inventory_number") // Инвентарный номер
+  name            String          // Наименование
+  type            EquipmentType   // Тип оборудования
+  status          EquipmentStatus @default(OPERATIONAL)
+  workstationId   String?         @map("workstation_id")
+  manufacturer    String?         // Производитель
+  model           String?         // Модель
+  serialNumber    String?         @map("serial_number") // Серийный номер
+  purchaseDate    DateTime?       @map("purchase_date") // Дата приобретения
+  warrantyUntil   DateTime?       @map("warranty_until") // Гарантия до
+  description     String?         // Описание
+  isActive        Boolean         @default(true) @map("is_active")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  // Связи
+  workstation     Workstation?        @relation(fields: [workstationId], references: [id], onDelete: SetNull)
+  components      Component[]         // Компоненты ПК
+  software        InstalledSoftware[] // Установленное ПО
+  issueReports    IssueReport[]       // Обращения о неисправностях
+  repairs         Repair[]            // Ремонты
+  customFields    CustomFieldValue[]  // Пользовательские поля
+  changeHistories ChangeHistory[]     // История изменений
+
+  @@map("equipment")
+}
+
+// ==========================================
+// КОМПОНЕНТЫ ПК
+// ==========================================
+
+enum ComponentType {
+  CPU           // Процессор
+  RAM           // Оперативная память
+  HDD           // Жёсткий диск
+  SSD           // SSD накопитель
+  GPU           // Видеокарта
+  MOTHERBOARD   // Материнская плата
+  PSU           // Блок питания
+  CASE          // Корпус
+  COOLING       // Система охлаждения
+  NETWORK_CARD  // Сетевая карта
+  SOUND_CARD    // Звуковая карта
+  OTHER         // Прочее
+}
+
+model Component {
+  id            String        @id @default(cuid())
+  equipmentId   String        @map("equipment_id")
+  type          ComponentType // Тип компонента
+  name          String        // Наименование
+  manufacturer  String?       // Производитель
+  model         String?       // Модель
+  serialNumber  String?       @map("serial_number") // Серийный номер
+  specifications Json?        // Характеристики (JSON для гибкости)
+  description   String?       // Описание
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  // Связи
+  equipment Equipment @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
+
+  @@map("components")
+}
+
+// ==========================================
+// УСТАНОВЛЕННОЕ ПО
+// ==========================================
+
+model Software {
+  id            String    @id @default(cuid())
+  name          String    @unique // Название ПО
+  vendor        String?   // Разработчик
+  licenseType   String?   @map("license_type") // Тип лицензии (бесплатное, платное, подписка)
+  description   String?   // Описание
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  // Связи
+  installations InstalledSoftware[] // Установки на оборудовании
+
+  @@map("software")
+}
+
+model InstalledSoftware {
+  id            String    @id @default(cuid())
+  equipmentId   String    @map("equipment_id")
+  softwareId    String    @map("software_id")
+  version       String?   // Версия
+  licenseKey    String?   @map("license_key") // Лицензионный ключ
+  installedAt   DateTime  @default(now()) @map("installed_at") // Дата установки
+  expiresAt     DateTime? @map("expires_at") // Срок действия лицензии
+  notes         String?   // Примечания
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  // Связи
+  equipment Equipment @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
+  software  Software  @relation(fields: [softwareId], references: [id], onDelete: Cascade)
+
+  @@unique([equipmentId, softwareId]) // Одно ПО на одном оборудовании один раз
+  @@map("installed_software")
+}
+
+// ==========================================
+// ОБРАЩЕНИЯ О НЕИСПРАВНОСТЯХ
+// ==========================================
+
+enum IssueStatus {
+  NEW           // Новое
+  IN_PROGRESS   // В работе
+  RESOLVED      // Решено
+  CLOSED        // Закрыто
+  REJECTED      // Отклонено
+}
+
+enum IssuePriority {
+  LOW           // Низкий
+  MEDIUM        // Средний
+  HIGH          // Высокий
+  CRITICAL      // Критический
+}
+
+model IssueReport {
+  id            String        @id @default(cuid())
+  equipmentId   String        @map("equipment_id")
+  reporterId    String        @map("reporter_id")
+  title         String        // Заголовок
+  description   String        // Описание проблемы
+  status        IssueStatus   @default(NEW)
+  priority      IssuePriority @default(MEDIUM)
+  resolvedAt    DateTime?     @map("resolved_at") // Дата решения
+  resolution    String?       // Описание решения
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  // Связи
+  equipment Equipment @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
+  reporter  User      @relation(fields: [reporterId], references: [id], onDelete: Cascade)
+  repairs   Repair[]  // Связанные ремонты
+
+  @@map("issue_reports")
+}
+
+// ==========================================
+// РЕМОНТЫ
+// ==========================================
+
+enum RepairStatus {
+  PLANNED       // Запланирован
+  IN_PROGRESS   // В процессе
+  COMPLETED     // Завершён
+  CANCELLED     // Отменён
+}
+
+model Repair {
+  id              String        @id @default(cuid())
+  equipmentId     String        @map("equipment_id")
+  issueReportId   String?       @map("issue_report_id")
+  assignedToId    String?       @map("assigned_to_id") // Исполнитель
+  createdById     String        @map("created_by_id") // Кто создал запись
+  status          RepairStatus  @default(PLANNED)
+  description     String        // Описание работ
+  diagnosis       String?       // Диагноз
+  workPerformed   String?       @map("work_performed") // Выполненные работы
+  partsUsed       String?       @map("parts_used") // Использованные запчасти
+  cost            Decimal?      @db.Decimal(10, 2) // Стоимость
+  startedAt       DateTime?     @map("started_at") // Начало ремонта
+  completedAt     DateTime?     @map("completed_at") // Завершение ремонта
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  // Связи
+  equipment   Equipment    @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
+  issueReport IssueReport? @relation(fields: [issueReportId], references: [id], onDelete: SetNull)
+  assignedTo  User?        @relation("AssignedRepairs", fields: [assignedToId], references: [id], onDelete: SetNull)
+  createdBy   User         @relation("CreatedRepairs", fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@map("repairs")
+}
+
+// ==========================================
+// УВЕДОМЛЕНИЯ
+// ==========================================
+
+enum NotificationType {
+  ISSUE_CREATED       // Создано обращение
+  ISSUE_UPDATED       // Обращение обновлено
+  ISSUE_RESOLVED      // Обращение решено
+  REPAIR_ASSIGNED     // Назначен ремонт
+  REPAIR_COMPLETED    // Ремонт завершён
+  WARRANTY_EXPIRING   // Истекает гарантия
+  LICENSE_EXPIRING    // Истекает лицензия
+  EQUIPMENT_STATUS    // Изменён статус оборудования
+  SYSTEM              // Системное уведомление
+}
+
+model Notification {
+  id          String           @id @default(cuid())
+  userId      String           @map("user_id")
+  type        NotificationType
+  title       String           // Заголовок
+  message     String           // Сообщение
+  link        String?          // Ссылка на связанный объект
+  isRead      Boolean          @default(false) @map("is_read")
+  readAt      DateTime?        @map("read_at")
+  createdAt   DateTime         @default(now()) @map("created_at")
+
+  // Связи
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@map("notifications")
+}
+
+// ==========================================
+// ИСТОРИЯ ИЗМЕНЕНИЙ
+// ==========================================
+
+enum EntityType {
+  EQUIPMENT
+  WORKSTATION
+  CLASSROOM
+  COMPONENT
+  SOFTWARE
+  ISSUE_REPORT
+  REPAIR
+  USER
+}
+
+enum ActionType {
+  CREATE
+  UPDATE
+  DELETE
+  STATUS_CHANGE
+}
+
+model ChangeHistory {
+  id          String      @id @default(cuid())
+  entityType  EntityType  @map("entity_type")
+  entityId    String      @map("entity_id")
+  equipmentId String?     @map("equipment_id") // Для быстрой фильтрации по оборудованию
+  userId      String      @map("user_id")
+  action      ActionType
+  fieldName   String?     @map("field_name") // Изменённое поле
+  oldValue    String?     @map("old_value") // Старое значение
+  newValue    String?     @map("new_value") // Новое значение
+  metadata    Json?       // Дополнительные данные
+  createdAt   DateTime    @default(now()) @map("created_at")
+
+  // Связи
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  equipment Equipment? @relation(fields: [equipmentId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId])
+  @@index([equipmentId])
+  @@index([createdAt])
+  @@map("change_history")
+}
+
+// ==========================================
+// ПОЛЬЗОВАТЕЛЬСКИЕ ПОЛЯ
+// ==========================================
+
+enum CustomFieldType {
+  TEXT
+  NUMBER
+  DATE
+  BOOLEAN
+  SELECT
+}
+
+model CustomFieldDefinition {
+  id            String          @id @default(cuid())
+  name          String          // Название поля
+  fieldKey      String          @unique @map("field_key") // Ключ поля (для кода)
+  fieldType     CustomFieldType @map("field_type")
+  entityType    EntityType      @map("entity_type") // К какой сущности относится
+  options       Json?           // Варианты для SELECT
+  isRequired    Boolean         @default(false) @map("is_required")
+  defaultValue  String?         @map("default_value")
+  description   String?
+  sortOrder     Int             @default(0) @map("sort_order")
+  isActive      Boolean         @default(true) @map("is_active")
+  createdAt     DateTime        @default(now()) @map("created_at")
+  updatedAt     DateTime        @updatedAt @map("updated_at")
+
+  // Связи
+  values CustomFieldValue[]
+
+  @@map("custom_field_definitions")
+}
+
+model CustomFieldValue {
+  id            String    @id @default(cuid())
+  definitionId  String    @map("definition_id")
+  equipmentId   String    @map("equipment_id") // Пока только для оборудования
+  value         String    // Значение поля (строкой, парсится по типу)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  // Связи
+  definition CustomFieldDefinition @relation(fields: [definitionId], references: [id], onDelete: Cascade)
+  equipment  Equipment             @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
+
+  @@unique([definitionId, equipmentId])
+  @@map("custom_field_values")
+}

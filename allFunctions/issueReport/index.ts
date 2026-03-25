@@ -1,0 +1,6 @@
+export { addIssueReport, type AddIssueReportResult } from "./addIssueReport"
+export { updateIssueReport, type UpdateIssueReportResult } from "./updateIssueReport"
+export { deleteIssueReport, type DeleteIssueReportResult } from "./deleteIssueReport"
+export { getIssueReportById, type GetIssueReportByIdResult } from "./getIssueReportById"
+export { getAllIssueReports, type GetAllIssueReportsResult } from "./getAllIssueReports"
+export { resolveIssueReport, type ResolveIssueReportResult } from "./resolveIssueReport"
