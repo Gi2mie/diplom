@@ -13,12 +13,16 @@ async function main() {
     update: {
       passwordHash: adminPassword,
       isActive: true,
+      position: "Системный администратор",
+      department: "ИТ-отдел",
     },
     create: {
       email: "admin@school.ru",
       passwordHash: adminPassword,
       firstName: "Администратор",
       lastName: "Системы",
+      position: "Системный администратор",
+      department: "ИТ-отдел",
       role: UserRole.ADMIN,
       isActive: true,
     },
@@ -32,6 +36,8 @@ async function main() {
     update: {
       passwordHash: teacherPassword,
       isActive: true,
+      position: "Преподаватель",
+      department: "Кафедра информатики",
     },
     create: {
       email: "teacher@school.ru",
@@ -39,6 +45,8 @@ async function main() {
       firstName: "Иван",
       lastName: "Петров",
       middleName: "Сергеевич",
+      position: "Преподаватель",
+      department: "Кафедра информатики",
       role: UserRole.TEACHER,
       isActive: true,
     },

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import Link from "next/link"
+import { useSession } from "next-auth/react"
 import { 
   Monitor, 
   Wrench, 
@@ -29,7 +30,6 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Progress } from "@/components/ui/progress"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { getMockSession, getCurrentMockPermissions, type MockSession, type MockPermissions } from "@/lib/mock-auth"
 
 interface DashboardStats {
   totalEquipment: number
@@ -67,18 +67,12 @@ interface Notification {
 }
 
 export default function DashboardPage() {
-  const [session, setSession] = useState<MockSession | null>(null)
-  const [permissions, setPermissions] = useState<MockPermissions | null>(null)
+  const { data: session, status } = useSession()
   const [stats, setStats] = useState<DashboardStats | null>(null)
   const [recentRequests, setRecentRequests] = useState<RecentRequest[]>([])
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [loading, setLoading] = useState(true)
   
-  useEffect(() => {
-    setSession(getMockSession())
-    setPermissions(getCurrentMockPermissions())
-  }, [])
-
   useEffect(() => {
     // Симуляция загрузки данных
     const timer = setTimeout(() => {
@@ -115,11 +109,16 @@ export default function DashboardPage() {
     return () => clearTimeout(timer)
   }, [])
 
-  if (!session || !permissions) {
+  if (status === "loading") {
+    return null
+  }
+
+  if (!session?.user) {
     return null
   }
 
   const isAdmin = session.user.role === "ADMIN"
+  const firstName = session.user.name?.split(" ")?.[1] || session.user.name?.split(" ")?.[0] || ""
   const workingPercentage = stats ? Math.round((stats.workingEquipment / stats.totalEquipment) * 100) : 0
 
   const getStatusBadge = (status: RecentRequest["status"]) => {
@@ -161,7 +160,7 @@ export default function DashboardPage() {
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">
-            Добро пожаловать, {session.user.firstName}!
+            Добро пожаловать{firstName ? `, ${firstName}` : ""}!
           </h1>
           <p className="text-muted-foreground">
             {isAdmin 

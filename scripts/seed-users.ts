@@ -16,6 +16,8 @@ async function seedUsers() {
       firstName: "Администратор",
       lastName: "Системный",
       middleName: "Владимирович",
+      position: "Системный администратор",
+      department: "ИТ-отдел",
     },
     create: {
       email: "admin@edutrack.ru",
@@ -25,6 +27,8 @@ async function seedUsers() {
       firstName: "Администратор",
       lastName: "Системный",
       middleName: "Владимирович",
+      position: "Системный администратор",
+      department: "ИТ-отдел",
     },
   })
 
@@ -37,6 +41,8 @@ async function seedUsers() {
       firstName: "Иван",
       lastName: "Петров",
       middleName: "Сергеевич",
+      position: "Преподаватель",
+      department: "Кафедра информатики",
     },
     create: {
       email: "teacher@edutrack.ru",
@@ -46,6 +52,8 @@ async function seedUsers() {
       firstName: "Иван",
       lastName: "Петров",
       middleName: "Сергеевич",
+      position: "Преподаватель",
+      department: "Кафедра информатики",
     },
   })
 

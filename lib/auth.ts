@@ -1,6 +1,6 @@
 import NextAuth, { type NextAuthConfig, type User as NextAuthUser } from "next-auth"
 import Credentials from "next-auth/providers/credentials"
-import { getUserByEmail, verifyPassword } from "@/lib/auth-db"
+import { getUserByEmail, markUserLastLogin, verifyPassword } from "@/lib/auth-db"
 
 declare module "next-auth" {
   interface Session {
@@ -56,6 +56,8 @@ export const authConfig: NextAuthConfig = {
           if (!isPasswordValid) {
             return null
           }
+
+          await markUserLastLogin(String(user.id))
 
           const name = [user.lastName, user.firstName, user.middleName]
             .filter(Boolean)

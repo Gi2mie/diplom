@@ -1,7 +1,6 @@
-import bcrypt from 'bcryptjs'
-import { PrismaClient, UserRole } from '@prisma/client'
-
-const prisma = new PrismaClient()
+import bcrypt from "bcryptjs"
+import { UserRole } from "@prisma/client"
+import { db } from "@/lib/db"
 
 function toUserRole(role?: string): UserRole {
   return role === UserRole.ADMIN ? UserRole.ADMIN : UserRole.TEACHER
@@ -9,12 +8,12 @@ function toUserRole(role?: string): UserRole {
 
 export async function getUserByEmail(email: string) {
   try {
-    const user = await prisma.user.findUnique({
+    const user = await db.user.findUnique({
       where: { email },
     })
     return user
   } catch (error) {
-    console.error('Error fetching user:', error)
+    console.error("Error fetching user:", error)
     return null
   }
 }
@@ -23,8 +22,20 @@ export async function verifyPassword(password: string, passwordHash: string): Pr
   try {
     return await bcrypt.compare(password, passwordHash)
   } catch (error) {
-    console.error('Error verifying password:', error)
+    console.error("Error verifying password:", error)
     return false
+  }
+}
+
+export async function markUserLastLogin(userId: string) {
+  try {
+    await db.user.update({
+      where: { id: userId },
+      // Prisma Client types may lag behind schema during dev; keep runtime correct.
+      data: { lastLoginAt: new Date() } as any,
+    })
+  } catch (error) {
+    console.error("Error updating last login:", error)
   }
 }
 
@@ -33,12 +44,12 @@ export async function createUser(
   password: string,
   firstName: string,
   lastName: string,
-  role: string = 'TEACHER'
+  role: string = "TEACHER"
 ) {
   try {
     const passwordHash = await bcrypt.hash(password, 10)
 
-    const user = await prisma.user.create({
+    const user = await db.user.create({
       data: {
         email,
         passwordHash,
@@ -51,7 +62,7 @@ export async function createUser(
 
     return user
   } catch (error) {
-    console.error('Error creating user:', error)
+    console.error("Error creating user:", error)
     throw error
   }
 }

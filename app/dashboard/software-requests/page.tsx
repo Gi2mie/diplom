@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo } from "react"
-import { getMockSession, getCurrentMockPermissions, type MockSession, type MockPermissions } from "@/lib/mock-auth"
+import { useSession } from "next-auth/react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -218,8 +218,7 @@ const getPriorityInfo = (priority: RequestPriority) => {
 }
 
 export default function SoftwareRequestsPage() {
-  const [session, setSession] = useState<MockSession | null>(null)
-  const [permissions, setPermissions] = useState<MockPermissions | null>(null)
+  const { data: session, status } = useSession()
   const [requests, setRequests] = useState<SoftwareRequest[]>(mockRequests)
   
   // Фильтры
@@ -250,11 +249,6 @@ export default function SoftwareRequestsPage() {
   // Изменение статуса (для админа)
   const [newStatus, setNewStatus] = useState<RequestStatus>("pending")
   const [adminComment, setAdminComment] = useState("")
-
-  useEffect(() => {
-    setSession(getMockSession())
-    setPermissions(getCurrentMockPermissions())
-  }, [])
 
   // Фильтрация
   const filteredRequests = useMemo(() => {
@@ -370,7 +364,7 @@ export default function SoftwareRequestsPage() {
   }
 
   // Loading state
-  if (!session || !permissions) {
+  if (status === "loading") {
     return (
       <div className="space-y-6">
         <Skeleton className="h-8 w-64" />
@@ -380,6 +374,10 @@ export default function SoftwareRequestsPage() {
         <Skeleton className="h-96" />
       </div>
     )
+  }
+
+  if (!session?.user) {
+    return null
   }
 
   const isAdmin = session.user.role === "ADMIN"

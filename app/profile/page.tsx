@@ -1,7 +1,5 @@
-"use client"
-
-import { useState, useEffect } from "react"
-import { getMockSession, type MockSession } from "@/lib/mock-auth"
+import { auth } from "@/lib/auth"
+import { db } from "@/lib/db"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -16,40 +14,53 @@ import {
   ArrowLeft,
   Settings,
   Key,
-  Loader2
 } from "lucide-react"
 import Link from "next/link"
+import { redirect } from "next/navigation"
 
-export default function ProfilePage() {
-  const [session, setSession] = useState<MockSession | null>(null)
-  
-  useEffect(() => {
-    // Загружаем данные на клиенте после гидратации
-    setSession(getMockSession())
-  }, [])
-  
-  // Показываем загрузку пока данные не загружены
-  if (!session) {
-    return (
-      <div className="min-h-screen bg-muted/30 flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    )
+export default async function ProfilePage() {
+  const session = await auth()
+  if (!session?.user?.id) {
+    redirect("/login")
   }
-  
-  const user = session.user
-  
+
+  const user = await db.user.findUnique({
+    where: { id: session.user.id },
+    select: {
+      id: true,
+      email: true,
+      firstName: true,
+      lastName: true,
+      middleName: true,
+      role: true,
+      position: true,
+      department: true,
+      createdAt: true,
+      lastLoginAt: true,
+    },
+  })
+
+  if (!user) {
+    redirect("/login")
+  }
+
   const isAdmin = user.role === "ADMIN"
-  const fullName = `${user.lastName} ${user.firstName} ${user.middleName}`
+  const fullName = `${user.lastName} ${user.firstName} ${user.middleName ?? ""}`.trim()
   const initials = `${user.firstName?.[0] || ""}${user.lastName?.[0] || ""}`.toUpperCase()
 
   // Форматирование даты
-  const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr)
-    return date.toLocaleDateString("ru-RU", {
-      day: "numeric",
-      month: "long",
-      year: "numeric"
+  const formatDate = (date: Date) => {
+    return date.toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" })
+  }
+
+  const formatDateTime = (date: Date) => {
+    return date.toLocaleString("ru-RU", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
     })
   }
 
@@ -67,9 +78,6 @@ export default function ProfilePage() {
             </Link>
             <h1 className="text-xl font-semibold">Профиль пользователя</h1>
           </div>
-          <Badge variant="outline" className="text-xs">
-            DEV MODE
-          </Badge>
         </div>
       </header>
 
@@ -104,8 +112,8 @@ export default function ProfilePage() {
                       )}
                     </Badge>
                   </div>
-                  <p className="mt-1 text-muted-foreground">{user.position}</p>
-                  <p className="text-sm text-muted-foreground">{user.department}</p>
+                  {user.position && <p className="mt-1 text-muted-foreground">{user.position}</p>}
+                  {user.department && <p className="text-sm text-muted-foreground">{user.department}</p>}
                 </div>
 
                 {/* Actions */}
@@ -166,7 +174,9 @@ export default function ProfilePage() {
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">Последний вход</p>
-                    <p className="font-medium">{formatDate(user.lastLogin)}</p>
+                    <p className="font-medium">
+                      {user.lastLoginAt ? formatDateTime(user.lastLoginAt) : "—"}
+                    </p>
                   </div>
                 </div>
               </CardContent>

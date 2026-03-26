@@ -1,8 +1,9 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { usePathname } from "next/navigation"
 import Link from "next/link"
+import { useSession, signOut } from "next-auth/react"
 import {
   SidebarProvider,
   Sidebar,
@@ -51,10 +52,21 @@ import {
   BreadcrumbSeparator 
 } from "@/components/ui/breadcrumb"
 import { SettingsDialog } from "@/components/dashboard/settings-dialog"
-import { getMockSession, getCurrentMockPermissions, clearSavedRole, type MockSession, type MockPermissions } from "@/lib/mock-auth"
+
+type NavigationItem = {
+  title: string
+  href: string
+  icon: any
+  badge?: string
+}
+
+type NavigationGroup = {
+  title: string
+  items: NavigationItem[]
+}
 
 // Навигация для администратора
-const adminNavigation = [
+const adminNavigation: NavigationGroup[] = [
   {
     title: "Главное",
     items: [
@@ -101,7 +113,7 @@ const adminNavigation = [
 ]
 
 // Навигация для преподавателя
-const teacherNavigation = [
+const teacherNavigation: NavigationGroup[] = [
   {
     title: "Главное",
     items: [
@@ -131,35 +143,36 @@ export default function DashboardLayout({
   children: React.ReactNode
 }) {
   const pathname = usePathname()
-  const [session, setSession] = useState<MockSession | null>(null)
-  const [permissions, setPermissions] = useState<MockPermissions | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  
-  useEffect(() => {
-    setSession(getMockSession())
-    setPermissions(getCurrentMockPermissions())
-  }, [])
-  
-  if (!session || !permissions) {
+
+  const { data: session, status } = useSession()
+
+  if (status === "loading") {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="animate-pulse text-muted-foreground">Загрузка...</div>
       </div>
     )
   }
+
+  if (!session?.user) {
+    // Если сессии нет — отправляем на логин
+    window.location.href = "/login"
+    return null
+  }
   
   const isAdmin = session.user.role === "ADMIN"
   const navigation = isAdmin ? adminNavigation : teacherNavigation
-  const initials = `${session.user.firstName?.[0] || ""}${session.user.lastName?.[0] || ""}`.toUpperCase()
+  const nameParts = (session.user.name || "").split(" ").filter(Boolean)
+  const initials = `${nameParts[0]?.[0] || ""}${nameParts[1]?.[0] || ""}`.toUpperCase()
   
   // Получаем текущий заголовок страницы для breadcrumb
   const currentPage = navigation
     .flatMap(group => group.items)
     .find(item => pathname === item.href || pathname.startsWith(item.href + "/"))
   
-  const handleLogout = () => {
-    clearSavedRole()
-    window.location.href = "/login"
+  const handleLogout = async () => {
+    await signOut({ callbackUrl: "/login" })
   }
 
   return (

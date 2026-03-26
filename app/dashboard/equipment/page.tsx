@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from "react"
 
 import Link from "next/link"
+import { useSession } from "next-auth/react"
 import {
   Plus,
   Search,
@@ -77,7 +78,6 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Separator } from "@/components/ui/separator"
-import { getMockSession, getCurrentMockPermissions, type MockSession, type MockPermissions } from "@/lib/mock-auth"
 
 // Типы
 type EquipmentStatus = "working" | "faulty" | "repair" | "written_off"
@@ -315,8 +315,7 @@ const getTypeInfo = (type: EquipmentType) => {
 }
 
 export default function EquipmentPage() {
-  const [session, setSession] = useState<MockSession | null>(null)
-  const [permissions, setPermissions] = useState<MockPermissions | null>(null)
+  const { data: session, status } = useSession()
   const [loading, setLoading] = useState(true)
   const [equipment, setEquipment] = useState<Equipment[]>([])
   
@@ -347,11 +346,6 @@ export default function EquipmentPage() {
     workstation: "",
     description: ""
   })
-  
-  useEffect(() => {
-    setSession(getMockSession())
-    setPermissions(getCurrentMockPermissions())
-  }, [])
   
   useEffect(() => {
     // Симуляция загрузки данных
@@ -480,7 +474,7 @@ export default function EquipmentPage() {
     setDeleteDialogOpen(false)
   }
   
-  if (!session || !permissions) {
+  if (status === "loading") {
     return (
       <div className="space-y-6">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -535,6 +529,10 @@ export default function EquipmentPage() {
         </Card>
       </div>
     )
+  }
+
+  if (!session?.user) {
+    return null
   }
   
   const isAdmin = session.user.role === "ADMIN"
