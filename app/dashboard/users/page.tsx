@@ -18,6 +18,7 @@ import {
   Calendar,
   Clock,
   Ban,
+  Loader2,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -37,6 +38,8 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
+import { Checkbox } from "@/components/ui/checkbox"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -49,6 +52,12 @@ import {
   type UsersListMeta,
   updateUser,
 } from "@/lib/api/users"
+import {
+  fetchClassroomResponsibilities,
+  updateResponsibleClassrooms,
+  type ClassroomOption,
+  type TeacherWithClassrooms,
+} from "@/lib/api/classroom-responsibilities"
 import { usePolling } from "@/lib/hooks/use-polling"
 import { formatRuPhoneMask, isCompleteRuPhone11 } from "@/lib/ru-phone"
 import {
@@ -81,6 +90,14 @@ const getFullName = (u: User) => `${u.lastName} ${u.firstName} ${u.middleName ??
 const formatDate = (date: string) => new Date(date).toLocaleDateString("ru-RU")
 const formatDateTime = (date: string | null) =>
   date ? new Date(date).toLocaleString("ru-RU") : "—"
+
+const shortName = (u: { lastName: string; firstName: string; middleName?: string | null }) =>
+  `${u.lastName} ${u.firstName}${u.middleName ? ` ${u.middleName}` : ""}`
+
+const classroomLabel = (c: { number: string; name: string | null; building: string | null }) => {
+  const title = c.name ? `${c.number} · ${c.name}` : c.number
+  return c.building ? `${title} (${c.building})` : title
+}
 
 const emptyForm = {
   lastName: "",
@@ -117,6 +134,16 @@ export default function UsersPage() {
   const [selectedUser, setSelectedUser] = useState<User | null>(null)
   const [formData,          setFormData]          = useState(emptyForm)
 
+  const [respTeachers, setRespTeachers] = useState<TeacherWithClassrooms[]>([])
+  const [respClassrooms, setRespClassrooms] = useState<ClassroomOption[]>([])
+  const [respLoading, setRespLoading] = useState(false)
+  const [respError, setRespError] = useState<string | null>(null)
+  const [respEditOpen, setRespEditOpen] = useState(false)
+  const [respEditTeacher, setRespEditTeacher] = useState<TeacherWithClassrooms | null>(null)
+  const [respSelectedIds, setRespSelectedIds] = useState<Set<string>>(new Set())
+  const [respSaving, setRespSaving] = useState(false)
+  const [respSubmitError, setRespSubmitError] = useState<string | null>(null)
+
   const loadUsers = useCallback(async () => {
     try {
       setError(null)
@@ -130,11 +157,30 @@ export default function UsersPage() {
     }
   }, [])
 
+  const loadClassroomResponsibilities = useCallback(async () => {
+    try {
+      setRespLoading(true)
+      setRespError(null)
+      const data = await fetchClassroomResponsibilities()
+      setRespTeachers(data.teachers)
+      setRespClassrooms(data.classrooms)
+    } catch (e) {
+      setRespError(e instanceof Error ? e.message : "Ошибка загрузки")
+    } finally {
+      setRespLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
     if (sessionStatus === "authenticated") {
       void loadUsers()
     }
   }, [loadUsers, sessionStatus])
+
+  useEffect(() => {
+    if (sessionStatus !== "authenticated" || !session?.user) return
+    if (session.user.role === "ADMIN") void loadClassroomResponsibilities()
+  }, [loadClassroomResponsibilities, session?.user, sessionStatus])
 
   usePolling(loadUsers, {
     intervalMs: 5 * 60 * 1000,
@@ -501,11 +547,161 @@ export default function UsersPage() {
 
         {/* ─── ВКЛАДКА: ОТВЕТСТВЕННОСТЬ ─── */}
         <TabsContent value="responsibilities" className="space-y-4 mt-4">
-          <Card>
-            <CardContent className="pt-6 text-sm text-muted-foreground">
-              Раздел будет переведён на API в следующем шаге. В текущей задаче реализована вкладка «Пользователи».
-            </CardContent>
-          </Card>
+          {!isAdmin ? (
+            <Card>
+              <CardContent className="pt-6 text-sm text-muted-foreground">
+                Назначать ответственных за аудитории может только администратор.
+              </CardContent>
+            </Card>
+          ) : respError ? (
+            <Card>
+              <CardContent className="pt-4 text-sm text-red-600">{respError}</CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Преподаватели и аудитории</CardTitle>
+                <CardDescription>
+                  Каждая аудитория из справочника может иметь одного ответственного. Одному преподавателю можно назначить несколько аудиторий.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="p-0">
+                {respLoading && respTeachers.length === 0 ? (
+                  <div className="flex items-center gap-2 px-6 py-8 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />Загрузка…
+                  </div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Преподаватель</TableHead>
+                        <TableHead>Email</TableHead>
+                        <TableHead>Аудитории</TableHead>
+                        <TableHead className="text-right w-[100px]">Действия</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {respTeachers.map((t) => (
+                        <TableRow key={t.id}>
+                          <TableCell className="font-medium">{shortName(t)}</TableCell>
+                          <TableCell className="text-muted-foreground text-sm">{t.email}</TableCell>
+                          <TableCell>
+                            {t.classrooms.length === 0 ? (
+                              <span className="text-sm text-muted-foreground">Не назначено</span>
+                            ) : (
+                              <div className="flex flex-wrap gap-1.5">
+                                {t.classrooms.map((c) => (
+                                  <Badge key={c.id} variant="secondary" className="font-normal">
+                                    {classroomLabel(c)}
+                                  </Badge>
+                                ))}
+                              </div>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                setRespSubmitError(null)
+                                setRespEditTeacher(t)
+                                setRespSelectedIds(new Set(t.classrooms.map((c) => c.id)))
+                                setRespEditOpen(true)
+                              }}
+                            >
+                              <Pencil className="mr-1 h-3.5 w-3.5" />
+                              Изменить
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          <Dialog open={respEditOpen} onOpenChange={(open) => { if (!open) setRespEditOpen(false) }}>
+            <DialogContent className="max-w-lg max-h-[90vh] flex flex-col">
+              <DialogHeader>
+                <DialogTitle>Аудитории преподавателя</DialogTitle>
+                <DialogDescription>
+                  {respEditTeacher
+                    ? `${shortName(respEditTeacher)} — отметьте аудитории из справочника. Уже назначенные другим сотрудникам будут переназначены.`
+                    : ""}
+                </DialogDescription>
+              </DialogHeader>
+              {respEditTeacher && (
+                <>
+                  <ScrollArea className="flex-1 min-h-0 max-h-[50vh] pr-3 -mr-1">
+                    <div className="space-y-2 pb-2">
+                      {respClassrooms.map((c) => {
+                        const checked = respSelectedIds.has(c.id)
+                        const other =
+                          c.responsible &&
+                          c.responsible.id !== respEditTeacher.id
+                            ? shortName(c.responsible)
+                            : null
+                        return (
+                          <label
+                            key={c.id}
+                            className="flex cursor-pointer items-start gap-3 rounded-md border border-transparent px-2 py-2 hover:bg-muted/50"
+                          >
+                            <Checkbox
+                              checked={checked}
+                              onCheckedChange={() => {
+                                setRespSelectedIds((prev) => {
+                                  const n = new Set(prev)
+                                  if (n.has(c.id)) n.delete(c.id)
+                                  else n.add(c.id)
+                                  return n
+                                })
+                              }}
+                              className="mt-0.5"
+                            />
+                            <div className="min-w-0 flex-1 text-sm">
+                              <div className="font-medium leading-tight">{classroomLabel(c)}</div>
+                              {other && (
+                                <div className="text-xs text-amber-700 dark:text-amber-600 mt-0.5">
+                                  Сейчас ответственный: {other}
+                                </div>
+                              )}
+                            </div>
+                          </label>
+                        )
+                      })}
+                    </div>
+                  </ScrollArea>
+                  {respSubmitError && <p className="text-sm text-red-600">{respSubmitError}</p>}
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setRespEditOpen(false)} disabled={respSaving}>
+                      Отмена
+                    </Button>
+                    <Button
+                      onClick={async () => {
+                        try {
+                          setRespSaving(true)
+                          setRespSubmitError(null)
+                          await updateResponsibleClassrooms(respEditTeacher.id, [...respSelectedIds])
+                          await loadClassroomResponsibilities()
+                          setRespEditOpen(false)
+                        } catch (e) {
+                          setRespSubmitError(e instanceof Error ? e.message : "Не удалось сохранить")
+                        } finally {
+                          setRespSaving(false)
+                        }
+                      }}
+                      disabled={respSaving}
+                    >
+                      {respSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                      Сохранить
+                    </Button>
+                  </DialogFooter>
+                </>
+              )}
+            </DialogContent>
+          </Dialog>
         </TabsContent>
       </Tabs>
 
