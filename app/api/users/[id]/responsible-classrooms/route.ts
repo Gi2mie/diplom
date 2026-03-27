@@ -1,18 +1,14 @@
 import { NextResponse } from "next/server"
-import { auth } from "@/lib/auth"
+import { auth, isAdminSession } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { UserRole, UserStatus } from "@prisma/client"
-
-function isAdmin(session: Awaited<ReturnType<typeof auth>>) {
-  return session?.user?.role === "ADMIN"
-}
 
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await auth()
-  if (!session?.user?.id || !isAdmin(session)) {
+  if (!session?.user?.id || !isAdminSession(session)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 

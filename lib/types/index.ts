@@ -1,6 +1,8 @@
 import type {
   User,
   Classroom,
+  Building,
+  ClassroomType,
   Workstation,
   Equipment,
   Component,
@@ -29,6 +31,8 @@ import type {
 export type {
   User,
   Classroom,
+  Building,
+  ClassroomType,
   Workstation,
   Equipment,
   Component,
@@ -69,6 +73,8 @@ export type UserWithRelations = User & {
 
 export type ClassroomWithRelations = Classroom & {
   responsible?: User | null
+  building?: Building | null
+  classroomType?: ClassroomType | null
   workstations?: WorkstationWithRelations[]
 }
 
@@ -137,11 +143,14 @@ export type UpdateUserDTO = Partial<Omit<CreateUserDTO, "password">> & {
 
 export type CreateClassroomDTO = {
   number: string
-  name?: string
-  building?: string
-  floor?: number
-  description?: string
-  responsibleId?: string
+  name?: string | null
+  buildingId?: string | null
+  classroomTypeId?: string | null
+  floor?: number | null
+  capacity?: number | null
+  description?: string | null
+  responsibleId?: string | null
+  listingStatus?: import("@prisma/client").ClassroomListingStatus
 }
 
 export type UpdateClassroomDTO = Partial<CreateClassroomDTO> & {

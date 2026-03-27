@@ -61,6 +61,74 @@ async function main() {
   })
   console.log("Created teacher user:", teacher.email)
 
+  const mainBuilding = await prisma.building.upsert({
+    where: { id: "seed-building-main" },
+    update: {},
+    create: {
+      id: "seed-building-main",
+      name: "Главный корпус",
+      address: "ул. Учебная, 1",
+      floors: 5,
+      description: "Основное здание",
+    },
+  })
+
+  const typeClassroom = await prisma.classroomType.upsert({
+    where: { code: "classroom" },
+    update: {},
+    create: {
+      name: "Учебная аудитория",
+      code: "classroom",
+      color: "bg-slate-100 text-slate-800",
+      description: "Стандартные аудитории",
+    },
+  })
+
+  const typeLab = await prisma.classroomType.upsert({
+    where: { code: "computer_lab" },
+    update: {},
+    create: {
+      name: "Компьютерный класс",
+      code: "computer_lab",
+      color: "bg-green-100 text-green-800",
+      description: "Классы с ПК",
+    },
+  })
+
+  await prisma.classroom.upsert({
+    where: { number: "301" },
+    update: {
+      responsibleId: teacher.id,
+    },
+    create: {
+      number: "301",
+      name: "Аудитория 301",
+      buildingId: mainBuilding.id,
+      classroomTypeId: typeClassroom.id,
+      floor: 3,
+      capacity: 30,
+      description: "Пример аудитории из сида",
+      responsibleId: teacher.id,
+      listingStatus: "ACTIVE",
+      isActive: true,
+    },
+  })
+
+  await prisma.classroom.upsert({
+    where: { number: "105" },
+    update: {},
+    create: {
+      number: "105",
+      name: "Компьютерный класс 105",
+      buildingId: mainBuilding.id,
+      classroomTypeId: typeLab.id,
+      floor: 1,
+      capacity: 24,
+      listingStatus: "ACTIVE",
+      isActive: true,
+    },
+  })
+
   console.log("\n=== Test Credentials ===")
   console.log("Admin: admin@nhtk / admin123")
   console.log("Teacher: teacher@nhtk / teacher123")

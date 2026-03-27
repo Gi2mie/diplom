@@ -6,7 +6,7 @@ import type { ClassroomWithRelations, PaginatedResponse } from "@/lib/types"
 import type { Prisma } from "@prisma/client"
 
 export type GetAllClassroomsFilters = PaginationInput & {
-  building?: string
+  buildingId?: string
   floor?: number
   responsibleId?: string
   search?: string
@@ -28,7 +28,7 @@ export async function getAllClassrooms(
       limit = 10,
       sortBy = "number",
       sortOrder = "asc",
-      building,
+      buildingId,
       floor,
       responsibleId,
       search,
@@ -38,8 +38,8 @@ export async function getAllClassrooms(
     // Построение условий фильтрации
     const where: Prisma.ClassroomWhereInput = {}
 
-    if (building) {
-      where.building = building
+    if (buildingId) {
+      where.buildingId = buildingId
     }
 
     if (floor !== undefined) {

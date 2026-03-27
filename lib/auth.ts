@@ -103,3 +103,13 @@ export const authConfig: NextAuthConfig = {
 }
 
 export const { handlers, auth, signIn, signOut } = NextAuth(authConfig)
+
+/**
+ * Не используйте `Awaited<ReturnType<typeof auth>>` в route handlers: у `auth` есть
+ * перегрузка под middleware, и TypeScript выводит `NextMiddleware` вместо `Session | null`.
+ */
+export function isAdminSession(
+  session: { user?: { id?: string; role?: string | null } | null } | null | undefined
+): boolean {
+  return session?.user?.role === "ADMIN"
+}

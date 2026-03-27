@@ -48,15 +48,21 @@ export async function addClassroom(input: CreateClassroomInput): Promise<AddClas
       }
     }
 
-    // Создание кабинета
+    const listingStatus = data.listingStatus ?? "ACTIVE"
+    const isActive = listingStatus !== "INACTIVE"
+
     const classroom = await prisma.classroom.create({
       data: {
         number: data.number,
-        name: data.name,
-        building: data.building,
-        floor: data.floor,
-        description: data.description,
-        responsibleId: data.responsibleId,
+        name: data.name ?? null,
+        buildingId: data.buildingId ?? null,
+        classroomTypeId: data.classroomTypeId ?? null,
+        floor: data.floor ?? null,
+        capacity: data.capacity ?? null,
+        description: data.description ?? null,
+        responsibleId: data.responsibleId ?? null,
+        listingStatus,
+        isActive,
       },
     })
 

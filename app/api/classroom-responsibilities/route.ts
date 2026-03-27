@@ -1,18 +1,14 @@
 import { NextResponse } from "next/server"
-import { auth } from "@/lib/auth"
+import { auth, isAdminSession } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { UserRole, UserStatus } from "@prisma/client"
-
-function isAdmin(session: Awaited<ReturnType<typeof auth>>) {
-  return session?.user?.role === "ADMIN"
-}
 
 export async function GET() {
   const session = await auth()
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
-  if (!isAdmin(session)) {
+  if (!isAdminSession(session)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
@@ -33,7 +29,7 @@ export async function GET() {
             id: true,
             number: true,
             name: true,
-            building: true,
+            building: { select: { name: true } },
           },
         },
       },
@@ -45,7 +41,7 @@ export async function GET() {
         id: true,
         number: true,
         name: true,
-        building: true,
+        building: { select: { name: true } },
         responsibleId: true,
         responsible: {
           select: {
@@ -66,8 +62,20 @@ export async function GET() {
       lastName: t.lastName,
       middleName: t.middleName,
       email: t.email,
-      classrooms: t.responsibleRooms,
+      classrooms: t.responsibleRooms.map((r) => ({
+        id: r.id,
+        number: r.number,
+        name: r.name,
+        building: r.building?.name ?? null,
+      })),
     })),
-    classrooms,
+    classrooms: classrooms.map((c) => ({
+      id: c.id,
+      number: c.number,
+      name: c.name,
+      building: c.building?.name ?? null,
+      responsibleId: c.responsibleId,
+      responsible: c.responsible,
+    })),
   })
 }

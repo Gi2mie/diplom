@@ -10,7 +10,9 @@ import {
   NotificationType,
   EntityType,
   CustomFieldType,
+  ClassroomListingStatus,
 } from "@prisma/client"
+import { ALLOWED_CLASSROOM_TYPE_COLORS } from "@/lib/classroom-colors"
 
 // ==========================================
 // ПОЛЬЗОВАТЕЛИ
@@ -40,15 +42,55 @@ export const loginSchema = z.object({
 
 export const createClassroomSchema = z.object({
   number: z.string().min(1, "Номер кабинета обязателен"),
-  name: z.string().optional(),
-  building: z.string().optional(),
-  floor: z.number().int().optional(),
-  description: z.string().optional(),
-  responsibleId: z.string().cuid().optional(),
+  name: z.string().optional().nullable(),
+  buildingId: z.string().cuid().optional().nullable(),
+  classroomTypeId: z.string().cuid().optional().nullable(),
+  floor: z.number().int().optional().nullable(),
+  capacity: z.number().int().min(0).optional().nullable(),
+  description: z.string().optional().nullable(),
+  responsibleId: z.string().cuid().optional().nullable(),
+  listingStatus: z.nativeEnum(ClassroomListingStatus).optional(),
 })
 
 export const updateClassroomSchema = createClassroomSchema.partial().extend({
   isActive: z.boolean().optional(),
+})
+
+export const createBuildingSchema = z.object({
+  name: z.string().min(1, "Название обязательно"),
+  address: z.string().optional().default(""),
+  floors: z.number().int().min(0, "Этажи не могут быть отрицательными"),
+  description: z.string().optional().nullable(),
+})
+
+export const updateBuildingSchema = createBuildingSchema.partial()
+
+const classroomTypeCodeSchema = z
+  .string()
+  .min(1, "Код обязателен")
+  .max(64)
+  .regex(/^[a-z][a-z0-9_]*$/, "Код: латиница, с нижнего регистра, цифры и _")
+
+export const createClassroomTypeSchema = z.object({
+  name: z.string().min(1, "Название обязательно"),
+  code: classroomTypeCodeSchema,
+  color: z
+    .string()
+    .refine((c) => (ALLOWED_CLASSROOM_TYPE_COLORS as readonly string[]).includes(c), "Выберите цвет из списка"),
+  description: z.string().optional().default(""),
+})
+
+export const updateClassroomTypeSchema = z.object({
+  name: z.string().min(1).optional(),
+  code: classroomTypeCodeSchema.optional(),
+  color: z
+    .string()
+    .optional()
+    .refine(
+      (c) => c === undefined || (ALLOWED_CLASSROOM_TYPE_COLORS as readonly string[]).includes(c),
+      "Выберите цвет из списка"
+    ),
+  description: z.string().optional().nullable(),
 })
 
 // ==========================================
@@ -280,6 +322,10 @@ export type UpdateUserInput = z.infer<typeof updateUserSchema>
 export type LoginInput = z.infer<typeof loginSchema>
 export type CreateClassroomInput = z.infer<typeof createClassroomSchema>
 export type UpdateClassroomInput = z.infer<typeof updateClassroomSchema>
+export type CreateBuildingInput = z.infer<typeof createBuildingSchema>
+export type UpdateBuildingInput = z.infer<typeof updateBuildingSchema>
+export type CreateClassroomTypeInput = z.infer<typeof createClassroomTypeSchema>
+export type UpdateClassroomTypeInput = z.infer<typeof updateClassroomTypeSchema>
 export type CreateWorkstationInput = z.infer<typeof createWorkstationSchema>
 export type UpdateWorkstationInput = z.infer<typeof updateWorkstationSchema>
 export type CreateEquipmentInput = z.infer<typeof createEquipmentSchema>

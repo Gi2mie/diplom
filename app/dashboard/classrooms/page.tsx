@@ -1,6 +1,8 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react"
+import { useSession } from "next-auth/react"
+import { ClassroomListingStatus } from "@prisma/client"
 import {
   Plus,
   Search,
@@ -10,605 +12,368 @@ import {
   Eye,
   School,
   Users,
-  Monitor,
-  DoorOpen,
   Building2,
   X,
-  RefreshCw,
-  Download,
-  Settings,
-  Tag
+  Tag,
+  Loader2,
 } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table"
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
+  DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select"
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog"
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { getMockSession, getCurrentMockPermissions, type MockSession, type MockPermissions } from "@/lib/mock-auth"
+import { CLASSROOM_TYPE_COLOR_OPTIONS } from "@/lib/classroom-colors"
+import {
+  fetchClassroomRegistry,
+  createClassroomApi,
+  updateClassroomApi,
+  deleteClassroomApi,
+  createBuildingApi,
+  updateBuildingApi,
+  deleteBuildingApi,
+  createClassroomTypeApi,
+  updateClassroomTypeApi,
+  deleteClassroomTypeApi,
+  type RegistryClassroom,
+  type RegistryBuilding,
+  type RegistryClassroomType,
+  type ClassroomRegistryPayload,
+} from "@/lib/api/classroom-registry"
 
-// Типы
-type ClassroomStatus = "active" | "inactive" | "maintenance"
+type UiStatus = "active" | "inactive" | "maintenance"
 
-interface ClassroomType {
-  id: string
-  name: string
-  code: string
-  color: string
-  description: string
-}
-
-interface Building {
-  id: string
-  name: string
-  address: string
-  floors: number
-  description: string
-}
-
-interface Classroom {
-  id: string
-  name: string
-  number: string
-  typeId: string
-  status: ClassroomStatus
-  buildingId: string
-  floor: number
-  capacity: number
-  workstations: number
-  equipment: number
-  description: string
-  responsiblePerson: string
-}
-
-// Mock данные типов аудиторий
-const initialClassroomTypes: ClassroomType[] = [
-  { id: "1", name: "Лекционный зал", code: "lecture_hall", color: "bg-blue-100 text-blue-800", description: "Большие залы для лекций" },
-  { id: "2", name: "Компьютерный класс", code: "computer_lab", color: "bg-green-100 text-green-800", description: "Классы с компьютерами" },
-  { id: "3", name: "Учебная аудитория", code: "classroom", color: "bg-slate-100 text-slate-800", description: "Стандартные учебные аудитории" },
-  { id: "4", name: "Лаборатория", code: "laboratory", color: "bg-purple-100 text-purple-800", description: "Лабораторные помещения" },
-  { id: "5", name: "Конференц-зал", code: "conference", color: "bg-amber-100 text-amber-800", description: "Залы для конференций" },
-  { id: "6", name: "Склад", code: "storage", color: "bg-gray-100 text-gray-800", description: "Складские помещения" },
-]
-
-// Mock данные корпусов
-const initialBuildings: Building[] = [
-  { id: "1", name: "Главный корпус", address: "ул. Университетская, 1", floors: 5, description: "Основной учебный корпус" },
-  { id: "2", name: "Корпус Б", address: "ул. Университетская, 3", floors: 4, description: "Дополнительный учебный корпус" },
-]
-
-// Mock данные аудиторий
-const initialClassrooms: Classroom[] = [
-  {
-    id: "1",
-    name: "Аудитория 301",
-    number: "301",
-    typeId: "3",
-    status: "active",
-    buildingId: "1",
-    floor: 3,
-    capacity: 30,
-    workstations: 15,
-    equipment: 32,
-    description: "Учебная аудитория для лекций и семинаров",
-    responsiblePerson: "Иванов И.И."
-  },
-  {
-    id: "2",
-    name: "Компьютерный класс 105",
-    number: "105",
-    typeId: "2",
-    status: "active",
-    buildingId: "1",
-    floor: 1,
-    capacity: 24,
-    workstations: 12,
-    equipment: 48,
-    description: "Компьютерный класс для практических занятий",
-    responsiblePerson: "Петров П.П."
-  },
-  {
-    id: "3",
-    name: "Лекционный зал 401",
-    number: "401",
-    typeId: "1",
-    status: "active",
-    buildingId: "1",
-    floor: 4,
-    capacity: 120,
-    workstations: 1,
-    equipment: 15,
-    description: "Большой лекционный зал с проектором и звуковой системой",
-    responsiblePerson: "Сидоров С.С."
-  },
-  {
-    id: "4",
-    name: "Лаборатория 201",
-    number: "201",
-    typeId: "4",
-    status: "active",
-    buildingId: "2",
-    floor: 2,
-    capacity: 20,
-    workstations: 10,
-    equipment: 35,
-    description: "Лаборатория для научных исследований",
-    responsiblePerson: "Козлов К.К."
-  },
-  {
-    id: "5",
-    name: "Конференц-зал",
-    number: "501",
-    typeId: "5",
-    status: "maintenance",
-    buildingId: "1",
-    floor: 5,
-    capacity: 50,
-    workstations: 1,
-    equipment: 12,
-    description: "Конференц-зал для совещаний и презентаций (на ремонте)",
-    responsiblePerson: "Николаев Н.Н."
-  },
-  {
-    id: "6",
-    name: "Склад оборудования",
-    number: "001",
-    typeId: "6",
-    status: "active",
-    buildingId: "2",
-    floor: 0,
-    capacity: 0,
-    workstations: 0,
-    equipment: 156,
-    description: "Склад для хранения запасного оборудования",
-    responsiblePerson: "Кузнецов К.К."
-  },
-  {
-    id: "7",
-    name: "Компьютерный класс 205",
-    number: "205",
-    typeId: "2",
-    status: "inactive",
-    buildingId: "2",
-    floor: 2,
-    capacity: 20,
-    workstations: 10,
-    equipment: 40,
-    description: "Компьютерный класс (временно закрыт)",
-    responsiblePerson: "Морозов М.М."
-  },
-  {
-    id: "8",
-    name: "Аудитория 302",
-    number: "302",
-    typeId: "3",
-    status: "active",
-    buildingId: "1",
-    floor: 3,
-    capacity: 35,
-    workstations: 18,
-    equipment: 38,
-    description: "Учебная аудитория для семинаров",
-    responsiblePerson: "Иванов И.И."
-  },
-]
-
-const getStatusInfo = (status: ClassroomStatus) => {
-  switch (status) {
-    case "active":
-      return { label: "Активна", variant: "default" as const, color: "bg-green-500" }
-    case "inactive":
-      return { label: "Неактивна", variant: "secondary" as const, color: "bg-gray-500" }
-    case "maintenance":
-      return { label: "На обслуживании", variant: "outline" as const, color: "bg-yellow-500" }
+function toUiStatus(s: ClassroomListingStatus): UiStatus {
+  switch (s) {
+    case ClassroomListingStatus.ACTIVE:
+      return "active"
+    case ClassroomListingStatus.INACTIVE:
+      return "inactive"
+    case ClassroomListingStatus.MAINTENANCE:
+      return "maintenance"
   }
 }
 
-const colorOptions = [
-  { value: "bg-blue-100 text-blue-800", label: "Синий" },
-  { value: "bg-green-100 text-green-800", label: "Зеленый" },
-  { value: "bg-slate-100 text-slate-800", label: "Серый" },
-  { value: "bg-purple-100 text-purple-800", label: "Фиолетовый" },
-  { value: "bg-amber-100 text-amber-800", label: "Оранжевый" },
-  { value: "bg-red-100 text-red-800", label: "Красный" },
-  { value: "bg-cyan-100 text-cyan-800", label: "Голубой" },
-  { value: "bg-pink-100 text-pink-800", label: "Розовый" },
-]
+function fromUiStatus(s: UiStatus): ClassroomListingStatus {
+  switch (s) {
+    case "active":
+      return ClassroomListingStatus.ACTIVE
+    case "inactive":
+      return ClassroomListingStatus.INACTIVE
+    case "maintenance":
+      return ClassroomListingStatus.MAINTENANCE
+  }
+}
+
+const getStatusInfo = (status: UiStatus) => {
+  switch (status) {
+    case "active":
+      return { label: "Активна", variant: "default" as const }
+    case "inactive":
+      return { label: "Неактивна", variant: "secondary" as const }
+    case "maintenance":
+      return { label: "На обслуживании", variant: "outline" as const }
+  }
+}
+
+const emptyClassroomForm = () => ({
+  name: "",
+  number: "",
+  classroomTypeId: "",
+  status: "active" as UiStatus,
+  buildingId: "",
+  floor: 1,
+  capacity: 0,
+  description: "",
+  responsibleId: "",
+})
+
+const emptyTypeForm = () => ({
+  name: "",
+  code: "",
+  color: "bg-slate-100 text-slate-800",
+  description: "",
+})
+
+const emptyBuildingForm = () => ({
+  name: "",
+  address: "",
+  floors: 1,
+  description: "",
+})
 
 export default function ClassroomsPage() {
-  const [session, setSession] = useState<MockSession | null>(null)
-  const [permissions, setPermissions] = useState<MockPermissions | null>(null)
+  const { data: session, status: sessionStatus } = useSession()
+  const [registry, setRegistry] = useState<ClassroomRegistryPayload | null>(null)
   const [loading, setLoading] = useState(true)
-  
-  // Данные
-  const [classrooms, setClassrooms] = useState<Classroom[]>([])
-  const [classroomTypes, setClassroomTypes] = useState<ClassroomType[]>([])
-  const [buildings, setBuildings] = useState<Building[]>([])
-  
-  // Вкладки
+  const [error, setError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState("classrooms")
-  
-  // Фильтры для аудиторий
+
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedBuildingFilter, setSelectedBuildingFilter] = useState("all")
   const [selectedTypeFilter, setSelectedTypeFilter] = useState("all")
-  const [selectedStatusFilter, setSelectedStatusFilter] = useState<ClassroomStatus | "all">("all")
-  
-  // Диалоги аудиторий
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState<UiStatus | "all">("all")
+
   const [isAddClassroomOpen, setIsAddClassroomOpen] = useState(false)
   const [isEditClassroomOpen, setIsEditClassroomOpen] = useState(false)
   const [isViewClassroomOpen, setIsViewClassroomOpen] = useState(false)
   const [isDeleteClassroomOpen, setIsDeleteClassroomOpen] = useState(false)
-  const [selectedClassroom, setSelectedClassroom] = useState<Classroom | null>(null)
-  
-  // Диалоги типов
+  const [selectedClassroom, setSelectedClassroom] = useState<RegistryClassroom | null>(null)
+  const [classroomForm, setClassroomForm] = useState(emptyClassroomForm)
+  const [classroomSaving, setClassroomSaving] = useState(false)
+  const [classroomFormError, setClassroomFormError] = useState<string | null>(null)
+
   const [isAddTypeOpen, setIsAddTypeOpen] = useState(false)
   const [isEditTypeOpen, setIsEditTypeOpen] = useState(false)
   const [isDeleteTypeOpen, setIsDeleteTypeOpen] = useState(false)
-  const [selectedType, setSelectedType] = useState<ClassroomType | null>(null)
-  
-  // Диалоги корпусов
+  const [selectedType, setSelectedType] = useState<RegistryClassroomType | null>(null)
+  const [typeForm, setTypeForm] = useState(emptyTypeForm)
+  const [typeSaving, setTypeSaving] = useState(false)
+  const [typeFormError, setTypeFormError] = useState<string | null>(null)
+
   const [isAddBuildingOpen, setIsAddBuildingOpen] = useState(false)
   const [isEditBuildingOpen, setIsEditBuildingOpen] = useState(false)
   const [isDeleteBuildingOpen, setIsDeleteBuildingOpen] = useState(false)
-  const [selectedBuilding, setSelectedBuilding] = useState<Building | null>(null)
-  
-  // Формы
-  const [classroomForm, setClassroomForm] = useState({
-    name: "",
-    number: "",
-    typeId: "",
-    status: "active" as ClassroomStatus,
-    buildingId: "",
-    floor: 1,
-    capacity: 0,
-    description: "",
-    responsiblePerson: ""
-  })
-  
-  const [typeForm, setTypeForm] = useState({
-    name: "",
-    code: "",
-    color: "bg-slate-100 text-slate-800",
-    description: ""
-  })
-  
-  const [buildingForm, setBuildingForm] = useState({
-    name: "",
-    address: "",
-    floors: 1,
-    description: ""
-  })
-  
-  useEffect(() => {
-    setSession(getMockSession())
-    setPermissions(getCurrentMockPermissions())
-  }, [])
-  
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setClassrooms(initialClassrooms)
-      setClassroomTypes(initialClassroomTypes)
-      setBuildings(initialBuildings)
+  const [selectedBuilding, setSelectedBuilding] = useState<RegistryBuilding | null>(null)
+  const [buildingForm, setBuildingForm] = useState(emptyBuildingForm)
+  const [buildingSaving, setBuildingSaving] = useState(false)
+  const [buildingFormError, setBuildingFormError] = useState<string | null>(null)
+
+  const loadRegistry = useCallback(async () => {
+    try {
+      setError(null)
+      const data = await fetchClassroomRegistry()
+      setRegistry(data)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Ошибка загрузки")
+    } finally {
       setLoading(false)
-    }, 500)
-    return () => clearTimeout(timer)
+    }
   }, [])
-  
-  // Фильтрация аудиторий
+
+  useEffect(() => {
+    if (sessionStatus === "authenticated") void loadRegistry()
+  }, [loadRegistry, sessionStatus])
+
+  const classrooms = registry?.classrooms ?? []
+  const buildings = registry?.buildings ?? []
+  const types = registry?.types ?? []
+  const stats = registry?.stats
+
   const filteredClassrooms = useMemo(() => {
-    return classrooms.filter(classroom => {
-      const matchesSearch = searchQuery === "" || 
-        classroom.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        classroom.number.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        classroom.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        classroom.responsiblePerson.toLowerCase().includes(searchQuery.toLowerCase())
-      
-      const matchesBuilding = selectedBuildingFilter === "all" || classroom.buildingId === selectedBuildingFilter
-      const matchesType = selectedTypeFilter === "all" || classroom.typeId === selectedTypeFilter
-      const matchesStatus = selectedStatusFilter === "all" || classroom.status === selectedStatusFilter
-      
-      return matchesSearch && matchesBuilding && matchesType && matchesStatus
+    return classrooms.filter((c) => {
+      const ui = toUiStatus(c.listingStatus)
+      const label = `${c.name ?? ""} ${c.number} ${c.description ?? ""} ${c.responsibleLabel ?? ""}`.toLowerCase()
+      const q = searchQuery.toLowerCase()
+      const matchesSearch = !q || label.includes(q)
+      const matchesBuilding = selectedBuildingFilter === "all" || c.buildingId === selectedBuildingFilter
+      const matchesType = selectedTypeFilter === "all" || c.classroomTypeId === selectedTypeFilter
+      const matchesStatus = selectedStatusFilter === "all" || ui === selectedStatusFilter
+      return Boolean(matchesSearch && matchesBuilding && matchesType && matchesStatus)
     })
   }, [classrooms, searchQuery, selectedBuildingFilter, selectedTypeFilter, selectedStatusFilter])
-  
-  // Статистика
-  const stats = useMemo(() => {
-    return {
-      total: classrooms.length,
-      active: classrooms.filter(c => c.status === "active").length,
-      inactive: classrooms.filter(c => c.status === "inactive").length,
-      maintenance: classrooms.filter(c => c.status === "maintenance").length,
-      totalWorkstations: classrooms.reduce((sum, c) => sum + c.workstations, 0),
-      totalEquipment: classrooms.reduce((sum, c) => sum + c.equipment, 0),
-    }
-  }, [classrooms])
-  
+
   const resetFilters = () => {
     setSearchQuery("")
     setSelectedBuildingFilter("all")
     setSelectedTypeFilter("all")
     setSelectedStatusFilter("all")
   }
-  
-  const hasActiveFilters = searchQuery !== "" || selectedBuildingFilter !== "all" || selectedTypeFilter !== "all" || selectedStatusFilter !== "all"
-  
-  // Handlers для аудиторий
-  const resetClassroomForm = () => {
-    setClassroomForm({
-      name: "",
-      number: "",
-      typeId: classroomTypes[0]?.id || "",
-      status: "active",
-      buildingId: buildings[0]?.id || "",
-      floor: 1,
-      capacity: 0,
-      description: "",
-      responsiblePerson: ""
-    })
-  }
-  
-  const handleAddClassroom = () => {
-    const newClassroom: Classroom = {
-      id: String(Date.now()),
-      ...classroomForm,
-      workstations: 0,
-      equipment: 0
-    }
-    setClassrooms([...classrooms, newClassroom])
-    setIsAddClassroomOpen(false)
-    resetClassroomForm()
-  }
-  
-  const handleEditClassroom = () => {
-    if (!selectedClassroom) return
-    const updated = classrooms.map(c => 
-      c.id === selectedClassroom.id ? { ...c, ...classroomForm } : c
-    )
-    setClassrooms(updated)
-    setIsEditClassroomOpen(false)
-    setSelectedClassroom(null)
-    resetClassroomForm()
-  }
-  
-  const handleDeleteClassroom = () => {
-    if (!selectedClassroom) return
-    setClassrooms(classrooms.filter(c => c.id !== selectedClassroom.id))
-    setIsDeleteClassroomOpen(false)
-    setSelectedClassroom(null)
-  }
-  
-  const openEditClassroom = (classroom: Classroom) => {
-    setSelectedClassroom(classroom)
-    setClassroomForm({
-      name: classroom.name,
-      number: classroom.number,
-      typeId: classroom.typeId,
-      status: classroom.status,
-      buildingId: classroom.buildingId,
-      floor: classroom.floor,
-      capacity: classroom.capacity,
-      description: classroom.description,
-      responsiblePerson: classroom.responsiblePerson
-    })
-    setIsEditClassroomOpen(true)
-  }
-  
-  // Handlers для типов
-  const resetTypeForm = () => {
-    setTypeForm({
-      name: "",
-      code: "",
-      color: "bg-slate-100 text-slate-800",
-      description: ""
-    })
-  }
-  
-  const handleAddType = () => {
-    const newType: ClassroomType = {
-      id: String(Date.now()),
-      ...typeForm
-    }
-    setClassroomTypes([...classroomTypes, newType])
-    setIsAddTypeOpen(false)
-    resetTypeForm()
-  }
-  
-  const handleEditType = () => {
-    if (!selectedType) return
-    const updated = classroomTypes.map(t => 
-      t.id === selectedType.id ? { ...t, ...typeForm } : t
-    )
-    setClassroomTypes(updated)
-    setIsEditTypeOpen(false)
-    setSelectedType(null)
-    resetTypeForm()
-  }
-  
-  const handleDeleteType = () => {
-    if (!selectedType) return
-    // Проверяем, используется ли тип
-    const isUsed = classrooms.some(c => c.typeId === selectedType.id)
-    if (isUsed) {
-      alert("Невозможно удалить тип, который используется аудиториями")
-      return
-    }
-    setClassroomTypes(classroomTypes.filter(t => t.id !== selectedType.id))
-    setIsDeleteTypeOpen(false)
-    setSelectedType(null)
-  }
-  
-  const openEditType = (type: ClassroomType) => {
-    setSelectedType(type)
-    setTypeForm({
-      name: type.name,
-      code: type.code,
-      color: type.color,
-      description: type.description
-    })
-    setIsEditTypeOpen(true)
-  }
-  
-  // Handlers для корпусов
-  const resetBuildingForm = () => {
-    setBuildingForm({
-      name: "",
-      address: "",
-      floors: 1,
-      description: ""
-    })
-  }
-  
-  const handleAddBuilding = () => {
-    const newBuilding: Building = {
-      id: String(Date.now()),
-      ...buildingForm
-    }
-    setBuildings([...buildings, newBuilding])
-    setIsAddBuildingOpen(false)
-    resetBuildingForm()
-  }
-  
-  const handleEditBuilding = () => {
-    if (!selectedBuilding) return
-    const updated = buildings.map(b => 
-      b.id === selectedBuilding.id ? { ...b, ...buildingForm } : b
-    )
-    setBuildings(updated)
-    setIsEditBuildingOpen(false)
-    setSelectedBuilding(null)
-    resetBuildingForm()
-  }
-  
-  const handleDeleteBuilding = () => {
-    if (!selectedBuilding) return
-    // Проверяем, используется ли корпус
-    const isUsed = classrooms.some(c => c.buildingId === selectedBuilding.id)
-    if (isUsed) {
-      alert("Невозможно удалить корпус, в котором есть аудитории")
-      return
-    }
-    setBuildings(buildings.filter(b => b.id !== selectedBuilding.id))
-    setIsDeleteBuildingOpen(false)
-    setSelectedBuilding(null)
-  }
-  
-  const openEditBuilding = (building: Building) => {
-    setSelectedBuilding(building)
-    setBuildingForm({
-      name: building.name,
-      address: building.address,
-      floors: building.floors,
-      description: building.description
-    })
-    setIsEditBuildingOpen(true)
-  }
-  
-  // Helper functions
-  const getTypeName = (typeId: string) => {
-    return classroomTypes.find(t => t.id === typeId)?.name || "Неизвестно"
-  }
-  
-  const getTypeColor = (typeId: string) => {
-    return classroomTypes.find(t => t.id === typeId)?.color || "bg-slate-100 text-slate-800"
-  }
-  
-  const getBuildingName = (buildingId: string) => {
-    return buildings.find(b => b.id === buildingId)?.name || "Неизвестно"
-  }
-  
-  const getClassroomsCountByBuilding = (buildingId: string) => {
-    return classrooms.filter(c => c.buildingId === buildingId).length
-  }
-  
-  const getClassroomsCountByType = (typeId: string) => {
-    return classrooms.filter(c => c.typeId === typeId).length
-  }
-  
-  // Загрузка
-  if (!session || !permissions) {
+
+  const hasActiveFilters =
+    searchQuery !== "" ||
+    selectedBuildingFilter !== "all" ||
+    selectedTypeFilter !== "all" ||
+    selectedStatusFilter !== "all"
+
+  const isAdmin = session?.user?.role === "ADMIN"
+
+  const getTypeColor = (typeId: string | null) =>
+    types.find((t) => t.id === typeId)?.color ?? "bg-slate-100 text-slate-800"
+
+  const getTypeName = (typeId: string | null) =>
+    types.find((t) => t.id === typeId)?.name ?? "—"
+
+  const getBuildingName = (buildingId: string | null) =>
+    buildings.find((b) => b.id === buildingId)?.name ?? "—"
+
+  if (sessionStatus === "loading" || (sessionStatus === "authenticated" && loading && !registry)) {
     return (
       <div className="space-y-6">
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div>
-            <Skeleton className="h-8 w-64 mb-2" />
-            <Skeleton className="h-5 w-80" />
-          </div>
-        </div>
+        <Skeleton className="h-8 w-64" />
         <div className="grid gap-4 md:grid-cols-4">
           {[1, 2, 3, 4].map((i) => (
             <Card key={i}>
-              <CardHeader className="pb-2">
-                <Skeleton className="h-4 w-20" />
-              </CardHeader>
-              <CardContent>
-                <Skeleton className="h-8 w-16" />
-              </CardContent>
+              <CardHeader className="pb-2"><Skeleton className="h-4 w-24" /></CardHeader>
+              <CardContent><Skeleton className="h-8 w-12" /></CardContent>
             </Card>
           ))}
         </div>
       </div>
     )
   }
-  
-  const isAdmin = session.user.role === "ADMIN"
-  
+
+  if (!session?.user) return null
+
+  const submitClassroom = async (isEdit: boolean) => {
+    setClassroomFormError(null)
+    if (!classroomForm.number.trim()) {
+      setClassroomFormError("Укажите номер аудитории")
+      return
+    }
+    if (!classroomForm.name.trim()) {
+      setClassroomFormError("Укажите название")
+      return
+    }
+    try {
+      setClassroomSaving(true)
+      const payload = {
+        number: classroomForm.number.trim(),
+        name: classroomForm.name.trim(),
+        buildingId: classroomForm.buildingId || null,
+        classroomTypeId: classroomForm.classroomTypeId || null,
+        floor: classroomForm.floor,
+        capacity: classroomForm.capacity,
+        description: classroomForm.description.trim() || null,
+        responsibleId: classroomForm.responsibleId || null,
+        listingStatus: fromUiStatus(classroomForm.status),
+      }
+      if (isEdit && selectedClassroom) {
+        await updateClassroomApi(selectedClassroom.id, payload)
+        setIsEditClassroomOpen(false)
+      } else {
+        await createClassroomApi(payload)
+        setIsAddClassroomOpen(false)
+      }
+      setSelectedClassroom(null)
+      setClassroomForm(emptyClassroomForm())
+      await loadRegistry()
+    } catch (e) {
+      setClassroomFormError(e instanceof Error ? e.message : "Ошибка сохранения")
+    } finally {
+      setClassroomSaving(false)
+    }
+  }
+
+  const openEditClassroom = (c: RegistryClassroom) => {
+    setClassroomFormError(null)
+    setSelectedClassroom(c)
+    setClassroomForm({
+      name: c.name ?? "",
+      number: c.number,
+      classroomTypeId: c.classroomTypeId ?? "",
+      status: toUiStatus(c.listingStatus),
+      buildingId: c.buildingId ?? "",
+      floor: c.floor ?? 0,
+      capacity: c.capacity ?? 0,
+      description: c.description ?? "",
+      responsibleId: c.responsibleId ?? "",
+    })
+    setIsEditClassroomOpen(true)
+  }
+
+  const runTypeSave = async (isEdit: boolean) => {
+    setTypeFormError(null)
+    if (!typeForm.name.trim() || !typeForm.code.trim()) {
+      setTypeFormError("Название и код обязательны")
+      return
+    }
+    try {
+      setTypeSaving(true)
+      if (isEdit && selectedType) {
+        await updateClassroomTypeApi(selectedType.id, {
+          name: typeForm.name.trim(),
+          code: typeForm.code.trim().toLowerCase(),
+          color: typeForm.color,
+          description: typeForm.description.trim() || "",
+        })
+        setIsEditTypeOpen(false)
+      } else {
+        await createClassroomTypeApi({
+          name: typeForm.name.trim(),
+          code: typeForm.code.trim().toLowerCase(),
+          color: typeForm.color,
+          description: typeForm.description.trim(),
+        })
+        setIsAddTypeOpen(false)
+      }
+      setSelectedType(null)
+      setTypeForm(emptyTypeForm())
+      await loadRegistry()
+    } catch (e) {
+      setTypeFormError(e instanceof Error ? e.message : "Ошибка сохранения")
+    } finally {
+      setTypeSaving(false)
+    }
+  }
+
+  const runBuildingSave = async (isEdit: boolean) => {
+    setBuildingFormError(null)
+    if (!buildingForm.name.trim()) {
+      setBuildingFormError("Укажите название")
+      return
+    }
+    try {
+      setBuildingSaving(true)
+      if (isEdit && selectedBuilding) {
+        await updateBuildingApi(selectedBuilding.id, {
+          name: buildingForm.name.trim(),
+          address: buildingForm.address.trim(),
+          floors: buildingForm.floors,
+          description: buildingForm.description.trim() || null,
+        })
+        setIsEditBuildingOpen(false)
+      } else {
+        await createBuildingApi({
+          name: buildingForm.name.trim(),
+          address: buildingForm.address.trim(),
+          floors: buildingForm.floors,
+          description: buildingForm.description.trim() || null,
+        })
+        setIsAddBuildingOpen(false)
+      }
+      setSelectedBuilding(null)
+      setBuildingForm(emptyBuildingForm())
+      await loadRegistry()
+    } catch (e) {
+      setBuildingFormError(e instanceof Error ? e.message : "Ошибка сохранения")
+    } finally {
+      setBuildingSaving(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Аудитории</h1>
-          <p className="text-muted-foreground">
-            Управление аудиториями, типами и корпусами
-          </p>
-        </div>
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight">Аудитории</h1>
+        <p className="text-muted-foreground">Управление аудиториями, типами и корпусами</p>
       </div>
-      
-      {/* Statistics */}
+
+      {error && (
+        <Card>
+          <CardContent className="pt-4 text-sm text-red-600">{error}</CardContent>
+        </Card>
+      )}
+
       <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -616,70 +381,62 @@ export default function ClassroomsPage() {
             <School className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.total}</div>
-            <p className="text-xs text-muted-foreground">
-              Активных: {stats.active}
-            </p>
+            <div className="text-2xl font-bold">{stats?.totalClassrooms ?? 0}</div>
+            <p className="text-xs text-muted-foreground">Записей в базе</p>
           </CardContent>
         </Card>
-        
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Рабочих мест</CardTitle>
             <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.totalWorkstations}</div>
-            <p className="text-xs text-muted-foreground">
-              Во всех аудиториях
-            </p>
+            <div className="text-2xl font-bold">{stats?.totalWorkstations ?? 0}</div>
+            <p className="text-xs text-muted-foreground">Всего по системе</p>
           </CardContent>
         </Card>
-        
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Корпусов</CardTitle>
             <Building2 className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{buildings.length}</div>
-            <p className="text-xs text-muted-foreground">
-              Зданий в системе
-            </p>
+            <div className="text-2xl font-bold">{stats?.totalBuildings ?? 0}</div>
+            <p className="text-xs text-muted-foreground">В справочнике</p>
           </CardContent>
         </Card>
-        
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Типов аудиторий</CardTitle>
             <Tag className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{classroomTypes.length}</div>
-            <p className="text-xs text-muted-foreground">
-              Категорий помещений
-            </p>
+            <div className="text-2xl font-bold">{stats?.totalTypes ?? 0}</div>
+            <p className="text-xs text-muted-foreground">Категорий</p>
           </CardContent>
         </Card>
       </div>
-      
-      {/* Tabs */}
+
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="grid w-full grid-cols-3 lg:w-[400px]">
           <TabsTrigger value="classrooms">Аудитории</TabsTrigger>
           <TabsTrigger value="types">Типы</TabsTrigger>
           <TabsTrigger value="buildings">Корпуса</TabsTrigger>
         </TabsList>
-        
-        {/* Classrooms Tab */}
+
         <TabsContent value="classrooms" className="space-y-4">
-          {/* Filters */}
           <Card>
             <CardHeader className="pb-4">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <CardTitle className="text-base">Фильтры</CardTitle>
                 {isAdmin && (
-                  <Button onClick={() => { resetClassroomForm(); setIsAddClassroomOpen(true); }}>
+                  <Button
+                    onClick={() => {
+                      setClassroomFormError(null)
+                      setClassroomForm(emptyClassroomForm())
+                      setIsAddClassroomOpen(true)
+                    }}
+                  >
                     <Plus className="mr-2 h-4 w-4" />
                     Добавить аудиторию
                   </Button>
@@ -691,13 +448,12 @@ export default function ClassroomsPage() {
                 <div className="relative md:col-span-2">
                   <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
-                    placeholder="Поиск по названию, номеру..."
+                    placeholder="Поиск..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="pl-10"
                   />
                 </div>
-                
                 <Select value={selectedBuildingFilter} onValueChange={setSelectedBuildingFilter}>
                   <SelectTrigger>
                     <Building2 className="mr-2 h-4 w-4" />
@@ -705,28 +461,22 @@ export default function ClassroomsPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">Все корпуса</SelectItem>
-                    {buildings.map((building) => (
-                      <SelectItem key={building.id} value={building.id}>{building.name}</SelectItem>
+                    {buildings.map((b) => (
+                      <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-                
                 <Select value={selectedTypeFilter} onValueChange={setSelectedTypeFilter}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Тип" />
-                  </SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder="Тип" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">Все типы</SelectItem>
-                    {classroomTypes.map((type) => (
-                      <SelectItem key={type.id} value={type.id}>{type.name}</SelectItem>
+                    {types.map((t) => (
+                      <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-                
-                <Select value={selectedStatusFilter} onValueChange={(v) => setSelectedStatusFilter(v as ClassroomStatus | "all")}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Статус" />
-                  </SelectTrigger>
+                <Select value={selectedStatusFilter} onValueChange={(v) => setSelectedStatusFilter(v as UiStatus | "all")}>
+                  <SelectTrigger><SelectValue placeholder="Статус" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">Все статусы</SelectItem>
                     <SelectItem value="active">Активна</SelectItem>
@@ -735,64 +485,29 @@ export default function ClassroomsPage() {
                   </SelectContent>
                 </Select>
               </div>
-              
               {hasActiveFilters && (
                 <div className="mt-4 flex items-center gap-2">
                   <span className="text-sm text-muted-foreground">
                     Найдено: {filteredClassrooms.length} из {classrooms.length}
                   </span>
                   <Button variant="ghost" size="sm" onClick={resetFilters}>
-                    <X className="mr-1 h-3 w-3" />
-                    Сбросить фильтры
+                    <X className="mr-1 h-3 w-3" />Сбросить
                   </Button>
                 </div>
               )}
             </CardContent>
           </Card>
-          
-          {/* Classrooms Table */}
+
           <Card>
             <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle>Список аудиторий</CardTitle>
-                  <CardDescription>
-                    {loading ? "Загрузка..." : `Показано ${filteredClassrooms.length} аудиторий`}
-                  </CardDescription>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button variant="outline" size="sm">
-                    <Download className="mr-2 h-4 w-4" />
-                    Экспорт
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={() => setLoading(true)}>
-                    <RefreshCw className="mr-2 h-4 w-4" />
-                    Обновить
-                  </Button>
-                </div>
-              </div>
+              <CardTitle>Список аудиторий</CardTitle>
+              <CardDescription>Показано {filteredClassrooms.length}</CardDescription>
             </CardHeader>
             <CardContent>
-              {loading ? (
-                <div className="space-y-4">
-                  {[1, 2, 3, 4, 5].map((i) => (
-                    <div key={i} className="flex items-center gap-4">
-                      <Skeleton className="h-10 w-10 rounded" />
-                      <div className="flex-1 space-y-2">
-                        <Skeleton className="h-4 w-3/4" />
-                        <Skeleton className="h-3 w-1/2" />
-                      </div>
-                      <Skeleton className="h-6 w-20" />
-                    </div>
-                  ))}
-                </div>
-              ) : filteredClassrooms.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-12 text-center">
-                  <School className="h-12 w-12 text-muted-foreground mb-4" />
-                  <h3 className="text-lg font-semibold">Аудитории не найдены</h3>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Попробуйте изменить параметры поиска или фильтры
-                  </p>
+              {filteredClassrooms.length === 0 ? (
+                <div className="flex flex-col items-center py-12 text-center text-muted-foreground">
+                  <School className="h-12 w-12 mb-4 opacity-50" />
+                  <p>Нет аудиторий по фильтру или в базе ещё нет записей</p>
                 </div>
               ) : (
                 <div className="rounded-md border">
@@ -801,88 +516,68 @@ export default function ClassroomsPage() {
                       <TableRow>
                         <TableHead>Аудитория</TableHead>
                         <TableHead>Тип</TableHead>
-                        <TableHead>Корпус / Этаж</TableHead>
+                        <TableHead>Корпус / этаж</TableHead>
                         <TableHead className="text-center">Вместимость</TableHead>
                         <TableHead className="text-center">Рабочие места</TableHead>
                         <TableHead>Статус</TableHead>
-                        <TableHead className="w-[70px]"></TableHead>
+                        <TableHead className="w-[56px]" />
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {filteredClassrooms.map((classroom) => {
-                        const statusInfo = getStatusInfo(classroom.status)
-                        
+                      {filteredClassrooms.map((c) => {
+                        const st = getStatusInfo(toUiStatus(c.listingStatus))
                         return (
-                          <TableRow key={classroom.id}>
+                          <TableRow key={c.id}>
                             <TableCell>
                               <div className="flex items-center gap-3">
                                 <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
                                   <School className="h-5 w-5 text-muted-foreground" />
                                 </div>
                                 <div>
-                                  <div className="font-medium">{classroom.name}</div>
-                                  <div className="text-sm text-muted-foreground">
-                                    № {classroom.number}
-                                  </div>
+                                  <div className="font-medium">{c.name ?? "—"}</div>
+                                  <div className="text-sm text-muted-foreground">№ {c.number}</div>
                                 </div>
                               </div>
                             </TableCell>
                             <TableCell>
-                              <Badge variant="outline" className={getTypeColor(classroom.typeId)}>
-                                {getTypeName(classroom.typeId)}
+                              <Badge variant="outline" className={getTypeColor(c.classroomTypeId)}>
+                                {getTypeName(c.classroomTypeId)}
                               </Badge>
                             </TableCell>
                             <TableCell>
-                              <div className="flex items-center gap-1 text-sm">
-                                <Building2 className="h-3 w-3 text-muted-foreground" />
-                                {getBuildingName(classroom.buildingId)}
+                              <div className="text-sm flex items-center gap-1">
+                                <Building2 className="h-3 w-3" />
+                                {getBuildingName(c.buildingId)}
                               </div>
                               <div className="text-sm text-muted-foreground">
-                                Этаж {classroom.floor}
+                                Этаж {c.floor ?? "—"}
                               </div>
                             </TableCell>
-                            <TableCell className="text-center">
-                              <div className="flex items-center justify-center gap-1">
-                                <Users className="h-4 w-4 text-muted-foreground" />
-                                {classroom.capacity}
-                              </div>
-                            </TableCell>
-                            <TableCell className="text-center">
-                              {classroom.workstations}
-                            </TableCell>
-                            <TableCell>
-                              <Badge variant={statusInfo.variant}>
-                                {statusInfo.label}
-                              </Badge>
-                            </TableCell>
+                            <TableCell className="text-center">{c.capacity ?? "—"}</TableCell>
+                            <TableCell className="text-center">{c.workstationCount}</TableCell>
+                            <TableCell><Badge variant={st.variant}>{st.label}</Badge></TableCell>
                             <TableCell>
                               <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
-                                  <Button variant="ghost" size="icon">
-                                    <MoreHorizontal className="h-4 w-4" />
-                                    <span className="sr-only">Действия</span>
-                                  </Button>
+                                  <Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end">
                                   <DropdownMenuLabel>Действия</DropdownMenuLabel>
                                   <DropdownMenuSeparator />
-                                  <DropdownMenuItem onClick={() => { setSelectedClassroom(classroom); setIsViewClassroomOpen(true); }}>
-                                    <Eye className="mr-2 h-4 w-4" />
-                                    Просмотр
+                                  <DropdownMenuItem onClick={() => { setSelectedClassroom(c); setIsViewClassroomOpen(true); }}>
+                                    <Eye className="mr-2 h-4 w-4" />Просмотр
                                   </DropdownMenuItem>
                                   {isAdmin && (
                                     <>
-                                      <DropdownMenuItem onClick={() => openEditClassroom(classroom)}>
-                                        <Pencil className="mr-2 h-4 w-4" />
-                                        Редактировать
+                                      <DropdownMenuItem onClick={() => openEditClassroom(c)}>
+                                        <Pencil className="mr-2 h-4 w-4" />Редактировать
                                       </DropdownMenuItem>
                                       <DropdownMenuSeparator />
-                                      <DropdownMenuItem 
-                                        onClick={() => { setSelectedClassroom(classroom); setIsDeleteClassroomOpen(true); }}
+                                      <DropdownMenuItem
                                         className="text-destructive"
+                                        onClick={() => { setSelectedClassroom(c); setIsDeleteClassroomOpen(true); }}
                                       >
-                                        <Trash2 className="mr-2 h-4 w-4" />
-                                        Удалить
+                                        <Trash2 className="mr-2 h-4 w-4" />Удалить
                                       </DropdownMenuItem>
                                     </>
                                   )}
@@ -899,35 +594,25 @@ export default function ClassroomsPage() {
             </CardContent>
           </Card>
         </TabsContent>
-        
-        {/* Types Tab */}
+
         <TabsContent value="types" className="space-y-4">
           <Card>
             <CardHeader>
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <CardTitle>Типы аудиторий</CardTitle>
-                  <CardDescription>
-                    Управление категориями помещений
-                  </CardDescription>
+                  <CardDescription>Название, код (латиница), цвет, описание</CardDescription>
                 </div>
                 {isAdmin && (
-                  <Button onClick={() => { resetTypeForm(); setIsAddTypeOpen(true); }}>
-                    <Plus className="mr-2 h-4 w-4" />
-                    Добавить тип
+                  <Button onClick={() => { setTypeFormError(null); setTypeForm(emptyTypeForm()); setIsAddTypeOpen(true); }}>
+                    <Plus className="mr-2 h-4 w-4" />Добавить тип
                   </Button>
                 )}
               </div>
             </CardHeader>
             <CardContent>
-              {classroomTypes.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-12 text-center">
-                  <Tag className="h-12 w-12 text-muted-foreground mb-4" />
-                  <h3 className="text-lg font-semibold">Типы не найдены</h3>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Добавьте первый тип аудитории
-                  </p>
-                </div>
+              {types.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-8 text-center">Нет типов — добавьте первый с типовой страницы</p>
               ) : (
                 <div className="rounded-md border">
                   <Table>
@@ -938,46 +623,40 @@ export default function ClassroomsPage() {
                         <TableHead>Цвет</TableHead>
                         <TableHead>Описание</TableHead>
                         <TableHead className="text-center">Аудиторий</TableHead>
-                        <TableHead className="w-[70px]"></TableHead>
+                        <TableHead className="w-[56px]" />
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {classroomTypes.map((type) => (
-                        <TableRow key={type.id}>
-                          <TableCell className="font-medium">{type.name}</TableCell>
+                      {types.map((t) => (
+                        <TableRow key={t.id}>
+                          <TableCell className="font-medium">{t.name}</TableCell>
+                          <TableCell><code className="text-sm bg-muted px-2 py-1 rounded">{t.code}</code></TableCell>
                           <TableCell>
-                            <code className="text-sm bg-muted px-2 py-1 rounded">{type.code}</code>
+                            <Badge variant="outline" className={t.color}>Образец</Badge>
                           </TableCell>
-                          <TableCell>
-                            <Badge variant="outline" className={type.color}>
-                              Пример
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="text-muted-foreground">{type.description}</TableCell>
-                          <TableCell className="text-center">
-                            {getClassroomsCountByType(type.id)}
-                          </TableCell>
+                          <TableCell className="text-muted-foreground text-sm">{t.description || "—"}</TableCell>
+                          <TableCell className="text-center">{t.classroomsCount}</TableCell>
                           <TableCell>
                             {isAdmin && (
                               <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
-                                  <Button variant="ghost" size="icon">
-                                    <MoreHorizontal className="h-4 w-4" />
-                                  </Button>
+                                  <Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end">
-                                  <DropdownMenuItem onClick={() => openEditType(type)}>
-                                    <Pencil className="mr-2 h-4 w-4" />
-                                    Редактировать
+                                  <DropdownMenuItem onClick={() => {
+                                    setSelectedType(t)
+                                    setTypeForm({ name: t.name, code: t.code, color: t.color, description: t.description })
+                                    setIsEditTypeOpen(true)
+                                  }}>
+                                    <Pencil className="mr-2 h-4 w-4" />Редактировать
                                   </DropdownMenuItem>
                                   <DropdownMenuSeparator />
-                                  <DropdownMenuItem 
-                                    onClick={() => { setSelectedType(type); setIsDeleteTypeOpen(true); }}
+                                  <DropdownMenuItem
                                     className="text-destructive"
-                                    disabled={getClassroomsCountByType(type.id) > 0}
+                                    disabled={t.classroomsCount > 0}
+                                    onClick={() => { setSelectedType(t); setIsDeleteTypeOpen(true); }}
                                   >
-                                    <Trash2 className="mr-2 h-4 w-4" />
-                                    Удалить
+                                    <Trash2 className="mr-2 h-4 w-4" />Удалить
                                   </DropdownMenuItem>
                                 </DropdownMenuContent>
                               </DropdownMenu>
@@ -992,35 +671,25 @@ export default function ClassroomsPage() {
             </CardContent>
           </Card>
         </TabsContent>
-        
-        {/* Buildings Tab */}
+
         <TabsContent value="buildings" className="space-y-4">
           <Card>
             <CardHeader>
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <CardTitle>Корпуса зданий</CardTitle>
-                  <CardDescription>
-                    Управление зданиями учебного заведения
-                  </CardDescription>
+                  <CardTitle>Корпуса</CardTitle>
+                  <CardDescription>Название, адрес, этажи, описание</CardDescription>
                 </div>
                 {isAdmin && (
-                  <Button onClick={() => { resetBuildingForm(); setIsAddBuildingOpen(true); }}>
-                    <Plus className="mr-2 h-4 w-4" />
-                    Добавить корпус
+                  <Button onClick={() => { setBuildingFormError(null); setBuildingForm(emptyBuildingForm()); setIsAddBuildingOpen(true); }}>
+                    <Plus className="mr-2 h-4 w-4" />Добавить корпус
                   </Button>
                 )}
               </div>
             </CardHeader>
             <CardContent>
               {buildings.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-12 text-center">
-                  <Building2 className="h-12 w-12 text-muted-foreground mb-4" />
-                  <h3 className="text-lg font-semibold">Корпуса не найдены</h3>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Добавьте первый корпус здания
-                  </p>
-                </div>
+                <p className="text-sm text-muted-foreground py-8 text-center">Нет корпусов</p>
               ) : (
                 <div className="rounded-md border">
                   <Table>
@@ -1031,49 +700,45 @@ export default function ClassroomsPage() {
                         <TableHead className="text-center">Этажей</TableHead>
                         <TableHead>Описание</TableHead>
                         <TableHead className="text-center">Аудиторий</TableHead>
-                        <TableHead className="w-[70px]"></TableHead>
+                        <TableHead className="w-[56px]" />
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {buildings.map((building) => (
-                        <TableRow key={building.id}>
-                          <TableCell>
-                            <div className="flex items-center gap-3">
-                              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
-                                <Building2 className="h-5 w-5 text-muted-foreground" />
-                              </div>
-                              <span className="font-medium">{building.name}</span>
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-muted-foreground">{building.address}</TableCell>
-                          <TableCell className="text-center">{building.floors}</TableCell>
-                          <TableCell className="text-muted-foreground">{building.description}</TableCell>
+                      {buildings.map((b) => (
+                        <TableRow key={b.id}>
+                          <TableCell className="font-medium">{b.name}</TableCell>
+                          <TableCell className="text-muted-foreground text-sm">{b.address || "—"}</TableCell>
+                          <TableCell className="text-center">{b.floors}</TableCell>
+                          <TableCell className="text-muted-foreground text-sm">{b.description || "—"}</TableCell>
                           <TableCell className="text-center">
-                            <Badge variant="secondary">
-                              {getClassroomsCountByBuilding(building.id)}
-                            </Badge>
+                            <Badge variant="secondary">{b.classroomsCount}</Badge>
                           </TableCell>
                           <TableCell>
                             {isAdmin && (
                               <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
-                                  <Button variant="ghost" size="icon">
-                                    <MoreHorizontal className="h-4 w-4" />
-                                  </Button>
+                                  <Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end">
-                                  <DropdownMenuItem onClick={() => openEditBuilding(building)}>
-                                    <Pencil className="mr-2 h-4 w-4" />
-                                    Редактировать
+                                  <DropdownMenuItem onClick={() => {
+                                    setSelectedBuilding(b)
+                                    setBuildingForm({
+                                      name: b.name,
+                                      address: b.address,
+                                      floors: b.floors,
+                                      description: b.description ?? "",
+                                    })
+                                    setIsEditBuildingOpen(true)
+                                  }}>
+                                    <Pencil className="mr-2 h-4 w-4" />Редактировать
                                   </DropdownMenuItem>
                                   <DropdownMenuSeparator />
-                                  <DropdownMenuItem 
-                                    onClick={() => { setSelectedBuilding(building); setIsDeleteBuildingOpen(true); }}
+                                  <DropdownMenuItem
                                     className="text-destructive"
-                                    disabled={getClassroomsCountByBuilding(building.id) > 0}
+                                    disabled={b.classroomsCount > 0}
+                                    onClick={() => { setSelectedBuilding(b); setIsDeleteBuildingOpen(true); }}
                                   >
-                                    <Trash2 className="mr-2 h-4 w-4" />
-                                    Удалить
+                                    <Trash2 className="mr-2 h-4 w-4" />Удалить
                                   </DropdownMenuItem>
                                 </DropdownMenuContent>
                               </DropdownMenu>
@@ -1089,313 +754,83 @@ export default function ClassroomsPage() {
           </Card>
         </TabsContent>
       </Tabs>
-      
-      {/* Dialogs for Classrooms */}
+
+      {/* Classroom dialogs */}
       <Dialog open={isAddClassroomOpen} onOpenChange={setIsAddClassroomOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Добавить аудиторию</DialogTitle>
-            <DialogDescription>
-              Заполните информацию о новой аудитории
-            </DialogDescription>
+            <DialogDescription>Номер уникален. Корпус и тип — из справочников.</DialogDescription>
           </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Название</Label>
-                <Input
-                  value={classroomForm.name}
-                  onChange={(e) => setClassroomForm({...classroomForm, name: e.target.value})}
-                  placeholder="Аудитория 301"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Номер</Label>
-                <Input
-                  value={classroomForm.number}
-                  onChange={(e) => setClassroomForm({...classroomForm, number: e.target.value})}
-                  placeholder="301"
-                />
-              </div>
-            </div>
-            
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Тип</Label>
-                <Select 
-                  value={classroomForm.typeId} 
-                  onValueChange={(v) => setClassroomForm({...classroomForm, typeId: v})}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Выберите тип" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {classroomTypes.map((type) => (
-                      <SelectItem key={type.id} value={type.id}>{type.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Статус</Label>
-                <Select 
-                  value={classroomForm.status} 
-                  onValueChange={(v) => setClassroomForm({...classroomForm, status: v as ClassroomStatus})}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="active">Активна</SelectItem>
-                    <SelectItem value="inactive">Неактивна</SelectItem>
-                    <SelectItem value="maintenance">На обслуживании</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Корпус</Label>
-                <Select 
-                  value={classroomForm.buildingId} 
-                  onValueChange={(v) => setClassroomForm({...classroomForm, buildingId: v})}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Выберите корпус" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {buildings.map((building) => (
-                      <SelectItem key={building.id} value={building.id}>{building.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Этаж</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  value={classroomForm.floor}
-                  onChange={(e) => setClassroomForm({...classroomForm, floor: parseInt(e.target.value) || 0})}
-                />
-              </div>
-            </div>
-            
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Вместимость</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  value={classroomForm.capacity}
-                  onChange={(e) => setClassroomForm({...classroomForm, capacity: parseInt(e.target.value) || 0})}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Ответственный</Label>
-                <Input
-                  value={classroomForm.responsiblePerson}
-                  onChange={(e) => setClassroomForm({...classroomForm, responsiblePerson: e.target.value})}
-                  placeholder="Иванов И.И."
-                />
-              </div>
-            </div>
-            
-            <div className="space-y-2">
-              <Label>Описание</Label>
-              <Textarea
-                value={classroomForm.description}
-                onChange={(e) => setClassroomForm({...classroomForm, description: e.target.value})}
-                placeholder="Описание аудитории..."
-              />
-            </div>
-          </div>
+          <ClassroomFormFields
+            form={classroomForm}
+            setForm={setClassroomForm}
+            buildings={buildings}
+            types={types}
+            teachers={registry?.teachers ?? []}
+          />
+          {classroomFormError && <p className="text-sm text-red-600">{classroomFormError}</p>}
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsAddClassroomOpen(false)}>Отмена</Button>
-            <Button onClick={handleAddClassroom} disabled={!classroomForm.name || !classroomForm.number}>
-              Добавить
+            <Button onClick={() => void submitClassroom(false)} disabled={classroomSaving}>
+              {classroomSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Добавить"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      
+
       <Dialog open={isEditClassroomOpen} onOpenChange={setIsEditClassroomOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Редактировать аудиторию</DialogTitle>
-            <DialogDescription>
-              Измените информацию об аудитории
-            </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Название</Label>
-                <Input
-                  value={classroomForm.name}
-                  onChange={(e) => setClassroomForm({...classroomForm, name: e.target.value})}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Номер</Label>
-                <Input
-                  value={classroomForm.number}
-                  onChange={(e) => setClassroomForm({...classroomForm, number: e.target.value})}
-                />
-              </div>
-            </div>
-            
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Тип</Label>
-                <Select 
-                  value={classroomForm.typeId} 
-                  onValueChange={(v) => setClassroomForm({...classroomForm, typeId: v})}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {classroomTypes.map((type) => (
-                      <SelectItem key={type.id} value={type.id}>{type.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Статус</Label>
-                <Select 
-                  value={classroomForm.status} 
-                  onValueChange={(v) => setClassroomForm({...classroomForm, status: v as ClassroomStatus})}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="active">Активна</SelectItem>
-                    <SelectItem value="inactive">Неактивна</SelectItem>
-                    <SelectItem value="maintenance">На обслуживании</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Корпус</Label>
-                <Select 
-                  value={classroomForm.buildingId} 
-                  onValueChange={(v) => setClassroomForm({...classroomForm, buildingId: v})}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {buildings.map((building) => (
-                      <SelectItem key={building.id} value={building.id}>{building.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Этаж</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  value={classroomForm.floor}
-                  onChange={(e) => setClassroomForm({...classroomForm, floor: parseInt(e.target.value) || 0})}
-                />
-              </div>
-            </div>
-            
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Вместимость</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  value={classroomForm.capacity}
-                  onChange={(e) => setClassroomForm({...classroomForm, capacity: parseInt(e.target.value) || 0})}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Ответственный</Label>
-                <Input
-                  value={classroomForm.responsiblePerson}
-                  onChange={(e) => setClassroomForm({...classroomForm, responsiblePerson: e.target.value})}
-                />
-              </div>
-            </div>
-            
-            <div className="space-y-2">
-              <Label>Описание</Label>
-              <Textarea
-                value={classroomForm.description}
-                onChange={(e) => setClassroomForm({...classroomForm, description: e.target.value})}
-              />
-            </div>
-          </div>
+          <ClassroomFormFields
+            form={classroomForm}
+            setForm={setClassroomForm}
+            buildings={buildings}
+            types={types}
+            teachers={registry?.teachers ?? []}
+          />
+          {classroomFormError && <p className="text-sm text-red-600">{classroomFormError}</p>}
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsEditClassroomOpen(false)}>Отмена</Button>
-            <Button onClick={handleEditClassroom}>Сохранить</Button>
+            <Button onClick={() => void submitClassroom(true)} disabled={classroomSaving}>
+              {classroomSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Сохранить"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      
+
       <Dialog open={isViewClassroomOpen} onOpenChange={setIsViewClassroomOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>{selectedClassroom?.name}</DialogTitle>
-            <DialogDescription>
-              Информация об аудитории
-            </DialogDescription>
+            <DialogTitle>{selectedClassroom?.name ?? "Аудитория"}</DialogTitle>
+            <DialogDescription>Актуальные данные из базы</DialogDescription>
           </DialogHeader>
           {selectedClassroom && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-3 text-sm">
+              <div className="grid grid-cols-2 gap-3">
+                <div><p className="text-muted-foreground">Номер</p><p className="font-medium">{selectedClassroom.number}</p></div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Номер</p>
-                  <p className="font-medium">{selectedClassroom.number}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Тип</p>
-                  <Badge variant="outline" className={getTypeColor(selectedClassroom.typeId)}>
-                    {getTypeName(selectedClassroom.typeId)}
+                  <p className="text-muted-foreground">Тип</p>
+                  <Badge variant="outline" className={getTypeColor(selectedClassroom.classroomTypeId)}>
+                    {getTypeName(selectedClassroom.classroomTypeId)}
                   </Badge>
                 </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-sm text-muted-foreground">Корпус</p>
-                  <p className="font-medium">{getBuildingName(selectedClassroom.buildingId)}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Этаж</p>
-                  <p className="font-medium">{selectedClassroom.floor}</p>
-                </div>
-              </div>
-              <div className="grid grid-cols-3 gap-4">
-                <div>
-                  <p className="text-sm text-muted-foreground">Вместимость</p>
-                  <p className="font-medium">{selectedClassroom.capacity}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Рабочих мест</p>
-                  <p className="font-medium">{selectedClassroom.workstations}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Оборудование</p>
-                  <p className="font-medium">{selectedClassroom.equipment}</p>
-                </div>
+                <div><p className="text-muted-foreground">Корпус</p><p className="font-medium">{getBuildingName(selectedClassroom.buildingId)}</p></div>
+                <div><p className="text-muted-foreground">Этаж</p><p className="font-medium">{selectedClassroom.floor ?? "—"}</p></div>
+                <div><p className="text-muted-foreground">Статус</p><p className="font-medium">{getStatusInfo(toUiStatus(selectedClassroom.listingStatus)).label}</p></div>
+                <div><p className="text-muted-foreground">Вместимость</p><p className="font-medium">{selectedClassroom.capacity ?? "—"}</p></div>
+                <div><p className="text-muted-foreground">Рабочих мест</p><p className="font-medium">{selectedClassroom.workstationCount}</p></div>
+                <div><p className="text-muted-foreground">Единиц оборудования</p><p className="font-medium">{selectedClassroom.equipmentCount}</p></div>
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Ответственный</p>
-                <p className="font-medium">{selectedClassroom.responsiblePerson}</p>
+                <p className="text-muted-foreground">Ответственный</p>
+                <p className="font-medium">{selectedClassroom.responsibleLabel ?? "—"}</p>
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Описание</p>
-                <p className="font-medium">{selectedClassroom.description}</p>
+                <p className="text-muted-foreground">Описание</p>
+                <p className="font-medium whitespace-pre-wrap">{selectedClassroom.description || "—"}</p>
               </div>
             </div>
           )}
@@ -1404,293 +839,313 @@ export default function ClassroomsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      
+
       <AlertDialog open={isDeleteClassroomOpen} onOpenChange={setIsDeleteClassroomOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Удалить аудиторию?</AlertDialogTitle>
             <AlertDialogDescription>
-              Вы уверены, что хотите удалить аудиторию &quot;{selectedClassroom?.name}&quot;? Это действие нельзя отменить.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Отмена</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteClassroom} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-              Удалить
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-      
-      {/* Dialogs for Types */}
-      <Dialog open={isAddTypeOpen} onOpenChange={setIsAddTypeOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Добавить тип аудитории</DialogTitle>
-            <DialogDescription>
-              Создайте новую категорию помещений
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="space-y-2">
-              <Label>Название</Label>
-              <Input
-                value={typeForm.name}
-                onChange={(e) => setTypeForm({...typeForm, name: e.target.value})}
-                placeholder="Лекционный зал"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Код</Label>
-              <Input
-                value={typeForm.code}
-                onChange={(e) => setTypeForm({...typeForm, code: e.target.value})}
-                placeholder="lecture_hall"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Цвет</Label>
-              <Select 
-                value={typeForm.color} 
-                onValueChange={(v) => setTypeForm({...typeForm, color: v})}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {colorOptions.map((color) => (
-                    <SelectItem key={color.value} value={color.value}>
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline" className={color.value}>Пример</Badge>
-                        <span>{color.label}</span>
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Описание</Label>
-              <Textarea
-                value={typeForm.description}
-                onChange={(e) => setTypeForm({...typeForm, description: e.target.value})}
-                placeholder="Описание типа аудитории..."
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsAddTypeOpen(false)}>Отмена</Button>
-            <Button onClick={handleAddType} disabled={!typeForm.name || !typeForm.code}>
-              Добавить
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      
-      <Dialog open={isEditTypeOpen} onOpenChange={setIsEditTypeOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Редактировать тип аудитории</DialogTitle>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="space-y-2">
-              <Label>Название</Label>
-              <Input
-                value={typeForm.name}
-                onChange={(e) => setTypeForm({...typeForm, name: e.target.value})}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Код</Label>
-              <Input
-                value={typeForm.code}
-                onChange={(e) => setTypeForm({...typeForm, code: e.target.value})}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Цвет</Label>
-              <Select 
-                value={typeForm.color} 
-                onValueChange={(v) => setTypeForm({...typeForm, color: v})}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {colorOptions.map((color) => (
-                    <SelectItem key={color.value} value={color.value}>
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline" className={color.value}>Пример</Badge>
-                        <span>{color.label}</span>
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Описание</Label>
-              <Textarea
-                value={typeForm.description}
-                onChange={(e) => setTypeForm({...typeForm, description: e.target.value})}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsEditTypeOpen(false)}>Отмена</Button>
-            <Button onClick={handleEditType}>Сохранить</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      
-      <AlertDialog open={isDeleteTypeOpen} onOpenChange={setIsDeleteTypeOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Удалить тип аудитории?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Вы уверены, что хотите удалить тип &quot;{selectedType?.name}&quot;? 
-              {getClassroomsCountByType(selectedType?.id || "") > 0 && (
-                <span className="block mt-2 text-destructive">
-                  Невозможно удалить: есть аудитории этого типа ({getClassroomsCountByType(selectedType?.id || "")})
-                </span>
+              {selectedClassroom?.workstationCount ? (
+                <span className="text-destructive">Сначала удалите рабочие места в этой аудитории ({selectedClassroom.workstationCount}).</span>
+              ) : (
+                <>Будет удалена запись «{selectedClassroom?.name}» (№ {selectedClassroom?.number}).</>
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Отмена</AlertDialogCancel>
-            <AlertDialogAction 
-              onClick={handleDeleteType} 
+            <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={getClassroomsCountByType(selectedType?.id || "") > 0}
+              disabled={Boolean(selectedClassroom?.workstationCount)}
+              onClick={async () => {
+                if (!selectedClassroom) return
+                try {
+                  await deleteClassroomApi(selectedClassroom.id)
+                  setIsDeleteClassroomOpen(false)
+                  setSelectedClassroom(null)
+                  await loadRegistry()
+                } catch (e) {
+                  setError(e instanceof Error ? e.message : "Ошибка удаления")
+                }
+              }}
             >
               Удалить
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      
-      {/* Dialogs for Buildings */}
+
+      {/* Type dialogs */}
+      <Dialog open={isAddTypeOpen} onOpenChange={setIsAddTypeOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Новый тип аудитории</DialogTitle></DialogHeader>
+          <TypeFormFields form={typeForm} setForm={setTypeForm} />
+          {typeFormError && <p className="text-sm text-red-600">{typeFormError}</p>}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsAddTypeOpen(false)}>Отмена</Button>
+            <Button onClick={() => void runTypeSave(false)} disabled={typeSaving}>Добавить</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={isEditTypeOpen} onOpenChange={setIsEditTypeOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Редактировать тип</DialogTitle></DialogHeader>
+          <TypeFormFields form={typeForm} setForm={setTypeForm} />
+          {typeFormError && <p className="text-sm text-red-600">{typeFormError}</p>}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsEditTypeOpen(false)}>Отмена</Button>
+            <Button onClick={() => void runTypeSave(true)} disabled={typeSaving}>Сохранить</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <AlertDialog open={isDeleteTypeOpen} onOpenChange={setIsDeleteTypeOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Удалить тип?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {selectedType?.classroomsCount ? `Нельзя удалить: ${selectedType.classroomsCount} аудиторий этого типа.` : `Тип «${selectedType?.name}».`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Отмена</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={Boolean(selectedType?.classroomsCount)}
+              onClick={async () => {
+                if (!selectedType) return
+                try {
+                  await deleteClassroomTypeApi(selectedType.id)
+                  setIsDeleteTypeOpen(false)
+                  setSelectedType(null)
+                  await loadRegistry()
+                } catch (e) {
+                  setError(e instanceof Error ? e.message : "Ошибка")
+                }
+              }}
+            >
+              Удалить
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Building dialogs */}
       <Dialog open={isAddBuildingOpen} onOpenChange={setIsAddBuildingOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Добавить корпус</DialogTitle>
-            <DialogDescription>
-              Добавьте новое здание в систему
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="space-y-2">
-              <Label>Название</Label>
-              <Input
-                value={buildingForm.name}
-                onChange={(e) => setBuildingForm({...buildingForm, name: e.target.value})}
-                placeholder="Корпус В"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Адрес</Label>
-              <Input
-                value={buildingForm.address}
-                onChange={(e) => setBuildingForm({...buildingForm, address: e.target.value})}
-                placeholder="ул. Университетская, 5"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Количество этажей</Label>
-              <Input
-                type="number"
-                min={1}
-                value={buildingForm.floors}
-                onChange={(e) => setBuildingForm({...buildingForm, floors: parseInt(e.target.value) || 1})}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Описание</Label>
-              <Textarea
-                value={buildingForm.description}
-                onChange={(e) => setBuildingForm({...buildingForm, description: e.target.value})}
-                placeholder="Описание корпуса..."
-              />
-            </div>
-          </div>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Новый корпус</DialogTitle></DialogHeader>
+          <BuildingFormFields form={buildingForm} setForm={setBuildingForm} />
+          {buildingFormError && <p className="text-sm text-red-600">{buildingFormError}</p>}
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsAddBuildingOpen(false)}>Отмена</Button>
-            <Button onClick={handleAddBuilding} disabled={!buildingForm.name}>
-              Добавить
-            </Button>
+            <Button onClick={() => void runBuildingSave(false)} disabled={buildingSaving}>Добавить</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      
       <Dialog open={isEditBuildingOpen} onOpenChange={setIsEditBuildingOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Редактировать корпус</DialogTitle>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="space-y-2">
-              <Label>Название</Label>
-              <Input
-                value={buildingForm.name}
-                onChange={(e) => setBuildingForm({...buildingForm, name: e.target.value})}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Адрес</Label>
-              <Input
-                value={buildingForm.address}
-                onChange={(e) => setBuildingForm({...buildingForm, address: e.target.value})}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Количество этажей</Label>
-              <Input
-                type="number"
-                min={1}
-                value={buildingForm.floors}
-                onChange={(e) => setBuildingForm({...buildingForm, floors: parseInt(e.target.value) || 1})}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Описание</Label>
-              <Textarea
-                value={buildingForm.description}
-                onChange={(e) => setBuildingForm({...buildingForm, description: e.target.value})}
-              />
-            </div>
-          </div>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Редактировать корпус</DialogTitle></DialogHeader>
+          <BuildingFormFields form={buildingForm} setForm={setBuildingForm} />
+          {buildingFormError && <p className="text-sm text-red-600">{buildingFormError}</p>}
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsEditBuildingOpen(false)}>Отмена</Button>
-            <Button onClick={handleEditBuilding}>Сохранить</Button>
+            <Button onClick={() => void runBuildingSave(true)} disabled={buildingSaving}>Сохранить</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      
       <AlertDialog open={isDeleteBuildingOpen} onOpenChange={setIsDeleteBuildingOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Удалить корпус?</AlertDialogTitle>
             <AlertDialogDescription>
-              Вы уверены, что хотите удалить корпус &quot;{selectedBuilding?.name}&quot;?
-              {getClassroomsCountByBuilding(selectedBuilding?.id || "") > 0 && (
-                <span className="block mt-2 text-destructive">
-                  Невозможно удалить: в корпусе есть аудитории ({getClassroomsCountByBuilding(selectedBuilding?.id || "")})
-                </span>
-              )}
+              {selectedBuilding?.classroomsCount
+                ? `Нельзя удалить: ${selectedBuilding.classroomsCount} аудиторий в этом корпусе.`
+                : `Корпус «${selectedBuilding?.name}».`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Отмена</AlertDialogCancel>
-            <AlertDialogAction 
-              onClick={handleDeleteBuilding} 
+            <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={getClassroomsCountByBuilding(selectedBuilding?.id || "") > 0}
+              disabled={Boolean(selectedBuilding?.classroomsCount)}
+              onClick={async () => {
+                if (!selectedBuilding) return
+                try {
+                  await deleteBuildingApi(selectedBuilding.id)
+                  setIsDeleteBuildingOpen(false)
+                  setSelectedBuilding(null)
+                  await loadRegistry()
+                } catch (e) {
+                  setError(e instanceof Error ? e.message : "Ошибка")
+                }
+              }}
             >
               Удалить
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    </div>
+  )
+}
+
+function ClassroomFormFields({
+  form,
+  setForm,
+  buildings,
+  types,
+  teachers,
+}: {
+  form: ReturnType<typeof emptyClassroomForm>
+  setForm: Dispatch<SetStateAction<ReturnType<typeof emptyClassroomForm>>>
+  buildings: RegistryBuilding[]
+  types: RegistryClassroomType[]
+  teachers: { id: string; firstName: string; lastName: string; middleName: string | null; email: string }[]
+}) {
+  return (
+    <div className="grid gap-4 py-2">
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label>Название</Label>
+          <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Аудитория 301" />
+        </div>
+        <div className="space-y-2">
+          <Label>Номер</Label>
+          <Input value={form.number} onChange={(e) => setForm((f) => ({ ...f, number: e.target.value }))} placeholder="301" />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label>Тип</Label>
+          <Select value={form.classroomTypeId || "__none__"} onValueChange={(v) => setForm((f) => ({ ...f, classroomTypeId: v === "__none__" ? "" : v }))}>
+            <SelectTrigger><SelectValue placeholder="Не выбран" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">Не выбран</SelectItem>
+              {types.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label>Статус</Label>
+          <Select value={form.status} onValueChange={(v) => setForm((f) => ({ ...f, status: v as UiStatus }))}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="active">Активна</SelectItem>
+              <SelectItem value="inactive">Неактивна</SelectItem>
+              <SelectItem value="maintenance">На обслуживании</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label>Корпус</Label>
+          <Select value={form.buildingId || "__none__"} onValueChange={(v) => setForm((f) => ({ ...f, buildingId: v === "__none__" ? "" : v }))}>
+            <SelectTrigger><SelectValue placeholder="Не выбран" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">Не выбран</SelectItem>
+              {buildings.map((b) => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label>Этаж</Label>
+          <Input type="number" value={form.floor} onChange={(e) => setForm((f) => ({ ...f, floor: Number.parseInt(e.target.value, 10) || 0 }))} />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label>Вместимость</Label>
+          <Input type="number" min={0} value={form.capacity} onChange={(e) => setForm((f) => ({ ...f, capacity: Number.parseInt(e.target.value, 10) || 0 }))} />
+        </div>
+        <div className="space-y-2">
+          <Label>Ответственный</Label>
+          <Select value={form.responsibleId || "__none__"} onValueChange={(v) => setForm((f) => ({ ...f, responsibleId: v === "__none__" ? "" : v }))}>
+            <SelectTrigger><SelectValue placeholder="Не назначен" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">Не назначен</SelectItem>
+              {teachers.map((u) => (
+                <SelectItem key={u.id} value={u.id}>
+                  {u.lastName} {u.firstName}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      <div className="space-y-2">
+        <Label>Описание</Label>
+        <Textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} rows={3} />
+      </div>
+    </div>
+  )
+}
+
+function TypeFormFields({
+  form,
+  setForm,
+}: {
+  form: ReturnType<typeof emptyTypeForm>
+  setForm: Dispatch<SetStateAction<ReturnType<typeof emptyTypeForm>>>
+}) {
+  return (
+    <div className="grid gap-4 py-2">
+      <div className="space-y-2">
+        <Label>Название</Label>
+        <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+      </div>
+      <div className="space-y-2">
+        <Label>Код (латиница)</Label>
+        <Input value={form.code} onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))} placeholder="computer_lab" />
+      </div>
+      <div className="space-y-2">
+        <Label>Цвет</Label>
+        <Select value={form.color} onValueChange={(v) => setForm((f) => ({ ...f, color: v }))}>
+          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {CLASSROOM_TYPE_COLOR_OPTIONS.map((c) => (
+              <SelectItem key={c.value} value={c.value}>
+                <span className="flex items-center gap-2">
+                  <span className={`px-2 py-0.5 rounded text-xs border ${c.value}`}>Aa</span>
+                  {c.label}
+                </span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="space-y-2">
+        <Label>Описание</Label>
+        <Textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} rows={3} />
+      </div>
+    </div>
+  )
+}
+
+function BuildingFormFields({
+  form,
+  setForm,
+}: {
+  form: ReturnType<typeof emptyBuildingForm>
+  setForm: Dispatch<SetStateAction<ReturnType<typeof emptyBuildingForm>>>
+}) {
+  return (
+    <div className="grid gap-4 py-2">
+      <div className="space-y-2">
+        <Label>Название</Label>
+        <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+      </div>
+      <div className="space-y-2">
+        <Label>Адрес</Label>
+        <Input value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} />
+      </div>
+      <div className="space-y-2">
+        <Label>Количество этажей</Label>
+        <Input type="number" min={0} value={form.floors} onChange={(e) => setForm((f) => ({ ...f, floors: Number.parseInt(e.target.value, 10) || 0 }))} />
+      </div>
+      <div className="space-y-2">
+        <Label>Описание</Label>
+        <Textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} rows={3} />
+      </div>
     </div>
   )
 }

@@ -38,6 +38,11 @@ export async function updateClassroom(
 
     const data = validationResult.data
 
+    let isActivePatch: boolean | undefined
+    if (data.listingStatus !== undefined) {
+      isActivePatch = data.listingStatus !== "INACTIVE"
+    }
+
     // Проверка уникальности номера кабинета (если изменяется)
     if (data.number && data.number !== existing.number) {
       const duplicate = await prisma.classroom.findUnique({
@@ -64,10 +69,14 @@ export async function updateClassroom(
       }
     }
 
-    // Обновление кабинета
+    const { listingStatus: _ls, ...rest } = data
     const classroom = await prisma.classroom.update({
       where: { id },
-      data,
+      data: {
+        ...rest,
+        ...(data.listingStatus !== undefined ? { listingStatus: data.listingStatus } : {}),
+        ...(isActivePatch !== undefined ? { isActive: isActivePatch } : {}),
+      },
     })
 
     return {

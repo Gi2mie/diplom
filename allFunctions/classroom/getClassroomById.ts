@@ -15,6 +15,8 @@ export async function getClassroomById(id: string): Promise<GetClassroomByIdResu
       where: { id },
       include: {
         responsible: true,
+        building: true,
+        classroomType: true,
         workstations: {
           include: {
             equipment: {
