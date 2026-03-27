@@ -8,6 +8,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Input } from "@/components/ui/input"
 import { Monitor, AlertCircle, Cpu, Server, HardDrive, Eye, EyeOff } from "lucide-react"
+import { normalizeNhtkEmail } from "@/lib/user-validation"
 
 export default function LoginPage() {
   const router = useRouter()
@@ -32,7 +33,7 @@ export default function LoginPage() {
     setIsLoading(true)
 
     const result = await signIn("credentials", {
-      email,
+      email: normalizeNhtkEmail(email),
       password,
       redirect: false,
     })
@@ -155,8 +156,8 @@ export default function LoginPage() {
                 <AlertDescription className="text-blue-700 text-sm">
                   <strong>Тестовые учётные данные:</strong>
                   <div className="mt-2 space-y-1 text-xs">
-                    <div>Администратор: admin@edutrack.ru / admin123</div>
-                    <div>Преподаватель: teacher@edutrack.ru / teacher123</div>
+                    <div>Администратор: admin@nhtk / admin123</div>
+                    <div>Преподаватель: teacher@nhtk / teacher123</div>
                   </div>
                 </AlertDescription>
               </Alert>
@@ -171,7 +172,7 @@ export default function LoginPage() {
                   <Input
                     id="email"
                     type="email"
-                    placeholder="your@email.com"
+                    placeholder="user@nhtk"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     disabled={isLoading}

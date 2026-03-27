@@ -1,6 +1,7 @@
 import bcrypt from "bcryptjs"
-import { UserRole } from "@prisma/client"
+import { UserRole, UserStatus } from "@prisma/client"
 import { db } from "@/lib/db"
+import { normalizeNhtkEmail } from "@/lib/user-validation"
 
 function toUserRole(role?: string): UserRole {
   return role === UserRole.ADMIN ? UserRole.ADMIN : UserRole.TEACHER
@@ -9,7 +10,7 @@ function toUserRole(role?: string): UserRole {
 export async function getUserByEmail(email: string) {
   try {
     const user = await db.user.findUnique({
-      where: { email },
+      where: { email: normalizeNhtkEmail(email) },
     })
     return user
   } catch (error) {
@@ -51,11 +52,12 @@ export async function createUser(
 
     const user = await db.user.create({
       data: {
-        email,
+        email: normalizeNhtkEmail(email),
         passwordHash,
         firstName,
         lastName,
         role: toUserRole(role),
+        status: UserStatus.ACTIVE,
         isActive: true,
       },
     })

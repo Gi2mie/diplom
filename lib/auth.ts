@@ -1,6 +1,7 @@
 import NextAuth, { type NextAuthConfig, type User as NextAuthUser } from "next-auth"
 import Credentials from "next-auth/providers/credentials"
 import { getUserByEmail, markUserLastLogin, verifyPassword } from "@/lib/auth-db"
+import { normalizeNhtkEmail } from "@/lib/user-validation"
 
 declare module "next-auth" {
   interface Session {
@@ -41,13 +42,13 @@ export const authConfig: NextAuthConfig = {
           return null
         }
 
-        const email = credentials.email as string
+        const email = normalizeNhtkEmail(credentials.email as string)
         const password = credentials.password as string
 
         try {
           const user = await getUserByEmail(email)
 
-          if (!user || !user.isActive) {
+          if (!user || user.status === "BLOCKED" || user.status !== "ACTIVE" || !user.isActive) {
             return null
           }
 

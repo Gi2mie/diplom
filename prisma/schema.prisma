@@ -19,6 +19,12 @@ enum UserRole {
   TEACHER     // Преподаватель
 }
 
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  BLOCKED
+}
+
 model User {
   id            String    @id @default(cuid())
   email         String    @unique
@@ -26,9 +32,11 @@ model User {
   firstName     String    @map("first_name")
   lastName      String    @map("last_name")
   middleName    String?   @map("middle_name")
+  phone         String?   @map("phone")
   position      String?   @map("position")
   department    String?   @map("department")
   role          UserRole  @default(TEACHER)
+  status        UserStatus @default(ACTIVE)
   isActive      Boolean   @default(true) @map("is_active")
   lastLoginAt   DateTime? @map("last_login_at")
   createdAt     DateTime  @default(now()) @map("created_at")

@@ -1,0 +1,174 @@
+import { NextResponse } from "next/server"
+import bcrypt from "bcryptjs"
+import { auth } from "@/lib/auth"
+import { db } from "@/lib/db"
+import { UserRole, UserStatus } from "@prisma/client"
+import {
+  isValidNhtkEmail,
+  normalizeNhtkEmail,
+  validateUserPhoneOrThrow,
+} from "@/lib/user-validation"
+
+function toPublicUser(user: {
+  id: string
+  firstName: string
+  lastName: string
+  middleName: string | null
+  email: string
+  phone: string | null
+  role: UserRole
+  status: UserStatus
+  position: string | null
+  department: string | null
+  createdAt: Date
+  lastLoginAt: Date | null
+}) {
+  return {
+    ...user,
+    createdAt: user.createdAt.toISOString(),
+    lastLoginAt: user.lastLoginAt?.toISOString() ?? null,
+  }
+}
+
+function isAdmin(session: Awaited<ReturnType<typeof auth>>) {
+  return session?.user?.role === "ADMIN"
+}
+
+export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const session = await auth()
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  const { id } = await params
+  const user = await db.user.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      middleName: true,
+      email: true,
+      phone: true,
+      role: true,
+      status: true,
+      position: true,
+      department: true,
+      createdAt: true,
+      lastLoginAt: true,
+    },
+  })
+
+  if (!user) {
+    return NextResponse.json({ error: "Пользователь не найден" }, { status: 404 })
+  }
+
+  return NextResponse.json({ user: toPublicUser(user) })
+}
+
+export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const session = await auth()
+  if (!session?.user?.id || !isAdmin(session)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
+
+  const { id } = await params
+  const body = await request.json()
+
+  const {
+    firstName,
+    lastName,
+    middleName,
+    email,
+    phone,
+    role,
+    status,
+    position,
+    department,
+    password,
+  } = body as {
+    firstName?: string
+    lastName?: string
+    middleName?: string
+    email?: string
+    phone?: string
+    role?: UserRole
+    status?: UserStatus
+    position?: string
+    department?: string
+    password?: string
+  }
+
+  let nextEmail: string | undefined
+  if (email !== undefined) {
+    nextEmail = normalizeNhtkEmail(email)
+    if (!isValidNhtkEmail(nextEmail)) {
+      return NextResponse.json(
+        { error: "Email должен быть вида имя@nhtk (домен только @nhtk)" },
+        { status: 400 }
+      )
+    }
+    const existing = await db.user.findFirst({
+      where: { email: nextEmail, id: { not: id } },
+      select: { id: true },
+    })
+    if (existing) {
+      return NextResponse.json({ error: "Пользователь с таким email уже существует" }, { status: 409 })
+    }
+  }
+
+  let nextPhone: string | null | undefined
+  if (phone !== undefined) {
+    try {
+      nextPhone = phone ? validateUserPhoneOrThrow(phone) : null
+    } catch (e) {
+      return NextResponse.json(
+        { error: e instanceof Error ? e.message : "Некорректный телефон" },
+        { status: 400 }
+      )
+    }
+    if (!nextPhone) {
+      return NextResponse.json({ error: "Укажите номер телефона полностью" }, { status: 400 })
+    }
+  }
+
+  if (status === UserStatus.INACTIVE) {
+    return NextResponse.json({ error: "Статус «Неактивен» недопустим" }, { status: 400 })
+  }
+  if (status !== undefined && status !== UserStatus.ACTIVE && status !== UserStatus.BLOCKED) {
+    return NextResponse.json({ error: "Недопустимый статус" }, { status: 400 })
+  }
+
+  const user = await db.user.update({
+    where: { id },
+    data: {
+      ...(firstName !== undefined ? { firstName } : {}),
+      ...(lastName !== undefined ? { lastName } : {}),
+      ...(middleName !== undefined ? { middleName: middleName || null } : {}),
+      ...(nextEmail !== undefined ? { email: nextEmail } : {}),
+      ...(nextPhone !== undefined ? { phone: nextPhone } : {}),
+      ...(role !== undefined ? { role } : {}),
+      ...(status !== undefined ? { status, isActive: status === UserStatus.ACTIVE } : {}),
+      ...(position !== undefined ? { position: position || null } : {}),
+      ...(department !== undefined ? { department: department || null } : {}),
+      ...(password ? { passwordHash: await bcrypt.hash(password, 12) } : {}),
+    },
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      middleName: true,
+      email: true,
+      phone: true,
+      role: true,
+      status: true,
+      position: true,
+      department: true,
+      createdAt: true,
+      lastLoginAt: true,
+    },
+  })
+
+  return NextResponse.json({ user: toPublicUser(user) })
+}
+
