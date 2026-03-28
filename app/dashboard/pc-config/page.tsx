@@ -1,24 +1,19 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useCallback } from "react"
+import { useSession } from "next-auth/react"
 import {
-  Plus,
   Search,
   MoreHorizontal,
-  Pencil,
-  Trash2,
   Eye,
+  Pencil,
   Cpu,
   HardDrive,
   MemoryStick,
   CircuitBoard,
-  X,
-  RefreshCw,
   Download,
-  School,
-  MonitorSmartphone,
   Laptop,
-  Server
+  Server,
 } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -55,522 +50,197 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Separator } from "@/components/ui/separator"
-import { getMockSession, getCurrentMockPermissions, type MockSession, type MockPermissions } from "@/lib/mock-auth"
+import {
+  fetchClassroomRegistry,
+  type RegistryBuilding,
+  type RegistryClassroom,
+} from "@/lib/api/classroom-registry"
+import {
+  createPcConfig,
+  emptyPcConfigForm,
+  fetchPcConfigs,
+  pcRowToForm,
+  updatePcConfig,
+  type PcConfigRow,
+} from "@/lib/api/pc-config"
+import { fetchWorkstations, type ApiWorkstation } from "@/lib/api/workstations"
+import type { PcConfigSavePayload } from "@/lib/pc-config-persist"
+import { PcConfigFormFields } from "./pc-config-form-fields"
 
-// Типы
-type PCStatus = "active" | "inactive" | "repair" | "decommissioned"
-
-interface Classroom {
-  id: string
-  name: string
-  number: string
-  buildingName: string
-}
-
-interface Workstation {
-  id: string
-  name: string
-  number: string
-  classroomId: string
-}
-
-interface PCConfig {
-  id: string
-  name: string
-  workstationId: string
-  classroomId: string
-  status: PCStatus
-  // Процессор
-  cpuModel: string
-  cpuCores: number
-  cpuFrequency: string
-  // Оперативная память
-  ramSize: number
-  ramType: string
-  ramFrequency: string
-  // Накопители
-  storageType: string
-  storageSize: number
-  hasSecondaryStorage: boolean
-  secondaryStorageType: string
-  secondaryStorageSize: number
-  // Видеокарта
-  gpuModel: string
-  gpuMemory: number
-  // Материнская плата
-  motherboardModel: string
-  // Сеть
-  networkType: string
-  macAddress: string
-  ipAddress: string
-  // ОС
-  osName: string
-  osVersion: string
-  // Прочее
-  inventoryNumber: string
-  purchaseDate: string
-  warrantyEnd: string
-  lastUpdate: string
-  notes: string
-}
-
-// Mock данные аудиторий
-const mockClassrooms: Classroom[] = [
-  { id: "1", name: "Аудитория 301", number: "301", buildingName: "Главный корпус" },
-  { id: "2", name: "Компьютерный класс 105", number: "105", buildingName: "Главный корпус" },
-  { id: "3", name: "Лекционный зал 401", number: "401", buildingName: "Главный корпус" },
-  { id: "4", name: "Лаборатория 201", number: "201", buildingName: "Корпус Б" },
-  { id: "5", name: "Конференц-зал", number: "501", buildingName: "Главный корпус" },
-]
-
-// Mock данные рабочих мест
-const mockWorkstations: Workstation[] = [
-  { id: "1", name: "Рабочее место 1", number: "RM-301-01", classroomId: "1" },
-  { id: "2", name: "Рабочее место 2", number: "RM-301-02", classroomId: "1" },
-  { id: "3", name: "Рабочее место 1", number: "RM-105-01", classroomId: "2" },
-  { id: "4", name: "Рабочее место 2", number: "RM-105-02", classroomId: "2" },
-  { id: "5", name: "Рабочее место 3", number: "RM-105-03", classroomId: "2" },
-  { id: "6", name: "Рабочее место 4", number: "RM-105-04", classroomId: "2" },
-  { id: "7", name: "Рабочее место 1", number: "RM-401-01", classroomId: "3" },
-  { id: "8", name: "Рабочее место 1", number: "RM-201-01", classroomId: "4" },
-  { id: "9", name: "Рабочее место 2", number: "RM-201-02", classroomId: "4" },
-]
-
-// Mock данные конфигураций ПК
-const initialPCConfigs: PCConfig[] = [
-  {
-    id: "1",
-    name: "PC-301-01",
-    workstationId: "1",
-    classroomId: "1",
-    status: "active",
-    cpuModel: "Intel Core i5-12400",
-    cpuCores: 6,
-    cpuFrequency: "2.5 GHz",
-    ramSize: 16,
-    ramType: "DDR4",
-    ramFrequency: "3200 MHz",
-    storageType: "SSD NVMe",
-    storageSize: 512,
-    hasSecondaryStorage: true,
-    secondaryStorageType: "HDD",
-    secondaryStorageSize: 1000,
-    gpuModel: "Intel UHD Graphics 730",
-    gpuMemory: 0,
-    motherboardModel: "ASUS PRIME B660M-K",
-    networkType: "Ethernet 1Gbps",
-    macAddress: "AA:BB:CC:DD:EE:01",
-    ipAddress: "192.168.1.101",
-    osName: "Windows",
-    osVersion: "11 Pro",
-    inventoryNumber: "INV-2024-0001",
-    purchaseDate: "2024-01-15",
-    warrantyEnd: "2027-01-15",
-    lastUpdate: "2025-03-15",
-    notes: "Компьютер преподавателя"
-  },
-  {
-    id: "2",
-    name: "PC-301-02",
-    workstationId: "2",
-    classroomId: "1",
-    status: "active",
-    cpuModel: "Intel Core i5-12400",
-    cpuCores: 6,
-    cpuFrequency: "2.5 GHz",
-    ramSize: 16,
-    ramType: "DDR4",
-    ramFrequency: "3200 MHz",
-    storageType: "SSD NVMe",
-    storageSize: 256,
-    hasSecondaryStorage: false,
-    secondaryStorageType: "",
-    secondaryStorageSize: 0,
-    gpuModel: "Intel UHD Graphics 730",
-    gpuMemory: 0,
-    motherboardModel: "ASUS PRIME B660M-K",
-    networkType: "Ethernet 1Gbps",
-    macAddress: "AA:BB:CC:DD:EE:02",
-    ipAddress: "192.168.1.102",
-    osName: "Windows",
-    osVersion: "11 Pro",
-    inventoryNumber: "INV-2024-0002",
-    purchaseDate: "2024-01-15",
-    warrantyEnd: "2027-01-15",
-    lastUpdate: "2025-03-15",
-    notes: ""
-  },
-  {
-    id: "3",
-    name: "PC-105-01",
-    workstationId: "3",
-    classroomId: "2",
-    status: "active",
-    cpuModel: "AMD Ryzen 7 5800X",
-    cpuCores: 8,
-    cpuFrequency: "3.8 GHz",
-    ramSize: 32,
-    ramType: "DDR4",
-    ramFrequency: "3600 MHz",
-    storageType: "SSD NVMe",
-    storageSize: 1000,
-    hasSecondaryStorage: true,
-    secondaryStorageType: "HDD",
-    secondaryStorageSize: 2000,
-    gpuModel: "NVIDIA GeForce RTX 3060",
-    gpuMemory: 12,
-    motherboardModel: "MSI B550 TOMAHAWK",
-    networkType: "Ethernet 1Gbps",
-    macAddress: "AA:BB:CC:DD:EE:03",
-    ipAddress: "192.168.1.201",
-    osName: "Windows",
-    osVersion: "11 Pro",
-    inventoryNumber: "INV-2024-0010",
-    purchaseDate: "2024-02-20",
-    warrantyEnd: "2027-02-20",
-    lastUpdate: "2025-03-10",
-    notes: "Мощный ПК для графических работ"
-  },
-  {
-    id: "4",
-    name: "PC-105-02",
-    workstationId: "4",
-    classroomId: "2",
-    status: "active",
-    cpuModel: "AMD Ryzen 5 5600X",
-    cpuCores: 6,
-    cpuFrequency: "3.7 GHz",
-    ramSize: 16,
-    ramType: "DDR4",
-    ramFrequency: "3200 MHz",
-    storageType: "SSD NVMe",
-    storageSize: 512,
-    hasSecondaryStorage: false,
-    secondaryStorageType: "",
-    secondaryStorageSize: 0,
-    gpuModel: "NVIDIA GeForce GTX 1660",
-    gpuMemory: 6,
-    motherboardModel: "ASRock B550M Pro4",
-    networkType: "Ethernet 1Gbps",
-    macAddress: "AA:BB:CC:DD:EE:04",
-    ipAddress: "192.168.1.202",
-    osName: "Windows",
-    osVersion: "10 Pro",
-    inventoryNumber: "INV-2023-0055",
-    purchaseDate: "2023-09-01",
-    warrantyEnd: "2026-09-01",
-    lastUpdate: "2025-02-28",
-    notes: ""
-  },
-  {
-    id: "5",
-    name: "PC-105-03",
-    workstationId: "5",
-    classroomId: "2",
-    status: "repair",
-    cpuModel: "Intel Core i7-11700",
-    cpuCores: 8,
-    cpuFrequency: "2.5 GHz",
-    ramSize: 16,
-    ramType: "DDR4",
-    ramFrequency: "3200 MHz",
-    storageType: "SSD SATA",
-    storageSize: 480,
-    hasSecondaryStorage: false,
-    secondaryStorageType: "",
-    secondaryStorageSize: 0,
-    gpuModel: "Intel UHD Graphics 750",
-    gpuMemory: 0,
-    motherboardModel: "Gigabyte B560M DS3H",
-    networkType: "Ethernet 1Gbps",
-    macAddress: "AA:BB:CC:DD:EE:05",
-    ipAddress: "192.168.1.203",
-    osName: "Windows",
-    osVersion: "10 Pro",
-    inventoryNumber: "INV-2022-0123",
-    purchaseDate: "2022-03-15",
-    warrantyEnd: "2025-03-15",
-    lastUpdate: "2025-03-20",
-    notes: "На ремонте - неисправен блок питания"
-  },
-  {
-    id: "6",
-    name: "PC-201-01",
-    workstationId: "8",
-    classroomId: "4",
-    status: "active",
-    cpuModel: "Intel Core i9-12900K",
-    cpuCores: 16,
-    cpuFrequency: "3.2 GHz",
-    ramSize: 64,
-    ramType: "DDR5",
-    ramFrequency: "4800 MHz",
-    storageType: "SSD NVMe",
-    storageSize: 2000,
-    hasSecondaryStorage: true,
-    secondaryStorageType: "SSD NVMe",
-    secondaryStorageSize: 2000,
-    gpuModel: "NVIDIA GeForce RTX 4080",
-    gpuMemory: 16,
-    motherboardModel: "ASUS ROG STRIX Z690-E",
-    networkType: "Ethernet 2.5Gbps",
-    macAddress: "AA:BB:CC:DD:EE:10",
-    ipAddress: "192.168.2.101",
-    osName: "Windows",
-    osVersion: "11 Pro",
-    inventoryNumber: "INV-2024-0100",
-    purchaseDate: "2024-06-01",
-    warrantyEnd: "2027-06-01",
-    lastUpdate: "2025-03-01",
-    notes: "Рабочая станция для научных вычислений"
-  },
-  {
-    id: "7",
-    name: "PC-201-02",
-    workstationId: "9",
-    classroomId: "4",
-    status: "inactive",
-    cpuModel: "Intel Core i5-10400",
-    cpuCores: 6,
-    cpuFrequency: "2.9 GHz",
-    ramSize: 8,
-    ramType: "DDR4",
-    ramFrequency: "2666 MHz",
-    storageType: "HDD",
-    storageSize: 500,
-    hasSecondaryStorage: false,
-    secondaryStorageType: "",
-    secondaryStorageSize: 0,
-    gpuModel: "Intel UHD Graphics 630",
-    gpuMemory: 0,
-    motherboardModel: "Gigabyte H410M S2H",
-    networkType: "Ethernet 1Gbps",
-    macAddress: "AA:BB:CC:DD:EE:11",
-    ipAddress: "192.168.2.102",
-    osName: "Windows",
-    osVersion: "10 Home",
-    inventoryNumber: "INV-2020-0050",
-    purchaseDate: "2020-09-01",
-    warrantyEnd: "2023-09-01",
-    lastUpdate: "2024-12-15",
-    notes: "Устаревший ПК, планируется замена"
-  },
-]
+type PCStatus = PcConfigRow["status"]
+type PCConfig = PcConfigRow
 
 const statusLabels: Record<PCStatus, string> = {
   active: "Активен",
-  inactive: "Неактивен",
   repair: "На ремонте",
-  decommissioned: "Списан"
+  decommissioned: "Списан",
 }
 
 const statusColors: Record<PCStatus, string> = {
   active: "bg-green-100 text-green-800 border-green-200",
-  inactive: "bg-gray-100 text-gray-800 border-gray-200",
   repair: "bg-yellow-100 text-yellow-800 border-yellow-200",
-  decommissioned: "bg-red-100 text-red-800 border-red-200"
+  decommissioned: "bg-red-100 text-red-800 border-red-200",
 }
 
 export default function PCConfigPage() {
-  const [session, setSession] = useState<MockSession | null>(null)
-  const [permissions, setPermissions] = useState<MockPermissions | null>(null)
-  const [pcConfigs, setPCConfigs] = useState<PCConfig[]>(initialPCConfigs)
-  
-  // Фильтры и поиск
+  const { status: sessionStatus } = useSession()
+  const [pcConfigs, setPCConfigs] = useState<PCConfig[]>([])
+  const [classrooms, setClassrooms] = useState<RegistryClassroom[]>([])
+  const [buildings, setBuildings] = useState<RegistryBuilding[]>([])
+  const [workstations, setWorkstations] = useState<ApiWorkstation[]>([])
+  const [loadError, setLoadError] = useState<string | null>(null)
+
   const [searchQuery, setSearchQuery] = useState("")
   const [classroomFilter, setClassroomFilter] = useState("all")
   const [statusFilter, setStatusFilter] = useState("all")
-  
-  // Диалоги
+
+  const [isViewDialogOpen, setIsViewDialogOpen] = useState(false)
+  const [selectedPC, setSelectedPC] = useState<PCConfig | null>(null)
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
-  const [isViewDialogOpen, setIsViewDialogOpen] = useState(false)
-  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
-  const [selectedPC, setSelectedPC] = useState<PCConfig | null>(null)
-  
-  // Форма
-  const [formData, setFormData] = useState<Partial<PCConfig>>({
-    name: "",
-    workstationId: "",
-    classroomId: "",
-    status: "active",
-    cpuModel: "",
-    cpuCores: 4,
-    cpuFrequency: "",
-    ramSize: 8,
-    ramType: "DDR4",
-    ramFrequency: "",
-    storageType: "SSD NVMe",
-    storageSize: 256,
-    hasSecondaryStorage: false,
-    secondaryStorageType: "",
-    secondaryStorageSize: 0,
-    gpuModel: "",
-    gpuMemory: 0,
-    motherboardModel: "",
-    networkType: "Ethernet 1Gbps",
-    macAddress: "",
-    ipAddress: "",
-    osName: "Windows",
-    osVersion: "",
-    inventoryNumber: "",
-    purchaseDate: "",
-    warrantyEnd: "",
-    notes: ""
-  })
+  const [form, setForm] = useState<PcConfigSavePayload>(() => emptyPcConfigForm())
+  const [editingEquipmentId, setEditingEquipmentId] = useState<string | null>(null)
+  const [formSaving, setFormSaving] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
+  const [formCascadeKey, setFormCascadeKey] = useState(0)
 
-  useEffect(() => {
-    setSession(getMockSession())
-    setPermissions(getCurrentMockPermissions())
+  const loadData = useCallback(async () => {
+    setLoadError(null)
+    try {
+      const [registry, pcs, ws] = await Promise.all([
+        fetchClassroomRegistry(),
+        fetchPcConfigs(),
+        fetchWorkstations(),
+      ])
+      setClassrooms(registry.classrooms)
+      setBuildings(registry.buildings)
+      setPCConfigs(pcs)
+      setWorkstations(ws)
+    } catch {
+      setLoadError("Не удалось загрузить данные. Проверьте подключение и попробуйте снова.")
+    }
   }, [])
 
-  // Фильтрация данных
+  useEffect(() => {
+    if (sessionStatus === "authenticated") {
+      void loadData()
+    }
+  }, [sessionStatus, loadData])
+
   const filteredPCs = useMemo(() => {
-    return pcConfigs.filter(pc => {
-      // Поиск по номеру рабочего места
-      const workstation = mockWorkstations.find(w => w.id === pc.workstationId)
+    return pcConfigs.filter((pc) => {
       const searchLower = searchQuery.toLowerCase()
-      const matchesSearch = searchQuery === "" || 
+      const codeLower = pc.workstationCode.toLowerCase()
+      const matchesSearch =
+        searchQuery === "" ||
         pc.name.toLowerCase().includes(searchLower) ||
-        (workstation?.number.toLowerCase().includes(searchLower)) ||
+        codeLower.includes(searchLower) ||
         pc.cpuModel.toLowerCase().includes(searchLower) ||
         pc.inventoryNumber.toLowerCase().includes(searchLower) ||
         pc.ipAddress.includes(searchQuery)
-      
-      // Фильтр по аудитории
+
       const matchesClassroom = classroomFilter === "all" || pc.classroomId === classroomFilter
-      
-      // Фильтр по статусу
       const matchesStatus = statusFilter === "all" || pc.status === statusFilter
-      
+
       return matchesSearch && matchesClassroom && matchesStatus
     })
   }, [pcConfigs, searchQuery, classroomFilter, statusFilter])
 
-  // Статистика
   const stats = useMemo(() => {
     return {
       total: pcConfigs.length,
-      active: pcConfigs.filter(pc => pc.status === "active").length,
-      inactive: pcConfigs.filter(pc => pc.status === "inactive").length,
-      repair: pcConfigs.filter(pc => pc.status === "repair").length,
-      decommissioned: pcConfigs.filter(pc => pc.status === "decommissioned").length
+      active: pcConfigs.filter((pc) => pc.status === "active").length,
+      repair: pcConfigs.filter((pc) => pc.status === "repair").length,
+      decommissioned: pcConfigs.filter((pc) => pc.status === "decommissioned").length,
     }
   }, [pcConfigs])
 
-  // Получить рабочие места по аудитории
-  const getWorkstationsByClassroom = (classroomId: string) => {
-    return mockWorkstations.filter(w => w.classroomId === classroomId)
+  const getClassroomName = (classroomId: string) => {
+    const c = classrooms.find((x) => x.id === classroomId)
+    if (!c) return "—"
+    const num = c.number?.trim()
+    const name = c.name?.trim()
+    if (num && name) return `${name} (${num})`
+    return num || name || "—"
   }
 
-  // Обработчики
-  const handleAdd = () => {
-    const newPC: PCConfig = {
-      ...formData as PCConfig,
-      id: String(Date.now()),
-      lastUpdate: new Date().toISOString().split('T')[0]
-    }
-    setPCConfigs([...pcConfigs, newPC])
-    setIsAddDialogOpen(false)
-    resetForm()
-  }
-
-  const handleEdit = () => {
-    if (!selectedPC) return
-    setPCConfigs(pcConfigs.map(pc => 
-      pc.id === selectedPC.id 
-        ? { ...formData as PCConfig, id: selectedPC.id, lastUpdate: new Date().toISOString().split('T')[0] } 
-        : pc
-    ))
-    setIsEditDialogOpen(false)
-    setSelectedPC(null)
-    resetForm()
-  }
-
-  const handleDelete = () => {
-    if (!selectedPC) return
-    setPCConfigs(pcConfigs.filter(pc => pc.id !== selectedPC.id))
-    setIsDeleteDialogOpen(false)
-    setSelectedPC(null)
-  }
-
-  const openEditDialog = (pc: PCConfig) => {
-    setSelectedPC(pc)
-    setFormData(pc)
-    setIsEditDialogOpen(true)
-  }
+  const classroomLabelForPc = (pc: PCConfig) =>
+    pc.classroomDisplayName?.trim() || getClassroomName(pc.classroomId)
 
   const openViewDialog = (pc: PCConfig) => {
     setSelectedPC(pc)
     setIsViewDialogOpen(true)
   }
 
-  const openDeleteDialog = (pc: PCConfig) => {
-    setSelectedPC(pc)
-    setIsDeleteDialogOpen(true)
+  const openAddDialog = () => {
+    setFormError(null)
+    setForm(emptyPcConfigForm())
+    setFormCascadeKey((k) => k + 1)
+    setIsAddDialogOpen(true)
   }
 
-  const resetForm = () => {
-    setFormData({
-      name: "",
-      workstationId: "",
-      classroomId: "",
-      status: "active",
-      cpuModel: "",
-      cpuCores: 4,
-      cpuFrequency: "",
-      ramSize: 8,
-      ramType: "DDR4",
-      ramFrequency: "",
-      storageType: "SSD NVMe",
-      storageSize: 256,
-      hasSecondaryStorage: false,
-      secondaryStorageType: "",
-      secondaryStorageSize: 0,
-      gpuModel: "",
-      gpuMemory: 0,
-      motherboardModel: "",
-      networkType: "Ethernet 1Gbps",
-      macAddress: "",
-      ipAddress: "",
-      osName: "Windows",
-      osVersion: "",
-      inventoryNumber: "",
-      purchaseDate: "",
-      warrantyEnd: "",
-      notes: ""
+  const openEditDialog = (pc: PCConfig) => {
+    setFormError(null)
+    setEditingEquipmentId(pc.id)
+    setForm(pcRowToForm(pc))
+    setFormCascadeKey((k) => k + 1)
+    setIsEditDialogOpen(true)
+    setIsViewDialogOpen(false)
+  }
+
+  const mergeRowIntoList = (row: PCConfig) => {
+    setPCConfigs((prev) => {
+      const i = prev.findIndex((p) => p.id === row.id)
+      if (i < 0) return [row, ...prev]
+      const next = [...prev]
+      next[i] = row
+      return next
     })
   }
 
-  const resetFilters = () => {
-    setSearchQuery("")
-    setClassroomFilter("all")
-    setStatusFilter("all")
+  const handleSubmitAdd = async () => {
+    setFormError(null)
+    if (!form.workstationId.trim()) {
+      setFormError("Выберите рабочее место")
+      return
+    }
+    setFormSaving(true)
+    try {
+      const row = await createPcConfig(form)
+      mergeRowIntoList(row)
+      setIsAddDialogOpen(false)
+      setForm(emptyPcConfigForm())
+    } catch (e) {
+      setFormError(e instanceof Error ? e.message : "Не удалось сохранить")
+    } finally {
+      setFormSaving(false)
+    }
   }
 
-  const getClassroomName = (classroomId: string) => {
-    return mockClassrooms.find(c => c.id === classroomId)?.name || "Неизвестно"
+  const handleSubmitEdit = async () => {
+    if (!editingEquipmentId) return
+    setFormError(null)
+    if (!form.workstationId.trim()) {
+      setFormError("Выберите рабочее место")
+      return
+    }
+    setFormSaving(true)
+    try {
+      const row = await updatePcConfig(editingEquipmentId, form)
+      mergeRowIntoList(row)
+      setIsEditDialogOpen(false)
+      setEditingEquipmentId(null)
+      if (selectedPC?.id === row.id) setSelectedPC(row)
+    } catch (e) {
+      setFormError(e instanceof Error ? e.message : "Не удалось сохранить")
+    } finally {
+      setFormSaving(false)
+    }
   }
 
-  const getWorkstationNumber = (workstationId: string) => {
-    return mockWorkstations.find(w => w.id === workstationId)?.number || "Неизвестно"
-  }
-
-  if (!session || !permissions) {
+  if (sessionStatus === "loading") {
     return (
       <div className="space-y-6">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -594,7 +264,7 @@ export default function PCConfigPage() {
         <Card>
           <CardContent className="p-6">
             <div className="space-y-4">
-              {[1, 2, 3, 4, 5].map((i) => (
+              {[1, 2, 3, 4].map((i) => (
                 <Skeleton key={i} className="h-16 w-full" />
               ))}
             </div>
@@ -615,19 +285,24 @@ export default function PCConfigPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm">
+          <Button type="button" onClick={openAddDialog}>
+            Добавить конфигурацию
+          </Button>
+          <Button variant="outline" size="sm" type="button">
             <Download className="mr-2 h-4 w-4" />
             Экспорт
-          </Button>
-          <Button onClick={() => setIsAddDialogOpen(true)}>
-            <Plus className="mr-2 h-4 w-4" />
-            Добавить ПК
           </Button>
         </div>
       </div>
 
+      {loadError && (
+        <div className="rounded-md border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {loadError}
+        </div>
+      )}
+
       {/* Статистика */}
-      <div className="grid gap-4 md:grid-cols-5">
+      <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Всего ПК</CardTitle>
@@ -644,15 +319,6 @@ export default function PCConfigPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-green-600">{stats.active}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Неактивных</CardTitle>
-            <Server className="h-4 w-4 text-gray-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-gray-500">{stats.inactive}</div>
           </CardContent>
         </Card>
         <Card>
@@ -681,7 +347,7 @@ export default function PCConfigPage() {
           <CardTitle className="text-base">Фильтры</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-4 md:grid-cols-4">
+          <div className="grid gap-4 md:grid-cols-3">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -697,9 +363,11 @@ export default function PCConfigPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Все аудитории</SelectItem>
-                {mockClassrooms.map((classroom) => (
+                {classrooms.map((classroom) => (
                   <SelectItem key={classroom.id} value={classroom.id}>
-                    {classroom.name}
+                    {classroom.name?.trim()
+                      ? `${classroom.name.trim()} (${classroom.number})`
+                      : classroom.number || "—"}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -711,15 +379,10 @@ export default function PCConfigPage() {
               <SelectContent>
                 <SelectItem value="all">Все статусы</SelectItem>
                 <SelectItem value="active">Активен</SelectItem>
-                <SelectItem value="inactive">Неактивен</SelectItem>
                 <SelectItem value="repair">На ремонте</SelectItem>
                 <SelectItem value="decommissioned">Списан</SelectItem>
               </SelectContent>
             </Select>
-            <Button variant="outline" onClick={resetFilters}>
-              <RefreshCw className="mr-2 h-4 w-4" />
-              Сбросить
-            </Button>
           </div>
         </CardContent>
       </Card>
@@ -766,9 +429,9 @@ export default function PCConfigPage() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline">{getWorkstationNumber(pc.workstationId)}</Badge>
+                      <Badge variant="outline">{pc.workstationCode}</Badge>
                     </TableCell>
-                    <TableCell>{getClassroomName(pc.classroomId)}</TableCell>
+                    <TableCell>{classroomLabelForPc(pc)}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1.5">
                         <Cpu className="h-3.5 w-3.5 text-muted-foreground" />
@@ -810,14 +473,6 @@ export default function PCConfigPage() {
                             <Pencil className="mr-2 h-4 w-4" />
                             Редактировать
                           </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem 
-                            onClick={() => openDeleteDialog(pc)}
-                            className="text-red-600"
-                          >
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            Удалить
-                          </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>
@@ -838,8 +493,8 @@ export default function PCConfigPage() {
               Конфигурация ПК: {selectedPC?.name}
             </DialogTitle>
             <DialogDescription>
-              Рабочее место: {selectedPC && getWorkstationNumber(selectedPC.workstationId)} | 
-              Аудитория: {selectedPC && getClassroomName(selectedPC.classroomId)}
+              Рабочее место: {selectedPC?.workstationCode} | Аудитория:{" "}
+              {selectedPC && classroomLabelForPc(selectedPC)}
             </DialogDescription>
           </DialogHeader>
           
@@ -1007,14 +662,15 @@ export default function PCConfigPage() {
             </div>
           )}
           
-          <DialogFooter>
+          <DialogFooter className="gap-2 sm:gap-0">
             <Button variant="outline" onClick={() => setIsViewDialogOpen(false)}>
               Закрыть
             </Button>
-            <Button onClick={() => {
-              setIsViewDialogOpen(false)
-              if (selectedPC) openEditDialog(selectedPC)
-            }}>
+            <Button
+              onClick={() => {
+                if (selectedPC) openEditDialog(selectedPC)
+              }}
+            >
               <Pencil className="mr-2 h-4 w-4" />
               Редактировать
             </Button>
@@ -1022,739 +678,96 @@ export default function PCConfigPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Диалог добавления */}
-      <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <Dialog
+        open={isAddDialogOpen}
+        onOpenChange={(open) => {
+          setIsAddDialogOpen(open)
+          if (!open) setFormError(null)
+        }}
+      >
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Добавить конфигурацию ПК</DialogTitle>
             <DialogDescription>
-              Укажите характеристики нового компьютера
+              Данные сохраняются в базу: оборудование, компоненты и привязка к рабочему месту.
             </DialogDescription>
           </DialogHeader>
-          
-          <div className="space-y-6 py-4">
-            {/* Основная информация */}
-            <div className="space-y-4">
-              <h4 className="font-medium text-sm text-muted-foreground">Основная информация</h4>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="name">Имя ПК</Label>
-                  <Input
-                    id="name"
-                    value={formData.name || ""}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    placeholder="PC-301-01"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="inventoryNumber">Инвентарный номер</Label>
-                  <Input
-                    id="inventoryNumber"
-                    value={formData.inventoryNumber || ""}
-                    onChange={(e) => setFormData({ ...formData, inventoryNumber: e.target.value })}
-                    placeholder="INV-2024-0001"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="classroomId">Аудитория</Label>
-                  <Select 
-                    value={formData.classroomId || ""} 
-                    onValueChange={(value) => setFormData({ ...formData, classroomId: value, workstationId: "" })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Выберите аудиторию" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {mockClassrooms.map((classroom) => (
-                        <SelectItem key={classroom.id} value={classroom.id}>
-                          {classroom.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="workstationId">Рабочее место</Label>
-                  <Select 
-                    value={formData.workstationId || ""} 
-                    onValueChange={(value) => setFormData({ ...formData, workstationId: value })}
-                    disabled={!formData.classroomId}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Выберите рабочее место" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {formData.classroomId && getWorkstationsByClassroom(formData.classroomId).map((ws) => (
-                        <SelectItem key={ws.id} value={ws.id}>
-                          {ws.number} - {ws.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="status">Статус</Label>
-                  <Select 
-                    value={formData.status || "active"} 
-                    onValueChange={(value) => setFormData({ ...formData, status: value as PCStatus })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="active">Активен</SelectItem>
-                      <SelectItem value="inactive">Неактивен</SelectItem>
-                      <SelectItem value="repair">На ремонте</SelectItem>
-                      <SelectItem value="decommissioned">Списан</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
+          {formError && (
+            <div className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {formError}
             </div>
-            
-            <Separator />
-            
-            {/* Процессор */}
-            <div className="space-y-4">
-              <h4 className="font-medium text-sm text-muted-foreground">Процессор</h4>
-              <div className="grid grid-cols-3 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="cpuModel">Модель</Label>
-                  <Input
-                    id="cpuModel"
-                    value={formData.cpuModel || ""}
-                    onChange={(e) => setFormData({ ...formData, cpuModel: e.target.value })}
-                    placeholder="Intel Core i5-12400"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="cpuCores">Ядер</Label>
-                  <Input
-                    id="cpuCores"
-                    type="number"
-                    value={formData.cpuCores || 4}
-                    onChange={(e) => setFormData({ ...formData, cpuCores: parseInt(e.target.value) })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="cpuFrequency">Частота</Label>
-                  <Input
-                    id="cpuFrequency"
-                    value={formData.cpuFrequency || ""}
-                    onChange={(e) => setFormData({ ...formData, cpuFrequency: e.target.value })}
-                    placeholder="2.5 GHz"
-                  />
-                </div>
-              </div>
-            </div>
-            
-            <Separator />
-            
-            {/* ОЗУ */}
-            <div className="space-y-4">
-              <h4 className="font-medium text-sm text-muted-foreground">Оперативная память</h4>
-              <div className="grid grid-cols-3 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="ramSize">Объём (ГБ)</Label>
-                  <Input
-                    id="ramSize"
-                    type="number"
-                    value={formData.ramSize || 8}
-                    onChange={(e) => setFormData({ ...formData, ramSize: parseInt(e.target.value) })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="ramType">Тип</Label>
-                  <Select 
-                    value={formData.ramType || "DDR4"} 
-                    onValueChange={(value) => setFormData({ ...formData, ramType: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="DDR3">DDR3</SelectItem>
-                      <SelectItem value="DDR4">DDR4</SelectItem>
-                      <SelectItem value="DDR5">DDR5</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="ramFrequency">Частота</Label>
-                  <Input
-                    id="ramFrequency"
-                    value={formData.ramFrequency || ""}
-                    onChange={(e) => setFormData({ ...formData, ramFrequency: e.target.value })}
-                    placeholder="3200 MHz"
-                  />
-                </div>
-              </div>
-            </div>
-            
-            <Separator />
-            
-            {/* Накопители */}
-            <div className="space-y-4">
-              <h4 className="font-medium text-sm text-muted-foreground">Накопители</h4>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="storageType">Тип основного</Label>
-                  <Select 
-                    value={formData.storageType || "SSD NVMe"} 
-                    onValueChange={(value) => setFormData({ ...formData, storageType: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="HDD">HDD</SelectItem>
-                      <SelectItem value="SSD SATA">SSD SATA</SelectItem>
-                      <SelectItem value="SSD NVMe">SSD NVMe</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="storageSize">Объём (ГБ)</Label>
-                  <Input
-                    id="storageSize"
-                    type="number"
-                    value={formData.storageSize || 256}
-                    onChange={(e) => setFormData({ ...formData, storageSize: parseInt(e.target.value) })}
-                  />
-                </div>
-              </div>
-            </div>
-            
-            <Separator />
-            
-            {/* Видеокарта */}
-            <div className="space-y-4">
-              <h4 className="font-medium text-sm text-muted-foreground">Видеокарта</h4>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="gpuModel">Модель</Label>
-                  <Input
-                    id="gpuModel"
-                    value={formData.gpuModel || ""}
-                    onChange={(e) => setFormData({ ...formData, gpuModel: e.target.value })}
-                    placeholder="Intel UHD Graphics 730"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="gpuMemory">Видеопамять (ГБ)</Label>
-                  <Input
-                    id="gpuMemory"
-                    type="number"
-                    value={formData.gpuMemory || 0}
-                    onChange={(e) => setFormData({ ...formData, gpuMemory: parseInt(e.target.value) })}
-                  />
-                </div>
-              </div>
-            </div>
-            
-            <Separator />
-            
-            {/* Сеть */}
-            <div className="space-y-4">
-              <h4 className="font-medium text-sm text-muted-foreground">Сеть</h4>
-              <div className="grid grid-cols-3 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="networkType">Тип подключения</Label>
-                  <Select 
-                    value={formData.networkType || "Ethernet 1Gbps"} 
-                    onValueChange={(value) => setFormData({ ...formData, networkType: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Ethernet 100Mbps">Ethernet 100Mbps</SelectItem>
-                      <SelectItem value="Ethernet 1Gbps">Ethernet 1Gbps</SelectItem>
-                      <SelectItem value="Ethernet 2.5Gbps">Ethernet 2.5Gbps</SelectItem>
-                      <SelectItem value="Wi-Fi">Wi-Fi</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="ipAddress">IP-адрес</Label>
-                  <Input
-                    id="ipAddress"
-                    value={formData.ipAddress || ""}
-                    onChange={(e) => setFormData({ ...formData, ipAddress: e.target.value })}
-                    placeholder="192.168.1.100"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="macAddress">MAC-адрес</Label>
-                  <Input
-                    id="macAddress"
-                    value={formData.macAddress || ""}
-                    onChange={(e) => setFormData({ ...formData, macAddress: e.target.value })}
-                    placeholder="AA:BB:CC:DD:EE:FF"
-                  />
-                </div>
-              </div>
-            </div>
-            
-            <Separator />
-            
-            {/* ОС и прочее */}
-            <div className="space-y-4">
-              <h4 className="font-medium text-sm text-muted-foreground">Операционная система</h4>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="osName">ОС</Label>
-                  <Select 
-                    value={formData.osName || "Windows"} 
-                    onValueChange={(value) => setFormData({ ...formData, osName: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Windows">Windows</SelectItem>
-                      <SelectItem value="Linux">Linux</SelectItem>
-                      <SelectItem value="macOS">macOS</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="osVersion">Версия</Label>
-                  <Input
-                    id="osVersion"
-                    value={formData.osVersion || ""}
-                    onChange={(e) => setFormData({ ...formData, osVersion: e.target.value })}
-                    placeholder="11 Pro"
-                  />
-                </div>
-              </div>
-            </div>
-            
-            <Separator />
-            
-            {/* Даты */}
-            <div className="space-y-4">
-              <h4 className="font-medium text-sm text-muted-foreground">Гарантия</h4>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="purchaseDate">Дата покупки</Label>
-                  <Input
-                    id="purchaseDate"
-                    type="date"
-                    value={formData.purchaseDate || ""}
-                    onChange={(e) => setFormData({ ...formData, purchaseDate: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="warrantyEnd">Гарантия до</Label>
-                  <Input
-                    id="warrantyEnd"
-                    type="date"
-                    value={formData.warrantyEnd || ""}
-                    onChange={(e) => setFormData({ ...formData, warrantyEnd: e.target.value })}
-                  />
-                </div>
-              </div>
-            </div>
-            
-            {/* Примечания */}
-            <div className="space-y-2">
-              <Label htmlFor="notes">Примечания</Label>
-              <Textarea
-                id="notes"
-                value={formData.notes || ""}
-                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                placeholder="Дополнительная информация о ПК"
-              />
-            </div>
-          </div>
-          
+          )}
+          <PcConfigFormFields
+            form={form}
+            setForm={setForm}
+            buildings={buildings}
+            classrooms={classrooms}
+            workstations={workstations}
+            cascadeKey={formCascadeKey}
+            idPrefix="add"
+          />
           <DialogFooter>
-            <Button variant="outline" onClick={() => {
-              setIsAddDialogOpen(false)
-              resetForm()
-            }}>
+            <Button
+              variant="outline"
+              type="button"
+              onClick={() => setIsAddDialogOpen(false)}
+              disabled={formSaving}
+            >
               Отмена
             </Button>
-            <Button onClick={handleAdd}>
-              <Plus className="mr-2 h-4 w-4" />
-              Добавить
+            <Button type="button" onClick={() => void handleSubmitAdd()} disabled={formSaving}>
+              {formSaving ? "Сохранение…" : "Сохранить"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Диалог редактирования */}
-      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <Dialog
+        open={isEditDialogOpen}
+        onOpenChange={(open) => {
+          setIsEditDialogOpen(open)
+          if (!open) {
+            setFormError(null)
+            setEditingEquipmentId(null)
+          }
+        }}
+      >
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Редактировать конфигурацию ПК</DialogTitle>
             <DialogDescription>
-              Измените характеристики компьютера
+              Изменения перезаписывают компоненты и запись оборудования в базе.
             </DialogDescription>
           </DialogHeader>
-          
-          <div className="space-y-6 py-4">
-            {/* Основная информация */}
-            <div className="space-y-4">
-              <h4 className="font-medium text-sm text-muted-foreground">Основная информация</h4>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="edit-name">Имя ПК</Label>
-                  <Input
-                    id="edit-name"
-                    value={formData.name || ""}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="edit-inventoryNumber">Инвентарный номер</Label>
-                  <Input
-                    id="edit-inventoryNumber"
-                    value={formData.inventoryNumber || ""}
-                    onChange={(e) => setFormData({ ...formData, inventoryNumber: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="edit-classroomId">Аудитория</Label>
-                  <Select 
-                    value={formData.classroomId || ""} 
-                    onValueChange={(value) => setFormData({ ...formData, classroomId: value, workstationId: "" })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Выберите аудиторию" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {mockClassrooms.map((classroom) => (
-                        <SelectItem key={classroom.id} value={classroom.id}>
-                          {classroom.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="edit-workstationId">Рабочее место</Label>
-                  <Select 
-                    value={formData.workstationId || ""} 
-                    onValueChange={(value) => setFormData({ ...formData, workstationId: value })}
-                    disabled={!formData.classroomId}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Выберите рабочее место" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {formData.classroomId && getWorkstationsByClassroom(formData.classroomId).map((ws) => (
-                        <SelectItem key={ws.id} value={ws.id}>
-                          {ws.number} - {ws.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="edit-status">Статус</Label>
-                  <Select 
-                    value={formData.status || "active"} 
-                    onValueChange={(value) => setFormData({ ...formData, status: value as PCStatus })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="active">Активен</SelectItem>
-                      <SelectItem value="inactive">Неактивен</SelectItem>
-                      <SelectItem value="repair">На ремонте</SelectItem>
-                      <SelectItem value="decommissioned">Списан</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
+          {formError && (
+            <div className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {formError}
             </div>
-            
-            <Separator />
-            
-            {/* Процессор */}
-            <div className="space-y-4">
-              <h4 className="font-medium text-sm text-muted-foreground">Процессор</h4>
-              <div className="grid grid-cols-3 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="edit-cpuModel">Модель</Label>
-                  <Input
-                    id="edit-cpuModel"
-                    value={formData.cpuModel || ""}
-                    onChange={(e) => setFormData({ ...formData, cpuModel: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="edit-cpuCores">Ядер</Label>
-                  <Input
-                    id="edit-cpuCores"
-                    type="number"
-                    value={formData.cpuCores || 4}
-                    onChange={(e) => setFormData({ ...formData, cpuCores: parseInt(e.target.value) })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="edit-cpuFrequency">Частота</Label>
-                  <Input
-                    id="edit-cpuFrequency"
-                    value={formData.cpuFrequency || ""}
-                    onChange={(e) => setFormData({ ...formData, cpuFrequency: e.target.value })}
-                  />
-                </div>
-              </div>
-            </div>
-            
-            <Separator />
-            
-            {/* ОЗУ */}
-            <div className="space-y-4">
-              <h4 className="font-medium text-sm text-muted-foreground">Оперативная память</h4>
-              <div className="grid grid-cols-3 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="edit-ramSize">Объём (ГБ)</Label>
-                  <Input
-                    id="edit-ramSize"
-                    type="number"
-                    value={formData.ramSize || 8}
-                    onChange={(e) => setFormData({ ...formData, ramSize: parseInt(e.target.value) })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="edit-ramType">Тип</Label>
-                  <Select 
-                    value={formData.ramType || "DDR4"} 
-                    onValueChange={(value) => setFormData({ ...formData, ramType: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="DDR3">DDR3</SelectItem>
-                      <SelectItem value="DDR4">DDR4</SelectItem>
-                      <SelectItem value="DDR5">DDR5</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="edit-ramFrequency">Частота</Label>
-                  <Input
-                    id="edit-ramFrequency"
-                    value={formData.ramFrequency || ""}
-                    onChange={(e) => setFormData({ ...formData, ramFrequency: e.target.value })}
-                  />
-                </div>
-              </div>
-            </div>
-            
-            <Separator />
-            
-            {/* Накопители */}
-            <div className="space-y-4">
-              <h4 className="font-medium text-sm text-muted-foreground">Накопители</h4>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="edit-storageType">Тип основного</Label>
-                  <Select 
-                    value={formData.storageType || "SSD NVMe"} 
-                    onValueChange={(value) => setFormData({ ...formData, storageType: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="HDD">HDD</SelectItem>
-                      <SelectItem value="SSD SATA">SSD SATA</SelectItem>
-                      <SelectItem value="SSD NVMe">SSD NVMe</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="edit-storageSize">Объём (ГБ)</Label>
-                  <Input
-                    id="edit-storageSize"
-                    type="number"
-                    value={formData.storageSize || 256}
-                    onChange={(e) => setFormData({ ...formData, storageSize: parseInt(e.target.value) })}
-                  />
-                </div>
-              </div>
-            </div>
-            
-            <Separator />
-            
-            {/* Видеокарта */}
-            <div className="space-y-4">
-              <h4 className="font-medium text-sm text-muted-foreground">Видеокарта</h4>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="edit-gpuModel">Модель</Label>
-                  <Input
-                    id="edit-gpuModel"
-                    value={formData.gpuModel || ""}
-                    onChange={(e) => setFormData({ ...formData, gpuModel: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="edit-gpuMemory">Видеопамять (ГБ)</Label>
-                  <Input
-                    id="edit-gpuMemory"
-                    type="number"
-                    value={formData.gpuMemory || 0}
-                    onChange={(e) => setFormData({ ...formData, gpuMemory: parseInt(e.target.value) })}
-                  />
-                </div>
-              </div>
-            </div>
-            
-            <Separator />
-            
-            {/* Сеть */}
-            <div className="space-y-4">
-              <h4 className="font-medium text-sm text-muted-foreground">Сеть</h4>
-              <div className="grid grid-cols-3 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="edit-networkType">Тип подключения</Label>
-                  <Select 
-                    value={formData.networkType || "Ethernet 1Gbps"} 
-                    onValueChange={(value) => setFormData({ ...formData, networkType: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Ethernet 100Mbps">Ethernet 100Mbps</SelectItem>
-                      <SelectItem value="Ethernet 1Gbps">Ethernet 1Gbps</SelectItem>
-                      <SelectItem value="Ethernet 2.5Gbps">Ethernet 2.5Gbps</SelectItem>
-                      <SelectItem value="Wi-Fi">Wi-Fi</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="edit-ipAddress">IP-адрес</Label>
-                  <Input
-                    id="edit-ipAddress"
-                    value={formData.ipAddress || ""}
-                    onChange={(e) => setFormData({ ...formData, ipAddress: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="edit-macAddress">MAC-адрес</Label>
-                  <Input
-                    id="edit-macAddress"
-                    value={formData.macAddress || ""}
-                    onChange={(e) => setFormData({ ...formData, macAddress: e.target.value })}
-                  />
-                </div>
-              </div>
-            </div>
-            
-            <Separator />
-            
-            {/* ОС */}
-            <div className="space-y-4">
-              <h4 className="font-medium text-sm text-muted-foreground">Операционная система</h4>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="edit-osName">ОС</Label>
-                  <Select 
-                    value={formData.osName || "Windows"} 
-                    onValueChange={(value) => setFormData({ ...formData, osName: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Windows">Windows</SelectItem>
-                      <SelectItem value="Linux">Linux</SelectItem>
-                      <SelectItem value="macOS">macOS</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="edit-osVersion">Версия</Label>
-                  <Input
-                    id="edit-osVersion"
-                    value={formData.osVersion || ""}
-                    onChange={(e) => setFormData({ ...formData, osVersion: e.target.value })}
-                  />
-                </div>
-              </div>
-            </div>
-            
-            <Separator />
-            
-            {/* Даты */}
-            <div className="space-y-4">
-              <h4 className="font-medium text-sm text-muted-foreground">Гарантия</h4>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="edit-purchaseDate">Дата покупки</Label>
-                  <Input
-                    id="edit-purchaseDate"
-                    type="date"
-                    value={formData.purchaseDate || ""}
-                    onChange={(e) => setFormData({ ...formData, purchaseDate: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="edit-warrantyEnd">Гарантия до</Label>
-                  <Input
-                    id="edit-warrantyEnd"
-                    type="date"
-                    value={formData.warrantyEnd || ""}
-                    onChange={(e) => setFormData({ ...formData, warrantyEnd: e.target.value })}
-                  />
-                </div>
-              </div>
-            </div>
-            
-            {/* Примечания */}
-            <div className="space-y-2">
-              <Label htmlFor="edit-notes">Примечания</Label>
-              <Textarea
-                id="edit-notes"
-                value={formData.notes || ""}
-                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-              />
-            </div>
-          </div>
-          
+          )}
+          <PcConfigFormFields
+            form={form}
+            setForm={setForm}
+            buildings={buildings}
+            classrooms={classrooms}
+            workstations={workstations}
+            cascadeKey={formCascadeKey}
+            idPrefix="edit"
+          />
           <DialogFooter>
-            <Button variant="outline" onClick={() => {
-              setIsEditDialogOpen(false)
-              setSelectedPC(null)
-              resetForm()
-            }}>
+            <Button
+              variant="outline"
+              type="button"
+              onClick={() => setIsEditDialogOpen(false)}
+              disabled={formSaving}
+            >
               Отмена
             </Button>
-            <Button onClick={handleEdit}>
-              <Pencil className="mr-2 h-4 w-4" />
-              Сохранить
+            <Button type="button" onClick={() => void handleSubmitEdit()} disabled={formSaving}>
+              {formSaving ? "Сохранение…" : "Сохранить"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {/* Диалог удаления */}
-      <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Удалить конфигурацию ПК?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Вы уверены, что хотите удалить конфигурацию ПК {selectedPC?.name}? 
-              Это действие нельзя отменить.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Отмена</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} className="bg-red-600 hover:bg-red-700">
-              Удалить
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   )
 }
