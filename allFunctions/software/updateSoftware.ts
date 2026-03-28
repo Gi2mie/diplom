@@ -1,6 +1,7 @@
 "use server"
 
 import { prisma } from "@/lib/db"
+import { normalizeLicenseDateForDb } from "@/lib/software-dates"
 import { updateSoftwareSchema, type UpdateSoftwareInput } from "@/lib/validators"
 import type { Software } from "@/lib/types"
 
@@ -38,23 +39,38 @@ export async function updateSoftware(
 
     const data = validationResult.data
 
-    // Проверка уникальности названия (если изменяется)
-    if (data.name && data.name !== existing.name) {
+    const nextName = data.name !== undefined ? data.name.trim() : existing.name
+    const nextVersion =
+      data.version !== undefined ? data.version.trim() : existing.version
+
+    if (nextName !== existing.name || nextVersion !== existing.version) {
       const duplicate = await prisma.software.findUnique({
-        where: { name: data.name },
+        where: { name_version: { name: nextName, version: nextVersion } },
       })
-      if (duplicate) {
+      if (duplicate && duplicate.id !== id) {
         return {
           success: false,
-          error: `ПО с названием "${data.name}" уже существует`,
+          error: `ПО «${nextName}» с версией «${nextVersion || "—"}» уже есть`,
         }
       }
     }
 
-    // Обновление ПО
     const software = await prisma.software.update({
       where: { id },
-      data,
+      data: {
+        ...(data.name !== undefined ? { name: nextName } : {}),
+        ...(data.version !== undefined ? { version: nextVersion } : {}),
+        ...(data.vendor !== undefined ? { vendor: data.vendor?.trim() || null } : {}),
+        ...(data.category !== undefined ? { category: data.category } : {}),
+        ...(data.licenseKind !== undefined ? { licenseKind: data.licenseKind } : {}),
+        ...(data.defaultLicenseKey !== undefined
+          ? { defaultLicenseKey: data.defaultLicenseKey?.trim() || null }
+          : {}),
+        ...(data.licenseExpiresAt !== undefined
+          ? { licenseExpiresAt: normalizeLicenseDateForDb(data.licenseExpiresAt) }
+          : {}),
+        ...(data.description !== undefined ? { description: data.description?.trim() || null } : {}),
+      },
     })
 
     return {

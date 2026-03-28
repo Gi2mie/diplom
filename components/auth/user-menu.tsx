@@ -77,7 +77,7 @@ export function UserMenu() {
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
           <DropdownMenuItem asChild>
-            <a href="/profile">
+            <a href="/dashboard#profile">
               <User className="mr-2 h-4 w-4" />
               Профиль
             </a>

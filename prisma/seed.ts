@@ -1,4 +1,4 @@
-import { PrismaClient, UserRole, UserStatus } from "@prisma/client"
+import { PrismaClient, UserRole, UserStatus, EquipmentType } from "@prisma/client"
 import { hash } from "bcryptjs"
 
 const prisma = new PrismaClient()
@@ -128,6 +128,108 @@ async function main() {
       isActive: true,
     },
   })
+
+  const equipmentTypeLabels: Record<EquipmentType, string> = {
+    COMPUTER: "Компьютер",
+    MONITOR: "Монитор",
+    PRINTER: "Принтер",
+    PROJECTOR: "Проектор",
+    INTERACTIVE_BOARD: "Интерактивная доска",
+    SCANNER: "Сканер",
+    NETWORK_DEVICE: "Сетевое оборудование",
+    PERIPHERAL: "Периферия",
+    OTHER: "Прочее",
+  }
+
+  for (const ev of Object.values(EquipmentType)) {
+    const code = `BUILTIN_${ev}`
+    await prisma.equipmentKind.upsert({
+      where: { code },
+      update: { name: equipmentTypeLabels[ev], mapsToEnum: ev },
+      create: {
+        code,
+        name: equipmentTypeLabels[ev],
+        mapsToEnum: ev,
+      },
+    })
+  }
+
+  const seedCategories: { id: string; name: string; color: string; description: string }[] = [
+    {
+      id: "seed-ecat-computers",
+      name: "Компьютеры и комплектующие",
+      color: "#3b82f6",
+      description: "Системные блоки, комплектующие",
+    },
+    {
+      id: "seed-ecat-monitors",
+      name: "Мониторы и дисплеи",
+      color: "#10b981",
+      description: "Мониторы, панели",
+    },
+    {
+      id: "seed-ecat-peripheral",
+      name: "Периферийные устройства",
+      color: "#f59e0b",
+      description: "Клавиатуры, мыши и т.п.",
+    },
+    {
+      id: "seed-ecat-print",
+      name: "Печать и сканирование",
+      color: "#ef4444",
+      description: "Принтеры, МФУ, сканеры",
+    },
+    {
+      id: "seed-ecat-network",
+      name: "Сетевое оборудование",
+      color: "#8b5cf6",
+      description: "Коммутаторы, точки доступа",
+    },
+  ]
+
+  for (const c of seedCategories) {
+    await prisma.equipmentCategory.upsert({
+      where: { id: c.id },
+      update: { name: c.name, color: c.color, description: c.description },
+      create: {
+        id: c.id,
+        name: c.name,
+        color: c.color,
+        description: c.description,
+      },
+    })
+  }
+
+  const kindsByEnum = new Map<EquipmentType, string>()
+  for (const ev of Object.values(EquipmentType)) {
+    const row = await prisma.equipmentKind.findUnique({
+      where: { code: `BUILTIN_${ev}` },
+      select: { id: true },
+    })
+    if (row) kindsByEnum.set(ev, row.id)
+  }
+
+  function defaultEquipmentCategoryId(t: EquipmentType): string {
+    if (t === EquipmentType.COMPUTER) return "seed-ecat-computers"
+    if (t === EquipmentType.MONITOR || t === EquipmentType.PROJECTOR || t === EquipmentType.INTERACTIVE_BOARD)
+      return "seed-ecat-monitors"
+    if (t === EquipmentType.PRINTER || t === EquipmentType.SCANNER) return "seed-ecat-print"
+    if (t === EquipmentType.NETWORK_DEVICE) return "seed-ecat-network"
+    return "seed-ecat-peripheral"
+  }
+
+  const eqRows = await prisma.equipment.findMany({
+    select: { id: true, type: true, categoryId: true, equipmentKindId: true },
+  })
+  for (const row of eqRows) {
+    const kindId = kindsByEnum.get(row.type)
+    const patch: { equipmentKindId?: string; categoryId?: string } = {}
+    if (kindId && !row.equipmentKindId) patch.equipmentKindId = kindId
+    if (!row.categoryId) patch.categoryId = defaultEquipmentCategoryId(row.type)
+    if (Object.keys(patch).length > 0) {
+      await prisma.equipment.update({ where: { id: row.id }, data: patch })
+    }
+  }
 
   console.log("\n=== Test Credentials ===")
   console.log("Admin: admin@nhtk / admin123")

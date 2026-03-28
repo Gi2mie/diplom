@@ -23,6 +23,20 @@ export async function addEquipment(input: CreateEquipmentInput): Promise<AddEqui
 
     const data = validationResult.data
 
+    const kind = await prisma.equipmentKind.findUnique({
+      where: { id: data.equipmentKindId },
+    })
+    if (!kind) {
+      return { success: false, error: "Тип оборудования не найден" }
+    }
+
+    const category = await prisma.equipmentCategory.findUnique({
+      where: { id: data.categoryId },
+    })
+    if (!category) {
+      return { success: false, error: "Категория не найдена" }
+    }
+
     // Проверка уникальности инвентарного номера
     const existing = await prisma.equipment.findUnique({
       where: { inventoryNumber: data.inventoryNumber },
@@ -53,8 +67,10 @@ export async function addEquipment(input: CreateEquipmentInput): Promise<AddEqui
       data: {
         inventoryNumber: data.inventoryNumber,
         name: data.name,
-        type: data.type,
+        type: kind.mapsToEnum,
         status: data.status,
+        categoryId: data.categoryId,
+        equipmentKindId: data.equipmentKindId,
         workstationId: data.workstationId,
         manufacturer: data.manufacturer,
         model: data.model,

@@ -59,6 +59,10 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: "Пользователь не найден" }, { status: 404 })
   }
 
+  if (id !== session.user.id && !isAdminSession(session)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
+
   return NextResponse.json({ user: toPublicUser(user) })
 }
 
@@ -93,6 +97,18 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     position?: string
     department?: string
     password?: string
+  }
+
+  if (password !== undefined && String(password).trim() !== "") {
+    if (id === session.user.id) {
+      return NextResponse.json(
+        {
+          error:
+            "Свой пароль меняйте в профиле: укажите текущий пароль. Чужой пароль (преподавателя или другого администратора) задаётся в разделе «Пользователи».",
+        },
+        { status: 400 }
+      )
+    }
   }
 
   let nextEmail: string | undefined

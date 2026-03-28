@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { usePathname } from "next/navigation"
 import Link from "next/link"
 import { useSession, signOut } from "next-auth/react"
@@ -52,6 +52,7 @@ import {
   BreadcrumbSeparator 
 } from "@/components/ui/breadcrumb"
 import { SettingsDialog } from "@/components/dashboard/settings-dialog"
+import { ProfileDialog } from "@/components/dashboard/profile-dialog"
 
 type NavigationItem = {
   title: string
@@ -77,7 +78,7 @@ const adminNavigation: NavigationGroup[] = [
     title: "Управление оборудованием",
     items: [
       { title: "Оборудование", href: "/dashboard/equipment", icon: Package },
-      { title: "Категории", href: "/dashboard/categories", icon: Cpu },
+      { title: "Категории и типы", href: "/dashboard/categories", icon: Cpu },
       { title: "Программное обеспечение", href: "/dashboard/software", icon: HardDrive },
     ]
   },
@@ -144,8 +145,27 @@ export default function DashboardLayout({
 }) {
   const pathname = usePathname()
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [profileOpen, setProfileOpen] = useState(false)
 
   const { data: session, status } = useSession()
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const openFromHash = () => {
+      if (!pathname?.startsWith("/dashboard")) return
+      if (window.location.hash === "#profile") {
+        setProfileOpen(true)
+        window.history.replaceState(
+          null,
+          "",
+          `${window.location.pathname}${window.location.search}`
+        )
+      }
+    }
+    openFromHash()
+    window.addEventListener("hashchange", openFromHash)
+    return () => window.removeEventListener("hashchange", openFromHash)
+  }, [pathname])
 
   if (status === "loading") {
     return (
@@ -163,8 +183,18 @@ export default function DashboardLayout({
   
   const isAdmin = session.user.role === "ADMIN"
   const navigation = isAdmin ? adminNavigation : teacherNavigation
-  const nameParts = (session.user.name || "").split(" ").filter(Boolean)
-  const initials = `${nameParts[0]?.[0] || ""}${nameParts[1]?.[0] || ""}`.toUpperCase()
+
+  const nameParts = (session.user.name || "").split(/\s+/).filter(Boolean)
+  const sidebarDisplayName =
+    (session.user.name || "").trim() ||
+    session.user.email?.split("@")[0] ||
+    "Пользователь"
+  const initials =
+    nameParts.length >= 2
+      ? `${nameParts[1]?.[0] ?? ""}${nameParts[0]?.[0] ?? ""}`.toUpperCase()
+      : nameParts.length === 1
+        ? nameParts[0].slice(0, 2).toUpperCase()
+        : (session.user.email?.[0] ?? "?").toUpperCase()
   
   // Получаем текущий заголовок страницы для breadcrumb
   const currentPage = navigation
@@ -230,11 +260,13 @@ export default function DashboardLayout({
         <SidebarFooter>
           <SidebarMenu>
             <SidebarMenuItem>
-              <SidebarMenuButton asChild tooltip="Профиль">
-                <Link href="/profile">
-                  <User className="h-4 w-4" />
-                  <span>Профиль</span>
-                </Link>
+              <SidebarMenuButton
+                type="button"
+                tooltip="Профиль"
+                onClick={() => setProfileOpen(true)}
+              >
+                <User className="h-4 w-4" />
+                <span>Профиль</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
             <SidebarMenuItem>
@@ -254,9 +286,16 @@ export default function DashboardLayout({
                 {initials}
               </AvatarFallback>
             </Avatar>
-            <div className="flex flex-1 flex-col overflow-hidden">
-              <span className="truncate text-sm font-medium">{session.user.name}</span>
-              <span className="truncate text-xs text-muted-foreground">{session.user.email}</span>
+            <div className="flex min-w-0 flex-1 flex-col gap-0.5 overflow-hidden">
+              <span className="truncate text-sm font-medium" title={sidebarDisplayName}>
+                {sidebarDisplayName}
+              </span>
+              <span
+                className="text-xs leading-snug text-muted-foreground [overflow-wrap:anywhere] break-all line-clamp-2"
+                title={session.user.email?.trim() || undefined}
+              >
+                {session.user.email?.trim() || "—"}
+              </span>
             </div>
             <Button variant="ghost" size="icon" onClick={handleLogout} title="Выйти">
               <LogOut className="h-4 w-4" />
@@ -296,6 +335,7 @@ export default function DashboardLayout({
       </SidebarInset>
       
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
+      <ProfileDialog open={profileOpen} onOpenChange={setProfileOpen} />
     </SidebarProvider>
   )
 }

@@ -289,6 +289,7 @@ export default function UsersPage() {
         setSubmitError("Введите телефон полностью в формате +7(999) 999-99-99 (11 цифр)")
         return
       }
+      const editingSelf = selectedUser.id === session?.user?.id
       await updateUser(selectedUser.id, {
         lastName: formData.lastName,
         firstName: formData.firstName,
@@ -299,7 +300,7 @@ export default function UsersPage() {
         status: formData.status,
         position: formData.position,
         department: formData.department,
-        ...(formData.password ? { password: formData.password } : {}),
+        ...(formData.password && !editingSelf ? { password: formData.password } : {}),
       })
       await loadUsers()
       setEditDialogOpen(false)

@@ -31,6 +31,9 @@ export async function getAllEquipment(
       sortOrder = "desc",
       status,
       type,
+      categoryId,
+      equipmentKindId,
+      buildingId,
       workstationId,
       classroomId,
       search,
@@ -48,14 +51,27 @@ export async function getAllEquipment(
       where.type = Array.isArray(type) ? { in: type } : type
     }
 
+    if (categoryId) {
+      where.categoryId = categoryId
+    }
+
+    if (equipmentKindId) {
+      where.equipmentKindId = equipmentKindId
+    }
+
     if (workstationId) {
       where.workstationId = workstationId
     }
 
+    const wsFilter: Prisma.WorkstationWhereInput = {}
     if (classroomId) {
-      where.workstation = {
-        classroomId: classroomId,
-      }
+      wsFilter.classroomId = classroomId
+    }
+    if (buildingId) {
+      wsFilter.classroom = { buildingId }
+    }
+    if (Object.keys(wsFilter).length > 0) {
+      where.workstation = wsFilter
     }
 
     if (isActive !== undefined) {
@@ -79,6 +95,8 @@ export async function getAllEquipment(
     const equipment = await prisma.equipment.findMany({
       where,
       include: {
+        category: true,
+        equipmentKind: true,
         workstation: {
           include: {
             classroom: true,

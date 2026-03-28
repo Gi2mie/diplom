@@ -12,6 +12,8 @@ import {
   CustomFieldType,
   ClassroomListingStatus,
   WorkstationStatus,
+  SoftwareCatalogCategory,
+  SoftwareLicenseKind,
 } from "@prisma/client"
 import { ALLOWED_CLASSROOM_TYPE_COLORS } from "@/lib/classroom-colors"
 
@@ -145,10 +147,27 @@ export const updateWorkstationSchema = workstationBaseSchema
 // ОБОРУДОВАНИЕ
 // ==========================================
 
+export const createEquipmentCategorySchema = z.object({
+  name: z.string().min(1, "Название категории обязательно"),
+  description: z.string().optional().nullable(),
+  color: z.string().min(1).default("#64748b"),
+})
+
+export const updateEquipmentCategorySchema = createEquipmentCategorySchema.partial()
+
+export const createEquipmentKindSchema = z.object({
+  name: z.string().min(1, "Название типа обязательно"),
+  description: z.string().optional().nullable(),
+  mapsToEnum: z.nativeEnum(EquipmentType),
+})
+
+export const updateEquipmentKindSchema = createEquipmentKindSchema.partial()
+
 export const createEquipmentSchema = z.object({
   inventoryNumber: z.string().min(1, "Инвентарный номер обязателен"),
   name: z.string().min(1, "Наименование обязательно"),
-  type: z.nativeEnum(EquipmentType),
+  categoryId: z.string().cuid("Выберите категорию"),
+  equipmentKindId: z.string().cuid("Выберите тип оборудования"),
   status: z.nativeEnum(EquipmentStatus).optional(),
   workstationId: z.string().cuid().optional().nullable(),
   manufacturer: z.string().optional(),
@@ -192,12 +211,28 @@ export const updateComponentSchema = createComponentSchema
 
 export const createSoftwareSchema = z.object({
   name: z.string().min(1, "Название ПО обязательно"),
-  vendor: z.string().optional(),
-  licenseType: z.string().optional(),
-  description: z.string().optional(),
+  version: z.preprocess((v) => (v === null ? "" : v), z.string().optional().default("")),
+  vendor: z.string().optional().nullable(),
+  category: z.nativeEnum(SoftwareCatalogCategory),
+  licenseKind: z.nativeEnum(SoftwareLicenseKind),
+  defaultLicenseKey: z.string().optional().nullable(),
+  // null / "" не прогоняем через coerce.date — иначе new Date(null) → 1970-01-01
+  licenseExpiresAt: z.preprocess(
+    (v) => {
+      if (v === undefined) return undefined
+      if (v === null || v === "") return null
+      return v
+    },
+    z.union([z.null(), z.coerce.date()]).optional()
+  ),
+  description: z.string().optional().nullable(),
 })
 
 export const updateSoftwareSchema = createSoftwareSchema.partial()
+
+export const assignSoftwareWorkstationsSchema = z.object({
+  workstationIds: z.array(z.string().cuid()).min(1, "Выберите хотя бы одно рабочее место"),
+})
 
 export const createInstalledSoftwareSchema = z.object({
   equipmentId: z.string().cuid("Некорректный ID оборудования"),
@@ -305,6 +340,9 @@ export const paginationSchema = z.object({
 export const equipmentFiltersSchema = paginationSchema.extend({
   status: z.union([z.nativeEnum(EquipmentStatus), z.array(z.nativeEnum(EquipmentStatus))]).optional(),
   type: z.union([z.nativeEnum(EquipmentType), z.array(z.nativeEnum(EquipmentType))]).optional(),
+  categoryId: z.string().cuid().optional(),
+  equipmentKindId: z.string().cuid().optional(),
+  buildingId: z.string().cuid().optional(),
   workstationId: z.string().cuid().optional(),
   classroomId: z.string().cuid().optional(),
   search: z.string().optional(),

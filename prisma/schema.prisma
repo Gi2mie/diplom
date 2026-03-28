@@ -180,12 +180,45 @@ enum EquipmentType {
   OTHER             // Прочее
 }
 
+/// Категория оборудования (справочник, настраивается в интерфейсе)
+model EquipmentCategory {
+  id          String   @id @default(cuid())
+  name        String
+  description String?  @db.Text
+  color       String   @default("#64748b")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  equipment Equipment[]
+
+  @@map("equipment_categories")
+}
+
+/// Тип оборудования (справочник); mapsToEnum синхронизируется с полем type у записи оборудования
+model EquipmentKind {
+  id           String         @id @default(cuid())
+  name         String
+  description  String?        @db.Text
+  /// Соответствие внутреннему enum (запросы ПК-конфига, отчёты)
+  mapsToEnum   EquipmentType  @default(OTHER) @map("maps_to_enum")
+  /// Зарезервировано: SYSTEM_COMPUTER — привязка записей «компьютер» из конфигурации ПК
+  code         String?        @unique
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+
+  equipment Equipment[]
+
+  @@map("equipment_kinds")
+}
+
 model Equipment {
   id              String          @id @default(cuid())
   inventoryNumber String          @unique @map("inventory_number") // Инвентарный номер
   name            String          // Наименование
-  type            EquipmentType   // Тип оборудования
+  type            EquipmentType   // Тип оборудования (зеркало mapsToEnum у выбранного справочного типа)
   status          EquipmentStatus @default(OPERATIONAL)
+  categoryId      String?         @map("category_id")
+  equipmentKindId String?         @map("equipment_kind_id")
   workstationId   String?         @map("workstation_id")
   manufacturer    String?         // Производитель
   model           String?         // Модель
@@ -198,6 +231,8 @@ model Equipment {
   updatedAt       DateTime        @updatedAt @map("updated_at")
 
   // Связи
+  category        EquipmentCategory?  @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  equipmentKind   EquipmentKind?      @relation(fields: [equipmentKindId], references: [id], onDelete: SetNull)
   workstation     Workstation?        @relation(fields: [workstationId], references: [id], onDelete: SetNull)
   components      Component[]         // Компоненты ПК
   software        InstalledSoftware[] // Установленное ПО
@@ -251,18 +286,39 @@ model Component {
 // УСТАНОВЛЕННОЕ ПО
 // ==========================================
 
+enum SoftwareCatalogCategory {
+  OFFICE       // Офисное ПО
+  DEVELOPMENT  // Разработка
+  GRAPHICS     // Графика
+  UTILITIES    // Утилиты
+  SECURITY     // Безопасность
+  OTHER        // Другое
+}
+
+enum SoftwareLicenseKind {
+  FREE         // Бесплатная
+  PAID         // Платная
+  EDUCATIONAL  // Образовательная
+}
+
 model Software {
-  id            String    @id @default(cuid())
-  name          String    @unique // Название ПО
-  vendor        String?   // Разработчик
-  licenseType   String?   @map("license_type") // Тип лицензии (бесплатное, платное, подписка)
-  description   String?   // Описание
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
+  id                 String                  @id @default(cuid())
+  name               String // Название ПО
+  version            String                  @default("") // Версия (пустая строка = не указана)
+  vendor             String? // Издатель
+  category           SoftwareCatalogCategory @default(OTHER) @map("catalog_category")
+  licenseKind        SoftwareLicenseKind     @default(FREE) @map("license_kind")
+  defaultLicenseKey  String?                 @map("default_license_key")
+  licenseExpiresAt   DateTime?               @map("license_expires_at") // Срок лицензии до
+  licenseType        String?                 @map("license_type") // Устарело: строковый тип, для совместимости
+  description        String?                 @db.Text
+  createdAt          DateTime                @default(now()) @map("created_at")
+  updatedAt          DateTime                @updatedAt @map("updated_at")
 
   // Связи
   installations InstalledSoftware[] // Установки на оборудовании
 
+  @@unique([name, version])
   @@map("software")
 }
 

@@ -1177,10 +1177,7 @@ export default function WorkstationsPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Отмена</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => void handleConfirmDelete()}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
+            <AlertDialogAction variant="destructive" onClick={() => void handleConfirmDelete()}>
               Удалить
             </AlertDialogAction>
           </AlertDialogFooter>

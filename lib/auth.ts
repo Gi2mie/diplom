@@ -25,6 +25,8 @@ declare module "@auth/core/jwt" {
   interface JWT {
     id: string
     role: string
+    name?: string | null
+    email?: string | null
   }
 }
 
@@ -82,6 +84,8 @@ export const authConfig: NextAuthConfig = {
       if (user) {
         token.id = user.id
         token.role = user.role
+        token.name = user.name ?? ""
+        token.email = user.email ?? ""
       }
       return token
     },
@@ -89,6 +93,8 @@ export const authConfig: NextAuthConfig = {
       if (token && session.user) {
         session.user.id = token.id as string
         session.user.role = token.role as string
+        session.user.name = (token.name as string) ?? session.user.name ?? ""
+        session.user.email = (token.email as string) ?? session.user.email ?? ""
       }
       return session
     },

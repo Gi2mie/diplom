@@ -129,8 +129,15 @@ export class EquipmentService {
    * Создать оборудование
    */
   static async create(data: CreateEquipmentDTO) {
+    const kind = await db.equipmentKind.findUnique({ where: { id: data.equipmentKindId } })
+    if (!kind) {
+      throw new Error("Тип оборудования не найден")
+    }
     return db.equipment.create({
-      data,
+      data: {
+        ...data,
+        type: kind.mapsToEnum,
+      },
       include: {
         workstation: {
           include: { classroom: true },
@@ -143,9 +150,17 @@ export class EquipmentService {
    * Обновить оборудование
    */
   static async update(id: string, data: UpdateEquipmentDTO) {
+    let typePatch: { type?: import("@prisma/client").EquipmentType } = {}
+    if (data.equipmentKindId) {
+      const kind = await db.equipmentKind.findUnique({ where: { id: data.equipmentKindId } })
+      if (!kind) {
+        throw new Error("Тип оборудования не найден")
+      }
+      typePatch = { type: kind.mapsToEnum }
+    }
     return db.equipment.update({
       where: { id },
-      data,
+      data: { ...data, ...typePatch },
       include: {
         workstation: {
           include: { classroom: true },

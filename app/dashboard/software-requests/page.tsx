@@ -858,7 +858,7 @@ export default function SoftwareRequestsPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Отмена</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+            <AlertDialogAction variant="destructive" onClick={confirmDelete}>
               Удалить
             </AlertDialogAction>
           </AlertDialogFooter>

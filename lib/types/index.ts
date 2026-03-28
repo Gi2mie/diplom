@@ -85,6 +85,8 @@ export type WorkstationWithRelations = Workstation & {
 }
 
 export type EquipmentWithRelations = Equipment & {
+  category?: import("@prisma/client").EquipmentCategory | null
+  equipmentKind?: import("@prisma/client").EquipmentKind | null
   workstation?: WorkstationWithRelations | null
   components?: Component[]
   software?: InstalledSoftwareWithRelations[]
@@ -182,9 +184,10 @@ export type UpdateWorkstationDTO = Partial<CreateWorkstationDTO> & {
 export type CreateEquipmentDTO = {
   inventoryNumber: string
   name: string
-  type: EquipmentType
+  categoryId: string
+  equipmentKindId: string
   status?: EquipmentStatus
-  workstationId?: string
+  workstationId?: string | null
   manufacturer?: string
   model?: string
   serialNumber?: string
@@ -212,7 +215,12 @@ export type UpdateComponentDTO = Partial<Omit<CreateComponentDTO, "equipmentId">
 
 export type CreateSoftwareDTO = {
   name: string
+  version?: string
   vendor?: string
+  category?: import("@prisma/client").SoftwareCatalogCategory
+  licenseKind?: import("@prisma/client").SoftwareLicenseKind
+  defaultLicenseKey?: string | null
+  licenseExpiresAt?: Date | null
   licenseType?: string
   description?: string
 }

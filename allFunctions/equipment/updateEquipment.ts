@@ -1,5 +1,6 @@
 "use server"
 
+import type { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/db"
 import { updateEquipmentSchema, type UpdateEquipmentInput } from "@/lib/validators"
 import type { Equipment } from "@/lib/types"
@@ -64,10 +65,27 @@ export async function updateEquipment(
       }
     }
 
-    // Обновление оборудования
+    let mapsToEnum = existing.type
+    if (data.equipmentKindId) {
+      const kind = await prisma.equipmentKind.findUnique({
+        where: { id: data.equipmentKindId },
+      })
+      if (!kind) {
+        return { success: false, error: "Тип оборудования не найден" }
+      }
+      mapsToEnum = kind.mapsToEnum
+    }
+
+    const { equipmentKindId: _ek, ...rest } = data
+    const prismaData: Record<string, unknown> = { ...rest }
+    if (data.equipmentKindId !== undefined) {
+      prismaData.type = mapsToEnum
+      prismaData.equipmentKindId = data.equipmentKindId
+    }
+
     const equipment = await prisma.equipment.update({
       where: { id },
-      data,
+      data: prismaData as Prisma.EquipmentUpdateInput,
     })
 
     return {

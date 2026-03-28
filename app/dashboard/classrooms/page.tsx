@@ -870,7 +870,7 @@ export default function ClassroomsPage() {
           <AlertDialogFooter>
             <AlertDialogCancel>Отмена</AlertDialogCancel>
             <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              variant="destructive"
               disabled={Boolean(selectedClassroom?.workstationCount)}
               onClick={async () => {
                 if (!selectedClassroom) return
@@ -924,7 +924,7 @@ export default function ClassroomsPage() {
           <AlertDialogFooter>
             <AlertDialogCancel>Отмена</AlertDialogCancel>
             <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              variant="destructive"
               disabled={Boolean(selectedType?.classroomsCount)}
               onClick={async () => {
                 if (!selectedType) return
@@ -980,7 +980,7 @@ export default function ClassroomsPage() {
           <AlertDialogFooter>
             <AlertDialogCancel>Отмена</AlertDialogCancel>
             <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              variant="destructive"
               disabled={Boolean(selectedBuilding?.classroomsCount)}
               onClick={async () => {
                 if (!selectedBuilding) return

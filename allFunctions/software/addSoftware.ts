@@ -1,6 +1,7 @@
 "use server"
 
 import { prisma } from "@/lib/db"
+import { normalizeLicenseDateForDb } from "@/lib/software-dates"
 import { createSoftwareSchema, type CreateSoftwareInput } from "@/lib/validators"
 import type { Software } from "@/lib/types"
 
@@ -22,26 +23,30 @@ export async function addSoftware(input: CreateSoftwareInput): Promise<AddSoftwa
     }
 
     const data = validationResult.data
+    const name = data.name.trim()
+    const version = (data.version ?? "").trim()
 
-    // Проверка уникальности названия
     const existing = await prisma.software.findUnique({
-      where: { name: data.name },
+      where: { name_version: { name, version } },
     })
 
     if (existing) {
       return {
         success: false,
-        error: `ПО с названием "${data.name}" уже существует`,
+        error: `ПО «${name}» с такой версией уже есть в каталоге`,
       }
     }
 
-    // Создание ПО
     const software = await prisma.software.create({
       data: {
-        name: data.name,
-        vendor: data.vendor,
-        licenseType: data.licenseType,
-        description: data.description,
+        name,
+        version,
+        vendor: data.vendor?.trim() || null,
+        category: data.category,
+        licenseKind: data.licenseKind,
+        defaultLicenseKey: data.defaultLicenseKey?.trim() || null,
+        licenseExpiresAt: normalizeLicenseDateForDb(data.licenseExpiresAt ?? null),
+        description: data.description?.trim() || null,
       },
     })
 
