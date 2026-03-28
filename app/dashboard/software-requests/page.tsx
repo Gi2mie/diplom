@@ -1,7 +1,13 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { useSession } from "next-auth/react"
+import {
+  IssuePriority,
+  SoftwareRequestKind,
+  SoftwareRequestStatus,
+  UserRole,
+} from "@prisma/client"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -9,6 +15,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import {
   Table,
   TableBody,
@@ -48,328 +55,347 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { 
-  Plus, 
-  Search, 
-  MoreHorizontal, 
-  Eye, 
-  Pencil, 
+import {
+  Plus,
+  Search,
+  MoreHorizontal,
+  Eye,
+  Pencil,
   Trash2,
   Download,
-  Upload,
   RefreshCw,
   Clock,
   CheckCircle2,
   XCircle,
   Filter,
-  X
+  X,
+  Loader2,
+  LayoutGrid,
 } from "lucide-react"
+import { fetchClassroomRegistry, type RegistryClassroom } from "@/lib/api/classroom-registry"
+import { fetchWorkstations, type ApiWorkstation } from "@/lib/api/workstations"
+import {
+  fetchSoftwareRequests,
+  createSoftwareRequestApi,
+  updateSoftwareRequestApi,
+  deleteSoftwareRequestApi,
+  type SoftwareRequestListRow,
+} from "@/lib/api/software-requests"
 
-// Типы
-type RequestType = "install" | "update" | "uninstall"
-type RequestStatus = "pending" | "in_progress" | "completed" | "rejected"
-type RequestPriority = "low" | "medium" | "high"
-
-interface SoftwareRequest {
-  id: string
-  type: RequestType
-  softwareName: string
-  version: string
-  description: string
-  classroom: string
-  workstation: string
-  status: RequestStatus
-  priority: RequestPriority
-  requestedBy: string
-  requestedAt: string
-  updatedAt: string
-  adminComment: string
+function classroomLabel(c: RegistryClassroom): string {
+  const title = c.name?.trim() || `Аудитория ${c.number}`
+  return c.buildingName ? `${title} (${c.buildingName})` : title
 }
 
-// Mock данные
-const mockClassrooms = [
-  "Аудитория 301",
-  "Аудитория 302",
-  "Компьютерный класс 105",
-  "Лекционный зал 401",
-  "Лаборатория 201"
-]
-
-const mockWorkstations: Record<string, string[]> = {
-  "Аудитория 301": ["Рабочее место 1", "Рабочее место 2", "Рабочее место 3", "Все рабочие места"],
-  "Аудитория 302": ["Рабочее место 1", "Рабочее место 2", "Все рабочие места"],
-  "Компьютерный класс 105": ["Рабочее место 1", "Рабочее место 2", "Рабочее место 3", "Рабочее место 4", "Рабочее место 5", "Все рабочие места"],
-  "Лекционный зал 401": ["Преподавательский ПК", "Все рабочие места"],
-  "Лаборатория 201": ["Рабочее место 1", "Рабочее место 2", "Рабочее место 3", "Все рабочие места"]
+function classroomLabelFromRow(row: SoftwareRequestListRow): string {
+  const { classroom: c } = row
+  const title = c.name?.trim() || `Аудитория ${c.number}`
+  return c.building?.name ? `${title} (${c.building.name})` : title
 }
 
-const mockRequests: SoftwareRequest[] = [
-  {
-    id: "1",
-    type: "install",
-    softwareName: "Visual Studio Code",
-    version: "1.85.0",
-    description: "Необходим редактор кода для занятий по программированию",
-    classroom: "Компьютерный класс 105",
-    workstation: "Все рабочие места",
-    status: "pending",
-    priority: "high",
-    requestedBy: "Петров И.С.",
-    requestedAt: "2025-03-20",
-    updatedAt: "2025-03-20",
-    adminComment: ""
-  },
-  {
-    id: "2",
-    type: "update",
-    softwareName: "Microsoft Office",
-    version: "2024",
-    description: "Обновление до последней версии для совместимости с новыми форматами",
-    classroom: "Аудитория 301",
-    workstation: "Рабочее место 1",
-    status: "in_progress",
-    priority: "medium",
-    requestedBy: "Иванова М.А.",
-    requestedAt: "2025-03-18",
-    updatedAt: "2025-03-22",
-    adminComment: "Загружаю обновление"
-  },
-  {
-    id: "3",
-    type: "install",
-    softwareName: "Python 3.12",
-    version: "3.12.2",
-    description: "Требуется для курса машинного обучения",
-    classroom: "Лаборатория 201",
-    workstation: "Все рабочие места",
-    status: "completed",
-    priority: "high",
-    requestedBy: "Сидоров А.В.",
-    requestedAt: "2025-03-15",
-    updatedAt: "2025-03-17",
-    adminComment: "Установлено на все рабочие места"
-  },
-  {
-    id: "4",
-    type: "uninstall",
-    softwareName: "Adobe Flash Player",
-    version: "",
-    description: "Устаревшее ПО, больше не используется",
-    classroom: "Аудитория 302",
-    workstation: "Все рабочие места",
-    status: "completed",
-    priority: "low",
-    requestedBy: "Козлова Е.П.",
-    requestedAt: "2025-03-10",
-    updatedAt: "2025-03-12",
-    adminComment: "Удалено"
-  },
-  {
-    id: "5",
-    type: "install",
-    softwareName: "MATLAB R2024a",
-    version: "R2024a",
-    description: "Необходим для лабораторных работ по численным методам",
-    classroom: "Компьютерный класс 105",
-    workstation: "Рабочее место 1",
-    status: "rejected",
-    priority: "medium",
-    requestedBy: "Николаев Д.М.",
-    requestedAt: "2025-03-08",
-    updatedAt: "2025-03-09",
-    adminComment: "Лицензия не доступна. Предлагаем использовать GNU Octave."
+function workstationLabel(w: ApiWorkstation): string {
+  const name = w.name?.trim()
+  if (name) return `${w.code} — ${name}`
+  return w.code || w.id
+}
+
+function requesterLabel(r: SoftwareRequestListRow["requester"]): string {
+  const m = r.middleName ? ` ${r.middleName}` : ""
+  return `${r.lastName} ${r.firstName}${m}`.trim()
+}
+
+function scopeLabel(row: SoftwareRequestListRow): string {
+  if (row.wholeClassroom) return "Вся аудитория"
+  if (row.workstation) {
+    const n = row.workstation.name?.trim()
+    return n ? `${row.workstation.code} — ${n}` : row.workstation.code
   }
-]
+  return "—"
+}
 
-// Helpers
-const getTypeInfo = (type: RequestType) => {
-  switch (type) {
-    case "install":
-      return { label: "Установка", icon: Download, color: "text-green-600 bg-green-50 border-green-200" }
-    case "update":
-      return { label: "Обновление", icon: RefreshCw, color: "text-blue-600 bg-blue-50 border-blue-200" }
-    case "uninstall":
-      return { label: "Удаление", icon: Upload, color: "text-red-600 bg-red-50 border-red-200" }
+function formatDate(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  return d.toLocaleDateString("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  })
+}
+
+const getTypeInfo = (kind: SoftwareRequestKind) => {
+  switch (kind) {
+    case SoftwareRequestKind.INSTALL:
+      return { label: "Установка", icon: Download, color: "text-green-600 bg-green-50 border-green-200 dark:bg-green-950/40" }
+    case SoftwareRequestKind.UPDATE:
+      return { label: "Обновление", icon: RefreshCw, color: "text-blue-600 bg-blue-50 border-blue-200 dark:bg-blue-950/40" }
+    case SoftwareRequestKind.UNINSTALL:
+      return { label: "Удаление", icon: Trash2, color: "text-red-600 bg-red-50 border-red-200 dark:bg-red-950/40" }
   }
 }
 
-const getStatusInfo = (status: RequestStatus) => {
+const getStatusInfo = (status: SoftwareRequestStatus) => {
   switch (status) {
-    case "pending":
+    case SoftwareRequestStatus.PENDING:
       return { label: "Не начато", icon: Clock, variant: "outline" as const, color: "text-yellow-600" }
-    case "in_progress":
+    case SoftwareRequestStatus.IN_PROGRESS:
       return { label: "В работе", icon: RefreshCw, variant: "default" as const, color: "text-blue-600" }
-    case "completed":
+    case SoftwareRequestStatus.COMPLETED:
       return { label: "Выполнено", icon: CheckCircle2, variant: "secondary" as const, color: "text-green-600" }
-    case "rejected":
+    case SoftwareRequestStatus.REJECTED:
       return { label: "Отклонено", icon: XCircle, variant: "destructive" as const, color: "text-red-600" }
   }
 }
 
-const getPriorityInfo = (priority: RequestPriority) => {
+const getPriorityInfo = (priority: IssuePriority) => {
   switch (priority) {
-    case "low":
-      return { label: "Низкий", color: "bg-slate-100 text-slate-700 border-slate-200" }
-    case "medium":
-      return { label: "Средний", color: "bg-yellow-100 text-yellow-700 border-yellow-200" }
-    case "high":
-      return { label: "Высокий", color: "bg-red-100 text-red-700 border-red-200" }
+    case IssuePriority.LOW:
+      return { label: "Низкий", color: "bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-200" }
+    case IssuePriority.MEDIUM:
+      return { label: "Средний", color: "bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-950/50" }
+    case IssuePriority.HIGH:
+      return { label: "Высокий", color: "bg-orange-100 text-orange-800 border-orange-200 dark:bg-orange-950/50" }
+    case IssuePriority.CRITICAL:
+      return { label: "Критический", color: "bg-red-100 text-red-800 border-red-200 dark:bg-red-950/50" }
   }
 }
 
+const priorityOptions: { value: IssuePriority; label: string }[] = [
+  { value: IssuePriority.LOW, label: "Низкий" },
+  { value: IssuePriority.MEDIUM, label: "Средний" },
+  { value: IssuePriority.HIGH, label: "Высокий" },
+  { value: IssuePriority.CRITICAL, label: "Критический" },
+]
+
 export default function SoftwareRequestsPage() {
   const { data: session, status } = useSession()
-  const [requests, setRequests] = useState<SoftwareRequest[]>(mockRequests)
-  
-  // Фильтры
+  const [requests, setRequests] = useState<SoftwareRequestListRow[]>([])
+  const [classrooms, setClassrooms] = useState<RegistryClassroom[]>([])
+  const [workstations, setWorkstations] = useState<ApiWorkstation[]>([])
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
+
   const [searchQuery, setSearchQuery] = useState("")
-  const [selectedClassroom, setSelectedClassroom] = useState("all")
-  const [selectedWorkstation, setSelectedWorkstation] = useState("all")
-  const [selectedStatus, setSelectedStatus] = useState<RequestStatus | "all">("all")
-  const [selectedType, setSelectedType] = useState<RequestType | "all">("all")
-  
-  // Диалоги
+  const [selectedClassroomId, setSelectedClassroomId] = useState<string>("all")
+  const [selectedWorkstationId, setSelectedWorkstationId] = useState<string>("all")
+  const [selectedStatus, setSelectedStatus] = useState<SoftwareRequestStatus | "all">("all")
+  const [selectedKind, setSelectedKind] = useState<SoftwareRequestKind | "all">("all")
+
   const [addDialogOpen, setAddDialogOpen] = useState(false)
   const [viewDialogOpen, setViewDialogOpen] = useState(false)
   const [editStatusDialogOpen, setEditStatusDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
-  const [selectedRequest, setSelectedRequest] = useState<SoftwareRequest | null>(null)
-  
-  // Форма
+  const [selectedRequest, setSelectedRequest] = useState<SoftwareRequestListRow | null>(null)
+
   const [formData, setFormData] = useState({
-    type: "install" as RequestType,
+    kind: SoftwareRequestKind.INSTALL,
     softwareName: "",
-    version: "",
+    softwareVersion: "",
     description: "",
-    classroom: "",
-    workstation: "",
-    priority: "medium" as RequestPriority
+    classroomId: "",
+    workstationId: "",
+    priority: IssuePriority.MEDIUM as IssuePriority,
   })
-  
-  // Изменение статуса (для админа)
-  const [newStatus, setNewStatus] = useState<RequestStatus>("pending")
+  const [wholeClassroom, setWholeClassroom] = useState(false)
+  const [formSubmitting, setFormSubmitting] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
+
+  const [newStatus, setNewStatus] = useState<SoftwareRequestStatus>(SoftwareRequestStatus.PENDING)
+  const [editPriority, setEditPriority] = useState<IssuePriority>(IssuePriority.MEDIUM)
   const [adminComment, setAdminComment] = useState("")
+  const [statusSaving, setStatusSaving] = useState(false)
 
-  // Фильтрация
+  const isAdmin = session?.user?.role === UserRole.ADMIN
+
+  const loadAll = useCallback(async () => {
+    setLoading(true)
+    setLoadError(null)
+    try {
+      const [list, reg, ws] = await Promise.all([
+        fetchSoftwareRequests(),
+        fetchClassroomRegistry(),
+        fetchWorkstations(),
+      ])
+      setRequests(list)
+      setClassrooms(reg.classrooms)
+      setWorkstations(ws)
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : "Ошибка загрузки")
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (status === "authenticated") void loadAll()
+  }, [status, loadAll])
+
   const filteredRequests = useMemo(() => {
-    return requests.filter(req => {
-      const matchesSearch = 
-        req.softwareName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        req.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        req.requestedBy.toLowerCase().includes(searchQuery.toLowerCase())
-      
-      const matchesClassroom = selectedClassroom === "all" || req.classroom === selectedClassroom
-      const matchesWorkstation = selectedWorkstation === "all" || req.workstation === selectedWorkstation
+    return requests.filter((req) => {
+      const q = searchQuery.toLowerCase()
+      const matchesSearch =
+        !q ||
+        req.softwareName.toLowerCase().includes(q) ||
+        req.description.toLowerCase().includes(q) ||
+        requesterLabel(req.requester).toLowerCase().includes(q)
+
+      const matchesClassroom =
+        selectedClassroomId === "all" || req.classroomId === selectedClassroomId
+      const matchesWorkstation =
+        selectedWorkstationId === "all" ||
+        (selectedWorkstationId === "__whole__" && req.wholeClassroom) ||
+        req.workstationId === selectedWorkstationId
       const matchesStatus = selectedStatus === "all" || req.status === selectedStatus
-      const matchesType = selectedType === "all" || req.type === selectedType
-      
-      return matchesSearch && matchesClassroom && matchesWorkstation && matchesStatus && matchesType
+      const matchesKind = selectedKind === "all" || req.kind === selectedKind
+
+      return (
+        matchesSearch &&
+        matchesClassroom &&
+        matchesWorkstation &&
+        matchesStatus &&
+        matchesKind
+      )
     })
-  }, [requests, searchQuery, selectedClassroom, selectedWorkstation, selectedStatus, selectedType])
+  }, [requests, searchQuery, selectedClassroomId, selectedWorkstationId, selectedStatus, selectedKind])
 
-  // Статистика
-  const stats = useMemo(() => ({
-    total: requests.length,
-    pending: requests.filter(r => r.status === "pending").length,
-    inProgress: requests.filter(r => r.status === "in_progress").length,
-    completed: requests.filter(r => r.status === "completed").length
-  }), [requests])
+  const stats = useMemo(
+    () => ({
+      total: requests.length,
+      pending: requests.filter((r) => r.status === SoftwareRequestStatus.PENDING).length,
+      inProgress: requests.filter((r) => r.status === SoftwareRequestStatus.IN_PROGRESS).length,
+      completed: requests.filter((r) => r.status === SoftwareRequestStatus.COMPLETED).length,
+    }),
+    [requests]
+  )
 
-  // Сброс фильтров
   const resetFilters = () => {
     setSearchQuery("")
-    setSelectedClassroom("all")
-    setSelectedWorkstation("all")
+    setSelectedClassroomId("all")
+    setSelectedWorkstationId("all")
     setSelectedStatus("all")
-    setSelectedType("all")
+    setSelectedKind("all")
   }
 
-  const hasFilters = searchQuery || selectedClassroom !== "all" || selectedWorkstation !== "all" || selectedStatus !== "all" || selectedType !== "all"
+  const hasFilters =
+    searchQuery ||
+    selectedClassroomId !== "all" ||
+    selectedWorkstationId !== "all" ||
+    selectedStatus !== "all" ||
+    selectedKind !== "all"
 
-  // Доступные рабочие места для выбранной аудитории
-  const availableWorkstations = selectedClassroom !== "all" && mockWorkstations[selectedClassroom] 
-    ? mockWorkstations[selectedClassroom] 
-    : []
+  const filterWorkstationOptions = useMemo(() => {
+    if (selectedClassroomId === "all") return []
+    return workstations.filter((w) => w.classroomId === selectedClassroomId)
+  }, [selectedClassroomId, workstations])
 
-  const formWorkstations = formData.classroom && mockWorkstations[formData.classroom]
-    ? mockWorkstations[formData.classroom]
-    : []
+  const formWorkstations = useMemo(() => {
+    if (!formData.classroomId) return []
+    return workstations.filter((w) => w.classroomId === formData.classroomId)
+  }, [formData.classroomId, workstations])
 
-  // Открыть диалог добавления
   const handleAdd = () => {
     setFormData({
-      type: "install",
+      kind: SoftwareRequestKind.INSTALL,
       softwareName: "",
-      version: "",
+      softwareVersion: "",
       description: "",
-      classroom: "",
-      workstation: "",
-      priority: "medium"
+      classroomId: "",
+      workstationId: "",
+      priority: IssuePriority.MEDIUM,
     })
+    setWholeClassroom(false)
+    setFormError(null)
     setAddDialogOpen(true)
   }
 
-  // Сохранить новую заявку
-  const handleSaveNew = () => {
-    const newRequest: SoftwareRequest = {
-      id: String(Date.now()),
-      ...formData,
-      status: "pending",
-      requestedBy: session?.user.name || "Пользователь",
-      requestedAt: new Date().toISOString().split("T")[0],
-      updatedAt: new Date().toISOString().split("T")[0],
-      adminComment: ""
+  const handleSaveNew = async () => {
+    setFormError(null)
+    if (!formData.softwareName.trim() || !formData.classroomId) {
+      setFormError("Укажите название ПО и аудиторию.")
+      return
     }
-    setRequests([newRequest, ...requests])
-    setAddDialogOpen(false)
+    if (!wholeClassroom && !formData.workstationId) {
+      setFormError("Выберите рабочее место или нажмите «Вся аудитория».")
+      return
+    }
+    setFormSubmitting(true)
+    try {
+      await createSoftwareRequestApi({
+        kind: formData.kind,
+        softwareName: formData.softwareName.trim(),
+        softwareVersion: formData.softwareVersion.trim(),
+        description: formData.description.trim(),
+        classroomId: formData.classroomId,
+        workstationId: wholeClassroom ? null : formData.workstationId,
+        wholeClassroom,
+        priority: formData.priority,
+      })
+      setAddDialogOpen(false)
+      await loadAll()
+    } catch (e) {
+      setFormError(e instanceof Error ? e.message : "Не удалось отправить")
+    } finally {
+      setFormSubmitting(false)
+    }
   }
 
-  // Просмотр заявки
-  const handleView = (request: SoftwareRequest) => {
+  const handleView = (request: SoftwareRequestListRow) => {
     setSelectedRequest(request)
     setViewDialogOpen(true)
   }
 
-  // Изменение статуса
-  const handleEditStatus = (request: SoftwareRequest) => {
+  const handleEditStatus = (request: SoftwareRequestListRow) => {
     setSelectedRequest(request)
     setNewStatus(request.status)
-    setAdminComment(request.adminComment)
+    setEditPriority(request.priority)
+    setAdminComment(request.adminComment ?? "")
     setEditStatusDialogOpen(true)
   }
 
-  // Сохранить статус
-  const handleSaveStatus = () => {
+  const handleSaveStatus = async () => {
     if (!selectedRequest) return
-    setRequests(requests.map(r => 
-      r.id === selectedRequest.id 
-        ? { ...r, status: newStatus, adminComment, updatedAt: new Date().toISOString().split("T")[0] } 
-        : r
-    ))
-    setEditStatusDialogOpen(false)
-    setSelectedRequest(null)
+    setStatusSaving(true)
+    try {
+      await updateSoftwareRequestApi(selectedRequest.id, {
+        status: newStatus,
+        adminComment: adminComment.trim() || null,
+        priority: editPriority,
+      })
+      setEditStatusDialogOpen(false)
+      setSelectedRequest(null)
+      await loadAll()
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setStatusSaving(false)
+    }
   }
 
-  // Удаление
-  const handleDelete = (request: SoftwareRequest) => {
+  const handleDelete = (request: SoftwareRequestListRow) => {
     setSelectedRequest(request)
     setDeleteDialogOpen(true)
   }
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (!selectedRequest) return
-    setRequests(requests.filter(r => r.id !== selectedRequest.id))
-    setDeleteDialogOpen(false)
-    setSelectedRequest(null)
+    try {
+      await deleteSoftwareRequestApi(selectedRequest.id)
+      setDeleteDialogOpen(false)
+      setSelectedRequest(null)
+      await loadAll()
+    } catch (e) {
+      console.error(e)
+    }
   }
 
-  // Loading state
-  if (status === "loading") {
+  if (status === "loading" || (status === "authenticated" && loading)) {
     return (
       <div className="space-y-6">
         <Skeleton className="h-8 w-64" />
         <div className="grid gap-4 md:grid-cols-4">
-          {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-24" />)}
+          {[1, 2, 3, 4].map((i) => (
+            <Skeleton key={i} className="h-24" />
+          ))}
         </div>
         <Skeleton className="h-96" />
       </div>
@@ -380,25 +406,54 @@ export default function SoftwareRequestsPage() {
     return null
   }
 
-  const isAdmin = session.user.role === "ADMIN"
+  if (loadError) {
+    return (
+      <div className="space-y-4">
+        <Alert variant="destructive">
+          <AlertDescription>{loadError}</AlertDescription>
+        </Alert>
+        <Button type="button" variant="outline" onClick={() => void loadAll()}>
+          Повторить
+        </Button>
+      </div>
+    )
+  }
+
+  const canDeleteRequest = (r: SoftwareRequestListRow) => {
+    if (isAdmin) return false
+    return (
+      r.status === SoftwareRequestStatus.PENDING &&
+      r.requester.id === session.user.id
+    )
+  }
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Заявки на установку/обновление ПО</h1>
           <p className="text-muted-foreground">
-            {isAdmin ? "Управление заявками на программное обеспечение" : "Отправьте заявку на установку или обновление ПО"}
+            {isAdmin
+              ? "Все заявки по всем аудиториям и рабочим местам. При создании заявки доступны любые аудитории и РМ."
+              : "Заявки по аудиториям, за которые вы ответственны"}
           </p>
         </div>
-        <Button onClick={handleAdd}>
+        <Button onClick={handleAdd} disabled={classrooms.length === 0}>
           <Plus className="mr-2 h-4 w-4" />
           Новая заявка
         </Button>
       </div>
 
-      {/* Stats */}
+      {classrooms.length === 0 ? (
+        <Card>
+          <CardContent className="py-10 text-center text-muted-foreground">
+            {session.user.role === UserRole.TEACHER
+              ? "Нет аудиторий, за которые вы ответственны. Обратитесь к администратору."
+              : "Добавьте аудитории в реестре, чтобы создавать заявки."}
+          </CardContent>
+        </Card>
+      ) : null}
+
       <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
@@ -434,11 +489,13 @@ export default function SoftwareRequestsPage() {
         </Card>
       </div>
 
-      {/* Filters */}
       <Card>
         <CardHeader className="pb-4">
           <div className="flex items-center justify-between">
-            <CardTitle className="text-base">Фильтры</CardTitle>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Filter className="h-4 w-4" />
+              Фильтры
+            </CardTitle>
             {hasFilters && (
               <Button variant="ghost" size="sm" onClick={resetFilters}>
                 <X className="mr-2 h-4 w-4" />
@@ -449,83 +506,91 @@ export default function SoftwareRequestsPage() {
         </CardHeader>
         <CardContent>
           <div className="grid gap-4 md:grid-cols-5">
-            {/* Поиск */}
             <div className="relative md:col-span-2">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder="Поиск по названию ПО..."
+                placeholder="Поиск по ПО, описанию, заявителю…"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-10"
               />
             </div>
 
-            {/* Аудитория */}
-            <Select value={selectedClassroom} onValueChange={(value) => {
-              setSelectedClassroom(value)
-              setSelectedWorkstation("all")
-            }}>
+            <Select
+              value={selectedClassroomId}
+              onValueChange={(value) => {
+                setSelectedClassroomId(value)
+                setSelectedWorkstationId("all")
+              }}
+            >
               <SelectTrigger>
                 <SelectValue placeholder="Аудитория" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Все аудитории</SelectItem>
-                {mockClassrooms.map(c => (
-                  <SelectItem key={c} value={c}>{c}</SelectItem>
+                {classrooms.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {classroomLabel(c)}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
 
-            {/* Рабочее место */}
-            <Select 
-              value={selectedWorkstation} 
-              onValueChange={setSelectedWorkstation}
-              disabled={selectedClassroom === "all"}
+            <Select
+              value={selectedWorkstationId}
+              onValueChange={setSelectedWorkstationId}
+              disabled={selectedClassroomId === "all"}
             >
               <SelectTrigger>
                 <SelectValue placeholder="Рабочее место" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Все рабочие места</SelectItem>
-                {availableWorkstations.map(w => (
-                  <SelectItem key={w} value={w}>{w}</SelectItem>
+                <SelectItem value="all">Все</SelectItem>
+                <SelectItem value="__whole__">Только «вся аудитория»</SelectItem>
+                {filterWorkstationOptions.map((w) => (
+                  <SelectItem key={w.id} value={w.id}>
+                    {workstationLabel(w)}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
 
-            {/* Статус */}
-            <Select value={selectedStatus} onValueChange={(v) => setSelectedStatus(v as RequestStatus | "all")}>
+            <Select
+              value={selectedStatus}
+              onValueChange={(v) => setSelectedStatus(v as SoftwareRequestStatus | "all")}
+            >
               <SelectTrigger>
                 <SelectValue placeholder="Статус" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Все статусы</SelectItem>
-                <SelectItem value="pending">Не начато</SelectItem>
-                <SelectItem value="in_progress">В работе</SelectItem>
-                <SelectItem value="completed">Выполнено</SelectItem>
-                <SelectItem value="rejected">Отклонено</SelectItem>
+                <SelectItem value={SoftwareRequestStatus.PENDING}>Не начато</SelectItem>
+                <SelectItem value={SoftwareRequestStatus.IN_PROGRESS}>В работе</SelectItem>
+                <SelectItem value={SoftwareRequestStatus.COMPLETED}>Выполнено</SelectItem>
+                <SelectItem value={SoftwareRequestStatus.REJECTED}>Отклонено</SelectItem>
               </SelectContent>
             </Select>
           </div>
 
-          {/* Тип заявки */}
           <div className="mt-4">
-            <Select value={selectedType} onValueChange={(v) => setSelectedType(v as RequestType | "all")}>
-              <SelectTrigger className="w-full md:w-48">
+            <Select
+              value={selectedKind}
+              onValueChange={(v) => setSelectedKind(v as SoftwareRequestKind | "all")}
+            >
+              <SelectTrigger className="w-full md:w-56">
                 <SelectValue placeholder="Тип заявки" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Все типы</SelectItem>
-                <SelectItem value="install">Установка</SelectItem>
-                <SelectItem value="update">Обновление</SelectItem>
-                <SelectItem value="uninstall">Удаление</SelectItem>
+                <SelectItem value={SoftwareRequestKind.INSTALL}>Установка</SelectItem>
+                <SelectItem value={SoftwareRequestKind.UPDATE}>Обновление</SelectItem>
+                <SelectItem value={SoftwareRequestKind.UNINSTALL}>Удаление</SelectItem>
               </SelectContent>
             </Select>
           </div>
         </CardContent>
       </Card>
 
-      {/* Table */}
       <Card>
         <CardHeader>
           <CardTitle>Заявки</CardTitle>
@@ -538,7 +603,7 @@ export default function SoftwareRequestsPage() {
                 <TableHead>Тип</TableHead>
                 <TableHead>ПО</TableHead>
                 <TableHead>Аудитория</TableHead>
-                <TableHead>Рабочее место</TableHead>
+                <TableHead>Область</TableHead>
                 <TableHead>Статус</TableHead>
                 <TableHead>Приоритет</TableHead>
                 <TableHead>Дата</TableHead>
@@ -548,13 +613,13 @@ export default function SoftwareRequestsPage() {
             <TableBody>
               {filteredRequests.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
                     Заявки не найдены
                   </TableCell>
                 </TableRow>
               ) : (
                 filteredRequests.map((request) => {
-                  const typeInfo = getTypeInfo(request.type)
+                  const typeInfo = getTypeInfo(request.kind)
                   const statusInfo = getStatusInfo(request.status)
                   const priorityInfo = getPriorityInfo(request.priority)
                   const TypeIcon = typeInfo.icon
@@ -571,13 +636,13 @@ export default function SoftwareRequestsPage() {
                       <TableCell>
                         <div>
                           <div className="font-medium">{request.softwareName}</div>
-                          {request.version && (
-                            <div className="text-sm text-muted-foreground">v{request.version}</div>
-                          )}
+                          {request.softwareVersion ? (
+                            <div className="text-sm text-muted-foreground">v{request.softwareVersion}</div>
+                          ) : null}
                         </div>
                       </TableCell>
-                      <TableCell>{request.classroom}</TableCell>
-                      <TableCell>{request.workstation}</TableCell>
+                      <TableCell>{classroomLabelFromRow(request)}</TableCell>
+                      <TableCell>{scopeLabel(request)}</TableCell>
                       <TableCell>
                         <Badge variant={statusInfo.variant}>
                           <StatusIcon className="mr-1 h-3 w-3" />
@@ -590,7 +655,7 @@ export default function SoftwareRequestsPage() {
                         </Badge>
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
-                        {request.requestedAt}
+                        {formatDate(request.createdAt)}
                       </TableCell>
                       <TableCell className="text-right">
                         <DropdownMenu>
@@ -607,11 +672,11 @@ export default function SoftwareRequestsPage() {
                             {isAdmin && (
                               <DropdownMenuItem onClick={() => handleEditStatus(request)}>
                                 <Pencil className="mr-2 h-4 w-4" />
-                                Изменить статус
+                                Статус и важность
                               </DropdownMenuItem>
                             )}
-                            {(isAdmin || request.status === "pending") && (
-                              <DropdownMenuItem 
+                            {canDeleteRequest(request) && (
+                              <DropdownMenuItem
                                 onClick={() => handleDelete(request)}
                                 className="text-destructive"
                               >
@@ -631,30 +696,43 @@ export default function SoftwareRequestsPage() {
         </CardContent>
       </Card>
 
-      {/* Add Dialog */}
       <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Новая заявка на ПО</DialogTitle>
-            <DialogDescription>Заполните форму для отправки заявки</DialogDescription>
+            <DialogDescription>
+              {session.user.role === UserRole.TEACHER
+                ? "Доступны только аудитории, за которые вы ответственны."
+                : "Доступны все аудитории и рабочие места. Выберите кабинет и область установки."}
+            </DialogDescription>
           </DialogHeader>
+          {formError ? (
+            <Alert variant="destructive">
+              <AlertDescription>{formError}</AlertDescription>
+            </Alert>
+          ) : null}
           <div className="grid gap-4 py-4">
             <div className="grid gap-2">
               <Label>Тип заявки</Label>
-              <Select value={formData.type} onValueChange={(v) => setFormData({ ...formData, type: v as RequestType })}>
+              <Select
+                value={formData.kind}
+                onValueChange={(v) =>
+                  setFormData({ ...formData, kind: v as SoftwareRequestKind })
+                }
+              >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="install">Установка</SelectItem>
-                  <SelectItem value="update">Обновление</SelectItem>
-                  <SelectItem value="uninstall">Удаление</SelectItem>
+                  <SelectItem value={SoftwareRequestKind.INSTALL}>Установка</SelectItem>
+                  <SelectItem value={SoftwareRequestKind.UPDATE}>Обновление</SelectItem>
+                  <SelectItem value={SoftwareRequestKind.UNINSTALL}>Удаление</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
-                <Label>Название ПО</Label>
+                <Label>Название ПО *</Label>
                 <Input
                   value={formData.softwareName}
                   onChange={(e) => setFormData({ ...formData, softwareName: e.target.value })}
@@ -664,94 +742,154 @@ export default function SoftwareRequestsPage() {
               <div className="grid gap-2">
                 <Label>Версия</Label>
                 <Input
-                  value={formData.version}
-                  onChange={(e) => setFormData({ ...formData, version: e.target.value })}
+                  value={formData.softwareVersion}
+                  onChange={(e) => setFormData({ ...formData, softwareVersion: e.target.value })}
                   placeholder="Например: 1.85.0"
                 />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="grid gap-2">
-                <Label>Аудитория</Label>
-                <Select 
-                  value={formData.classroom} 
-                  onValueChange={(v) => setFormData({ ...formData, classroom: v, workstation: "" })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Выберите аудиторию" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {mockClassrooms.map(c => (
-                      <SelectItem key={c} value={c}>{c}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid gap-2">
-                <Label>Рабочее место</Label>
-                <Select 
-                  value={formData.workstation} 
-                  onValueChange={(v) => setFormData({ ...formData, workstation: v })}
-                  disabled={!formData.classroom}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Выберите рабочее место" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {formWorkstations.map(w => (
-                      <SelectItem key={w} value={w}>{w}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
             <div className="grid gap-2">
-              <Label>Приоритет</Label>
-              <Select value={formData.priority} onValueChange={(v) => setFormData({ ...formData, priority: v as RequestPriority })}>
+              <Label>Аудитория *</Label>
+              <Select
+                value={formData.classroomId}
+                onValueChange={(v) => {
+                  setWholeClassroom(false)
+                  setFormData({ ...formData, classroomId: v, workstationId: "" })
+                }}
+              >
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder="Выберите аудиторию" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="low">Низкий</SelectItem>
-                  <SelectItem value="medium">Средний</SelectItem>
-                  <SelectItem value="high">Высокий</SelectItem>
+                  {classrooms.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {classroomLabel(c)}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
             <div className="grid gap-2">
-              <Label>Описание / Обоснование</Label>
+              <div className="flex flex-wrap items-end justify-between gap-2">
+                <Label>Рабочее место</Label>
+                <Button
+                  type="button"
+                  variant={wholeClassroom ? "default" : "outline"}
+                  size="sm"
+                  className="gap-1.5"
+                  disabled={!formData.classroomId}
+                  onClick={() => {
+                    setWholeClassroom(true)
+                    setFormData((p) => ({ ...p, workstationId: "" }))
+                    setFormError(null)
+                  }}
+                >
+                  <LayoutGrid className="h-4 w-4" />
+                  Вся аудитория
+                </Button>
+              </div>
+              {wholeClassroom ? (
+                <p className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm text-muted-foreground">
+                  Заявка относится ко всем рабочим местам в выбранной аудитории.
+                </p>
+              ) : null}
+              <Select
+                value={formData.workstationId}
+                onValueChange={(v) => {
+                  setWholeClassroom(false)
+                  setFormData({ ...formData, workstationId: v })
+                }}
+                disabled={!formData.classroomId || wholeClassroom}
+              >
+                <SelectTrigger>
+                  <SelectValue
+                    placeholder={
+                      formData.classroomId
+                        ? wholeClassroom
+                          ? "Выбрана вся аудитория"
+                          : "Выберите рабочее место"
+                        : "Сначала аудитория"
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {formWorkstations.map((w) => (
+                    <SelectItem key={w.id} value={w.id}>
+                      {workstationLabel(w)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {wholeClassroom ? (
+                <Button
+                  type="button"
+                  variant="link"
+                  className="h-auto px-0 text-sm"
+                  onClick={() => setWholeClassroom(false)}
+                >
+                  Указать одно рабочее место
+                </Button>
+              ) : null}
+            </div>
+            <div className="grid gap-2">
+              <Label>Приоритет</Label>
+              <Select
+                value={formData.priority}
+                onValueChange={(v) =>
+                  setFormData({ ...formData, priority: v as IssuePriority })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {priorityOptions.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label>Описание (необязательно)</Label>
               <Textarea
                 value={formData.description}
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                placeholder="Опишите, для чего необходимо данное ПО..."
+                placeholder="При необходимости: обоснование, сроки, особенности…"
                 rows={3}
               />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setAddDialogOpen(false)}>Отмена</Button>
-            <Button 
-              onClick={handleSaveNew}
-              disabled={!formData.softwareName || !formData.classroom || !formData.workstation}
-            >
-              Отправить заявку
+            <Button variant="outline" onClick={() => setAddDialogOpen(false)}>
+              Отмена
+            </Button>
+            <Button onClick={() => void handleSaveNew()} disabled={formSubmitting}>
+              {formSubmitting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Отправка…
+                </>
+              ) : (
+                "Отправить заявку"
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* View Dialog */}
       <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>Детали заявки</DialogTitle>
-            <DialogDescription>Информация о заявке на ПО</DialogDescription>
+            <DialogDescription>Заявка на программное обеспечение</DialogDescription>
           </DialogHeader>
           {selectedRequest && (
             <div className="space-y-4">
-              <div className="flex items-center gap-2">
-                <Badge variant="outline" className={getTypeInfo(selectedRequest.type).color}>
-                  {getTypeInfo(selectedRequest.type).label}
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="outline" className={getTypeInfo(selectedRequest.kind).color}>
+                  {getTypeInfo(selectedRequest.kind).label}
                 </Badge>
                 <Badge variant={getStatusInfo(selectedRequest.status).variant}>
                   {getStatusInfo(selectedRequest.status).label}
@@ -765,68 +903,94 @@ export default function SoftwareRequestsPage() {
                   <Label className="text-muted-foreground">Программное обеспечение</Label>
                   <p className="font-medium">{selectedRequest.softwareName}</p>
                 </div>
-                {selectedRequest.version && (
-                  <div>
-                    <Label className="text-muted-foreground">Версия</Label>
-                    <p className="font-medium">{selectedRequest.version}</p>
-                  </div>
-                )}
                 <div>
-                  <Label className="text-muted-foreground">Аудитория</Label>
-                  <p>{selectedRequest.classroom}</p>
+                  <Label className="text-muted-foreground">Версия</Label>
+                  <p className="font-medium">{selectedRequest.softwareVersion || "—"}</p>
                 </div>
                 <div>
-                  <Label className="text-muted-foreground">Рабочее место</Label>
-                  <p>{selectedRequest.workstation}</p>
+                  <Label className="text-muted-foreground">Аудитория</Label>
+                  <p>{classroomLabelFromRow(selectedRequest)}</p>
+                </div>
+                <div>
+                  <Label className="text-muted-foreground">Область</Label>
+                  <p>{scopeLabel(selectedRequest)}</p>
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Заявитель</Label>
-                  <p>{selectedRequest.requestedBy}</p>
+                  <p>{requesterLabel(selectedRequest.requester)}</p>
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Дата заявки</Label>
-                  <p>{selectedRequest.requestedAt}</p>
+                  <p>{formatDate(selectedRequest.createdAt)}</p>
                 </div>
               </div>
               <div>
-                <Label className="text-muted-foreground">Описание</Label>
-                <p className="text-sm mt-1">{selectedRequest.description}</p>
+                <Label className="text-muted-foreground">Описание от заявителя</Label>
+                <p className="mt-1 text-sm">
+                  {selectedRequest.description.trim()
+                    ? selectedRequest.description
+                    : "Не указано"}
+                </p>
               </div>
-              {selectedRequest.adminComment && (
-                <div className="rounded-lg bg-muted p-3">
-                  <Label className="text-muted-foreground">Комментарий администратора</Label>
-                  <p className="text-sm mt-1">{selectedRequest.adminComment}</p>
-                </div>
-              )}
+              <div className="rounded-lg bg-muted p-3">
+                <Label className="text-muted-foreground">Комментарий администратора к заявке</Label>
+                <p className="mt-1 text-sm whitespace-pre-wrap">
+                  {selectedRequest.adminComment?.trim()
+                    ? selectedRequest.adminComment
+                    : "Пока нет комментария."}
+                </p>
+              </div>
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setViewDialogOpen(false)}>Закрыть</Button>
+            <Button variant="outline" onClick={() => setViewDialogOpen(false)}>
+              Закрыть
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Edit Status Dialog (Admin only) */}
       <Dialog open={editStatusDialogOpen} onOpenChange={setEditStatusDialogOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Изменить статус заявки</DialogTitle>
+            <DialogTitle>Статус и важность заявки</DialogTitle>
             <DialogDescription>
-              {selectedRequest?.softwareName} - {selectedRequest?.classroom}
+              {selectedRequest?.softwareName} — {selectedRequest && classroomLabelFromRow(selectedRequest)}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid gap-2">
               <Label>Статус</Label>
-              <Select value={newStatus} onValueChange={(v) => setNewStatus(v as RequestStatus)}>
+              <Select
+                value={newStatus}
+                onValueChange={(v) => setNewStatus(v as SoftwareRequestStatus)}
+              >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="pending">Не начато</SelectItem>
-                  <SelectItem value="in_progress">В работе</SelectItem>
-                  <SelectItem value="completed">Выполнено</SelectItem>
-                  <SelectItem value="rejected">Отклонено</SelectItem>
+                  <SelectItem value={SoftwareRequestStatus.PENDING}>Не начато</SelectItem>
+                  <SelectItem value={SoftwareRequestStatus.IN_PROGRESS}>В работе</SelectItem>
+                  <SelectItem value={SoftwareRequestStatus.COMPLETED}>Выполнено</SelectItem>
+                  <SelectItem value={SoftwareRequestStatus.REJECTED}>Отклонено</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label>Важность (приоритет)</Label>
+              <Select
+                value={editPriority}
+                onValueChange={(v) => setEditPriority(v as IssuePriority)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {priorityOptions.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -835,30 +999,33 @@ export default function SoftwareRequestsPage() {
               <Textarea
                 value={adminComment}
                 onChange={(e) => setAdminComment(e.target.value)}
-                placeholder="Добавьте комментарий к заявке..."
+                placeholder="Комментарий для заявителя…"
                 rows={3}
               />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditStatusDialogOpen(false)}>Отмена</Button>
-            <Button onClick={handleSaveStatus}>Сохранить</Button>
+            <Button variant="outline" onClick={() => setEditStatusDialogOpen(false)}>
+              Отмена
+            </Button>
+            <Button onClick={() => void handleSaveStatus()} disabled={statusSaving}>
+              {statusSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Сохранить"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirmation */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Удалить заявку?</AlertDialogTitle>
             <AlertDialogDescription>
-              Вы уверены, что хотите удалить заявку на {selectedRequest?.softwareName}? Это действие нельзя отменить.
+              Заявка на «{selectedRequest?.softwareName}» будет удалена безвозвратно.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Отмена</AlertDialogCancel>
-            <AlertDialogAction variant="destructive" onClick={confirmDelete}>
+            <AlertDialogAction variant="destructive" onClick={() => void confirmDelete()}>
               Удалить
             </AlertDialogAction>
           </AlertDialogFooter>

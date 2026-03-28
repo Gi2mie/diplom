@@ -49,9 +49,9 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex">
-      {/* Left Panel - Decorative */}
-      <div className="hidden lg:flex lg:w-1/2 xl:w-3/5 relative overflow-hidden bg-gradient-to-br from-primary via-primary/90 to-primary/70">
+    <div className="min-h-screen flex bg-background text-foreground">
+      {/* Left Panel — фиксированный синий градиент + белый текст в любой теме (не от --primary) */}
+      <div className="hidden lg:flex lg:w-1/2 xl:w-3/5 relative overflow-hidden bg-gradient-to-br from-blue-600 via-blue-700 to-blue-900 dark:from-blue-800 dark:via-blue-900 dark:to-slate-950">
         {/* Decorative background elements */}
         <div className="absolute inset-0">
           <div className="absolute top-20 left-20 w-72 h-72 bg-white/10 rounded-full blur-3xl" />
@@ -129,7 +129,7 @@ export default function LoginPage() {
             <span className="text-xl font-semibold text-foreground tracking-tight">EduTrack</span>
           </div>
 
-          <Card className="border-0 shadow-xl shadow-primary/5 bg-card">
+          <Card className="border border-border/60 shadow-xl shadow-primary/10 bg-card dark:border-border dark:shadow-black/20">
             <CardContent className="p-8">
               <div className="text-center mb-8">
                 <h2 className="text-2xl font-semibold text-card-foreground mb-2">
@@ -142,25 +142,16 @@ export default function LoginPage() {
 
               {/* Error alerts */}
               {(fieldError || error) && (
-                <Alert className="mb-6 bg-red-500/10 border-red-500/30">
-                  <AlertCircle className="h-4 w-4 text-red-600" />
-                  <AlertDescription className="text-red-700 text-sm">
+                <Alert
+                  variant="destructive"
+                  className="mb-6 border-destructive/40 bg-destructive/10 [&_svg]:text-destructive"
+                >
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription className="text-destructive text-sm font-medium">
                     {fieldError || "Ошибка входа. Пожалуйста, попробуйте снова."}
                   </AlertDescription>
                 </Alert>
               )}
-
-              {/* Test credentials info */}
-              <Alert className="mb-6 bg-blue-500/10 border-blue-500/30">
-                <AlertCircle className="h-4 w-4 text-blue-600" />
-                <AlertDescription className="text-blue-700 text-sm">
-                  <strong>Тестовые учётные данные:</strong>
-                  <div className="mt-2 space-y-1 text-xs">
-                    <div>Администратор: admin@nhtk / admin123</div>
-                    <div>Преподаватель: teacher@nhtk / teacher123</div>
-                  </div>
-                </AlertDescription>
-              </Alert>
 
               {/* Login Form */}
               <form onSubmit={handleSubmit} className="space-y-4">

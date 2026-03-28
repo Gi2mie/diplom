@@ -12,8 +12,6 @@ import {
   CustomFieldType,
   ClassroomListingStatus,
   WorkstationStatus,
-  SoftwareCatalogCategory,
-  SoftwareLicenseKind,
 } from "@prisma/client"
 import { ALLOWED_CLASSROOM_TYPE_COLORS } from "@/lib/classroom-colors"
 
@@ -213,8 +211,15 @@ export const createSoftwareSchema = z.object({
   name: z.string().min(1, "Название ПО обязательно"),
   version: z.preprocess((v) => (v === null ? "" : v), z.string().optional().default("")),
   vendor: z.string().optional().nullable(),
-  category: z.nativeEnum(SoftwareCatalogCategory),
-  licenseKind: z.nativeEnum(SoftwareLicenseKind),
+  category: z.enum([
+    "OFFICE",
+    "DEVELOPMENT",
+    "GRAPHICS",
+    "UTILITIES",
+    "SECURITY",
+    "OTHER",
+  ]),
+  licenseKind: z.enum(["FREE", "PAID", "EDUCATIONAL"]),
   defaultLicenseKey: z.string().optional().nullable(),
   // null / "" не прогоняем через coerce.date — иначе new Date(null) → 1970-01-01
   licenseExpiresAt: z.preprocess(
@@ -259,12 +264,109 @@ export const createIssueReportSchema = z.object({
   priority: z.nativeEnum(IssuePriority).optional(),
 })
 
+/** Заявка преподавателя: аудитория + одно РМ или весь кабинет (несколько записей в БД по ПК). */
+export const teacherProblemEquipmentKindSchema = z.enum([
+  "monitor",
+  "keyboard",
+  "mouse",
+  "system_unit",
+  "printer",
+  "projector",
+  "network",
+  "software",
+  "other",
+])
+
+export const createTeacherIssueReportSchema = z
+  .object({
+    title: z.string().min(1, "Краткое описание обязательно"),
+    description: z.string().optional().default(""),
+    priority: z.nativeEnum(IssuePriority),
+    classroomId: z.string().cuid("Некорректный ID аудитории"),
+    workstationId: z.string().cuid().optional().nullable(),
+    wholeClassroom: z.boolean(),
+    problemEquipmentKind: teacherProblemEquipmentKindSchema.default("other"),
+  })
+  .refine((d) => d.wholeClassroom || Boolean(d.workstationId), {
+    message: "Выберите рабочее место или отметьте «Все рабочие места»",
+    path: ["workstationId"],
+  })
+
+export type TeacherProblemEquipmentKind = z.infer<typeof teacherProblemEquipmentKindSchema>
+
+export const createSoftwareRequestSchema = z
+  .object({
+    kind: z.enum(["INSTALL", "UPDATE", "UNINSTALL"]),
+    softwareName: z.string().min(1, "Укажите название ПО"),
+    softwareVersion: z.string().optional().default(""),
+    description: z.string().optional().default(""),
+    classroomId: z.string().cuid("Некорректный ID аудитории"),
+    workstationId: z.string().cuid().optional().nullable(),
+    wholeClassroom: z.boolean(),
+    priority: z.nativeEnum(IssuePriority),
+  })
+  .refine((d) => d.wholeClassroom || Boolean(d.workstationId), {
+    message: "Выберите рабочее место или отметьте «Вся аудитория»",
+    path: ["workstationId"],
+  })
+
+export const updateSoftwareRequestSchema = z
+  .object({
+    status: z.enum(["PENDING", "IN_PROGRESS", "COMPLETED", "REJECTED"]).optional(),
+    adminComment: z.string().optional().nullable(),
+    priority: z.nativeEnum(IssuePriority).optional(),
+  })
+  .refine(
+    (d) =>
+      d.status !== undefined ||
+      d.adminComment !== undefined ||
+      d.priority !== undefined,
+    {
+      message: "Укажите статус, комментарий или важность (приоритет)",
+    }
+  )
+
 export const updateIssueReportSchema = z.object({
   title: z.string().min(1).optional(),
   description: z.string().min(1).optional(),
   status: z.nativeEnum(IssueStatus).optional(),
   priority: z.nativeEnum(IssuePriority).optional(),
   resolution: z.string().optional(),
+})
+
+/** Создание обращения администратором (произвольное оборудование). */
+export const adminCreateIssueReportSchema = z.object({
+  equipmentId: z.string().cuid("Некорректный ID оборудования"),
+  reporterId: z.string().cuid("Выберите заявителя"),
+  title: z.string().min(1, "Заголовок обязателен"),
+  description: z.string().optional().default(""),
+  priority: z.nativeEnum(IssuePriority).optional(),
+})
+
+export const adminUpdateIssueReportSchema = z
+  .object({
+    title: z.string().min(1).optional(),
+    description: z.string().optional(),
+    status: z.nativeEnum(IssueStatus).optional(),
+    priority: z.nativeEnum(IssuePriority).optional(),
+    resolution: z.string().optional().nullable(),
+  })
+  .refine(
+    (d) =>
+      d.title !== undefined ||
+      d.description !== undefined ||
+      d.status !== undefined ||
+      d.priority !== undefined ||
+      d.resolution !== undefined,
+    { message: "Укажите хотя бы одно поле для изменения" }
+  )
+
+/** Постановка на ремонт по обращению: одна или несколько единиц в той же аудитории, что и оборудование в обращении. */
+export const batchRepairsFromIssueSchema = z.object({
+  classroomId: z.string().cuid("Некорректный ID аудитории"),
+  equipmentIds: z
+    .array(z.string().cuid())
+    .min(1, "Выберите хотя бы одну единицу оборудования"),
 })
 
 // ==========================================
@@ -287,6 +389,11 @@ export const updateRepairSchema = z.object({
   partsUsed: z.string().optional(),
   cost: z.number().positive().optional(),
   assignedToId: z.string().cuid().optional().nullable(),
+})
+
+/** Смена статуса ремонта (админ, одно поле). */
+export const patchRepairStatusSchema = z.object({
+  status: z.nativeEnum(RepairStatus),
 })
 
 export const completeRepairSchema = z.object({

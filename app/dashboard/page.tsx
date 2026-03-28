@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import Link from "next/link"
 import { useSession } from "next-auth/react"
 import { 
@@ -29,7 +29,10 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Progress } from "@/components/ui/progress"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { fetchClassroomRegistry } from "@/lib/api/classroom-registry"
+import { fetchMyRequests, type MyRequestListItem } from "@/lib/api/my-requests"
+import { fetchEquipmentDashboardList } from "@/lib/api/equipment-dashboard"
 
 interface DashboardStats {
   totalEquipment: number
@@ -48,16 +51,6 @@ interface DashboardStats {
   categoriesCount: number
 }
 
-interface RecentRequest {
-  id: string
-  title: string
-  classroom: string
-  status: "pending" | "in_progress" | "completed"
-  date: string
-  priority: "low" | "medium" | "high"
-  author: string
-}
-
 interface Notification {
   id: string
   title: string
@@ -66,15 +59,38 @@ interface Notification {
   type: "info" | "warning" | "error"
 }
 
+type TeacherDashboardSummary = {
+  classrooms: number
+  workstations: number
+  equipment: number
+  myRequestsTotal: number
+  myRequestsPending: number
+  myRequestsInProgress: number
+  myRequestsCompleted: number
+  myRequestsRejected: number
+}
+
 export default function DashboardPage() {
   const { data: session, status } = useSession()
   const [stats, setStats] = useState<DashboardStats | null>(null)
-  const [recentRequests, setRecentRequests] = useState<RecentRequest[]>([])
+  const [recentRequests, setRecentRequests] = useState<
+    {
+      id: string
+      title: string
+      classroom: string
+      status: "pending" | "in_progress" | "completed"
+      date: string
+      priority: "low" | "medium" | "high"
+      author: string
+    }[]
+  >([])
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [loading, setLoading] = useState(true)
-  
-  useEffect(() => {
-    // Симуляция загрузки данных
+  const [teacherSummary, setTeacherSummary] = useState<TeacherDashboardSummary | null>(null)
+  const [teacherRecent, setTeacherRecent] = useState<MyRequestListItem[]>([])
+  const [teacherError, setTeacherError] = useState<string | null>(null)
+
+  const loadAdminDashboard = useCallback(() => {
     const timer = setTimeout(() => {
       setStats({
         totalEquipment: 156,
@@ -93,21 +109,136 @@ export default function DashboardPage() {
         categoriesCount: 8,
       })
       setRecentRequests([
-        { id: "1", title: "Не работает проектор", classroom: "Аудитория 301", status: "pending", date: "2025-03-25", priority: "high", author: "Петров И.С." },
-        { id: "2", title: "Замена клавиатуры", classroom: "Компьютерный класс 105", status: "in_progress", date: "2025-03-24", priority: "medium", author: "Сидорова А.В." },
-        { id: "3", title: "Настройка Wi-Fi", classroom: "Аудитория 412", status: "pending", date: "2025-03-24", priority: "low", author: "Козлов М.А." },
-        { id: "4", title: "Сломан монитор", classroom: "Лаборатория 201", status: "in_progress", date: "2025-03-23", priority: "high", author: "Иванов П.П." },
-        { id: "5", title: "Обновление ПО", classroom: "Аудитория 118", status: "completed", date: "2025-03-22", priority: "low", author: "Николаева Е.К." },
+        {
+          id: "1",
+          title: "Не работает проектор",
+          classroom: "Аудитория 301",
+          status: "pending",
+          date: "2025-03-25",
+          priority: "high",
+          author: "Петров И.С.",
+        },
+        {
+          id: "2",
+          title: "Замена клавиатуры",
+          classroom: "Компьютерный класс 105",
+          status: "in_progress",
+          date: "2025-03-24",
+          priority: "medium",
+          author: "Сидорова А.В.",
+        },
+        {
+          id: "3",
+          title: "Настройка Wi-Fi",
+          classroom: "Аудитория 412",
+          status: "pending",
+          date: "2025-03-24",
+          priority: "low",
+          author: "Козлов М.А.",
+        },
+        {
+          id: "4",
+          title: "Сломан монитор",
+          classroom: "Лаборатория 201",
+          status: "in_progress",
+          date: "2025-03-23",
+          priority: "high",
+          author: "Иванов П.П.",
+        },
+        {
+          id: "5",
+          title: "Обновление ПО",
+          classroom: "Аудитория 118",
+          status: "completed",
+          date: "2025-03-22",
+          priority: "low",
+          author: "Николаева Е.К.",
+        },
       ])
       setNotifications([
-        { id: "1", title: "Новая заявка", description: "Петров И.С. сообщил о проблеме с проектором", time: "5 мин назад", type: "warning" },
-        { id: "2", title: "Ремонт завершён", description: "Монитор в ауд. 305 отремонтирован", time: "1 час назад", type: "info" },
-        { id: "3", title: "Критическая поломка", description: "Системный блок в ауд. 201 не включается", time: "2 часа назад", type: "error" },
+        {
+          id: "1",
+          title: "Новая заявка",
+          description: "Петров И.С. сообщил о проблеме с проектором",
+          time: "5 мин назад",
+          type: "warning",
+        },
+        {
+          id: "2",
+          title: "Ремонт завершён",
+          description: "Монитор в ауд. 305 отремонтирован",
+          time: "1 час назад",
+          type: "info",
+        },
+        {
+          id: "3",
+          title: "Критическая поломка",
+          description: "Системный блок в ауд. 201 не включается",
+          time: "2 часа назад",
+          type: "error",
+        },
       ])
       setLoading(false)
     }, 500)
-    return () => clearTimeout(timer)
+    return timer
   }, [])
+
+  const loadTeacherDashboard = useCallback(async () => {
+    setTeacherError(null)
+    setLoading(true)
+    try {
+      const [registry, myItems, equipment] = await Promise.all([
+        fetchClassroomRegistry(),
+        fetchMyRequests(),
+        fetchEquipmentDashboardList({}),
+      ])
+      const wsTotal = registry.classrooms.reduce((s, c) => s + c.workstationCount, 0)
+      const pending = myItems.filter((r) => r.status === "pending").length
+      const inProgress = myItems.filter((r) => r.status === "in_progress").length
+      const completed = myItems.filter((r) => r.status === "completed").length
+      const rejected = myItems.filter((r) => r.status === "rejected").length
+      setTeacherSummary({
+        classrooms: registry.classrooms.length,
+        workstations: wsTotal,
+        equipment: equipment.length,
+        myRequestsTotal: myItems.length,
+        myRequestsPending: pending,
+        myRequestsInProgress: inProgress,
+        myRequestsCompleted: completed,
+        myRequestsRejected: rejected,
+      })
+      setTeacherRecent(myItems.slice(0, 5))
+    } catch (e) {
+      setTeacherError(e instanceof Error ? e.message : "Не удалось загрузить данные")
+      setTeacherSummary({
+        classrooms: 0,
+        workstations: 0,
+        equipment: 0,
+        myRequestsTotal: 0,
+        myRequestsPending: 0,
+        myRequestsInProgress: 0,
+        myRequestsCompleted: 0,
+        myRequestsRejected: 0,
+      })
+      setTeacherRecent([])
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (status !== "authenticated" || !session?.user) return
+
+    if (session.user.role === "ADMIN") {
+      setTeacherSummary(null)
+      setTeacherRecent([])
+      setTeacherError(null)
+      const timer = loadAdminDashboard()
+      return () => clearTimeout(timer)
+    }
+
+    void loadTeacherDashboard()
+  }, [status, session?.user, session?.user?.role, loadAdminDashboard, loadTeacherDashboard])
 
   if (status === "loading") {
     return null
@@ -121,8 +252,8 @@ export default function DashboardPage() {
   const firstName = session.user.name?.split(" ")?.[1] || session.user.name?.split(" ")?.[0] || ""
   const workingPercentage = stats ? Math.round((stats.workingEquipment / stats.totalEquipment) * 100) : 0
 
-  const getStatusBadge = (status: RecentRequest["status"]) => {
-    switch (status) {
+  const getStatusBadge = (s: (typeof recentRequests)[number]["status"]) => {
+    switch (s) {
       case "pending":
         return <Badge variant="secondary">Ожидает</Badge>
       case "in_progress":
@@ -132,7 +263,24 @@ export default function DashboardPage() {
     }
   }
 
-  const getPriorityBadge = (priority: RecentRequest["priority"]) => {
+  const getTeacherRequestStatusBadge = (s: MyRequestListItem["status"]) => {
+    switch (s) {
+      case "pending":
+        return <Badge variant="secondary">Ожидает</Badge>
+      case "in_progress":
+        return <Badge variant="default">В работе</Badge>
+      case "completed":
+        return (
+          <Badge variant="outline" className="border-green-600 text-green-600">
+            Выполнено
+          </Badge>
+        )
+      case "rejected":
+        return <Badge variant="destructive">Отклонено</Badge>
+    }
+  }
+
+  const getPriorityBadge = (priority: (typeof recentRequests)[number]["priority"]) => {
     switch (priority) {
       case "high":
         return <Badge variant="destructive">Высокий</Badge>
@@ -201,7 +349,7 @@ export default function DashboardPage() {
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             <Card className="border-l-4 border-l-orange-500">
               <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium">Заявки на ремонт</CardTitle>
+                <CardTitle className="text-sm font-medium">Неисправности</CardTitle>
                 <ClipboardList className="h-4 w-4 text-orange-500" />
               </CardHeader>
               <CardContent>
@@ -391,7 +539,7 @@ export default function DashboardPage() {
                   </CardDescription>
                 </div>
                 <Button variant="ghost" size="sm" asChild>
-                  <Link href="/dashboard/requests">
+                  <Link href="/dashboard/issues">
                     Все заявки
                     <ArrowRight className="ml-2 h-4 w-4" />
                   </Link>
@@ -481,9 +629,9 @@ export default function DashboardPage() {
                 </CardHeader>
                 <CardContent className="space-y-2">
                   <Button variant="outline" className="w-full justify-start" asChild>
-                    <Link href="/dashboard/requests">
+                    <Link href="/dashboard/issues">
                       <ClipboardList className="mr-2 h-4 w-4" />
-                      Просмотр заявок
+                      Неисправности
                       <Badge variant="secondary" className="ml-auto">{stats?.openRequests}</Badge>
                     </Link>
                   </Button>
@@ -521,6 +669,17 @@ export default function DashboardPage() {
       {/* Teacher Dashboard */}
       {!isAdmin && (
         <>
+          {teacherError ? (
+            <Alert variant="destructive" className="mb-2">
+              <AlertDescription className="flex flex-wrap items-center gap-2">
+                {teacherError}
+                <Button type="button" variant="outline" size="sm" onClick={() => void loadTeacherDashboard()}>
+                  Повторить
+                </Button>
+              </AlertDescription>
+            </Alert>
+          ) : null}
+
           {/* Stats for Teacher */}
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             <Card>
@@ -531,13 +690,21 @@ export default function DashboardPage() {
               <CardContent>
                 {loading ? (
                   <Skeleton className="h-8 w-20" />
-                ) : (
+                ) : teacherSummary ? (
                   <>
-                    <div className="text-2xl font-bold">3</div>
+                    <div className="text-2xl font-bold">{teacherSummary.myRequestsTotal}</div>
                     <p className="text-xs text-muted-foreground">
-                      2 в обработке, 1 выполнена
+                      {teacherSummary.myRequestsPending} ожидают · {teacherSummary.myRequestsInProgress} в работе
+                      {teacherSummary.myRequestsCompleted > 0
+                        ? ` · ${teacherSummary.myRequestsCompleted} выполнено`
+                        : ""}
+                      {teacherSummary.myRequestsRejected > 0
+                        ? ` · ${teacherSummary.myRequestsRejected} отклонено`
+                        : ""}
                     </p>
                   </>
+                ) : (
+                  <Skeleton className="h-8 w-20" />
                 )}
               </CardContent>
             </Card>
@@ -550,13 +717,15 @@ export default function DashboardPage() {
               <CardContent>
                 {loading ? (
                   <Skeleton className="h-8 w-20" />
-                ) : (
+                ) : teacherSummary ? (
                   <>
-                    <div className="text-2xl font-bold">{stats?.totalEquipment}</div>
+                    <div className="text-2xl font-bold">{teacherSummary.equipment}</div>
                     <p className="text-xs text-muted-foreground">
-                      Доступно для просмотра
+                      В ваших аудиториях (по данным реестра)
                     </p>
                   </>
+                ) : (
+                  <Skeleton className="h-8 w-20" />
                 )}
               </CardContent>
             </Card>
@@ -569,13 +738,15 @@ export default function DashboardPage() {
               <CardContent>
                 {loading ? (
                   <Skeleton className="h-8 w-20" />
-                ) : (
+                ) : teacherSummary ? (
                   <>
-                    <div className="text-2xl font-bold">{stats?.totalClassrooms}</div>
+                    <div className="text-2xl font-bold">{teacherSummary.classrooms}</div>
                     <p className="text-xs text-muted-foreground">
-                      В учебном корпусе
+                      За которые вы ответственны · {teacherSummary.workstations} рабочих мест
                     </p>
                   </>
+                ) : (
+                  <Skeleton className="h-8 w-20" />
                 )}
               </CardContent>
             </Card>
@@ -589,7 +760,7 @@ export default function DashboardPage() {
                 <div>
                   <CardTitle>Мои заявки</CardTitle>
                   <CardDescription>
-                    Ваши последние заявки на ремонт
+                    Последние обращения о неисправностях и заявки на ПО
                   </CardDescription>
                 </div>
                 <Button variant="ghost" size="sm" asChild>
@@ -612,22 +783,50 @@ export default function DashboardPage() {
                       </div>
                     ))}
                   </div>
+                ) : teacherRecent.length === 0 ? (
+                  <p className="py-6 text-center text-sm text-muted-foreground">
+                    Заявок пока нет. Вы можете{" "}
+                    <Link href="/dashboard/requests/new" className="text-primary underline">
+                      сообщить о проблеме
+                    </Link>{" "}
+                    или подать{" "}
+                    <Link href="/dashboard/software-requests" className="text-primary underline">
+                      заявку на ПО
+                    </Link>
+                    .
+                  </p>
                 ) : (
                   <div className="space-y-4">
-                    {recentRequests.slice(0, 3).map((request) => (
-                      <div key={request.id} className="flex items-center justify-between border-b pb-4 last:border-0 last:pb-0">
-                        <div className="flex items-center gap-4">
-                          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
-                            <Wrench className="h-5 w-5 text-muted-foreground" />
+                    {teacherRecent.map((request) => (
+                      <div
+                        key={request.key}
+                        className="flex items-center justify-between border-b pb-4 last:border-0 last:pb-0"
+                      >
+                        <div className="flex min-w-0 flex-1 items-center gap-4">
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted">
+                            {request.source === "software" ? (
+                              <HardDrive className="h-5 w-5 text-muted-foreground" />
+                            ) : (
+                              <Wrench className="h-5 w-5 text-muted-foreground" />
+                            )}
                           </div>
-                          <div>
+                          <div className="min-w-0">
                             <p className="font-medium">{request.title}</p>
-                            <p className="text-sm text-muted-foreground">{request.classroom}</p>
+                            <p className="truncate text-sm text-muted-foreground">
+                              {request.classroomLabel}
+                              {request.workstationLabel ? ` · ${request.workstationLabel}` : ""}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {new Date(request.createdAt).toLocaleString("ru-RU", {
+                                day: "numeric",
+                                month: "short",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                            </p>
                           </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          {getStatusBadge(request.status)}
-                        </div>
+                        <div className="ml-2 shrink-0">{getTeacherRequestStatusBadge(request.status)}</div>
                       </div>
                     ))}
                   </div>
@@ -651,9 +850,20 @@ export default function DashboardPage() {
                   </Link>
                 </Button>
                 <Button variant="outline" className="w-full justify-start" asChild>
+                  <Link href="/dashboard/software-requests">
+                    <HardDrive className="mr-2 h-4 w-4" />
+                    Заявка на ПО
+                  </Link>
+                </Button>
+                <Button variant="outline" className="w-full justify-start" asChild>
                   <Link href="/dashboard/my-requests">
                     <ClipboardList className="mr-2 h-4 w-4" />
                     Мои заявки
+                    {teacherSummary && teacherSummary.myRequestsTotal > 0 ? (
+                      <Badge variant="secondary" className="ml-auto">
+                        {teacherSummary.myRequestsTotal}
+                      </Badge>
+                    ) : null}
                   </Link>
                 </Button>
                 <Button variant="outline" className="w-full justify-start" asChild>

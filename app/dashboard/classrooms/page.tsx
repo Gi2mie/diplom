@@ -180,6 +180,12 @@ export default function ClassroomsPage() {
     if (sessionStatus === "authenticated") void loadRegistry()
   }, [loadRegistry, sessionStatus])
 
+  const isAdmin = session?.user?.role === "ADMIN"
+
+  useEffect(() => {
+    if (session?.user?.role === "TEACHER") setActiveTab("classrooms")
+  }, [session?.user?.role])
+
   const classrooms = registry?.classrooms ?? []
   const buildings = registry?.buildings ?? []
   const types = registry?.types ?? []
@@ -210,8 +216,6 @@ export default function ClassroomsPage() {
     selectedBuildingFilter !== "all" ||
     selectedTypeFilter !== "all" ||
     selectedStatusFilter !== "all"
-
-  const isAdmin = session?.user?.role === "ADMIN"
 
   const getTypeColor = (typeId: string | null) =>
     types.find((t) => t.id === typeId)?.color ?? "bg-slate-100 text-slate-800"
@@ -380,7 +384,11 @@ export default function ClassroomsPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Аудитории</h1>
-        <p className="text-muted-foreground">Управление аудиториями, типами и корпусами</p>
+        <p className="text-muted-foreground">
+          {isAdmin
+            ? "Управление аудиториями, типами и корпусами"
+            : "Аудитории, за которые вы назначены ответственным"}
+        </p>
       </div>
 
       {error && (
@@ -397,7 +405,9 @@ export default function ClassroomsPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats?.totalClassrooms ?? 0}</div>
-            <p className="text-xs text-muted-foreground">Записей в базе</p>
+            <p className="text-xs text-muted-foreground">
+              {isAdmin ? "Записей в базе" : "В вашей зоне ответственности"}
+            </p>
           </CardContent>
         </Card>
         <Card>
@@ -407,7 +417,9 @@ export default function ClassroomsPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats?.totalWorkstations ?? 0}</div>
-            <p className="text-xs text-muted-foreground">Всего по системе</p>
+            <p className="text-xs text-muted-foreground">
+              {isAdmin ? "Всего по системе" : "В ваших аудиториях"}
+            </p>
           </CardContent>
         </Card>
         <Card>
@@ -417,7 +429,9 @@ export default function ClassroomsPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats?.totalBuildings ?? 0}</div>
-            <p className="text-xs text-muted-foreground">В справочнике</p>
+            <p className="text-xs text-muted-foreground">
+              {isAdmin ? "В справочнике" : "С корпусами ваших аудиторий"}
+            </p>
           </CardContent>
         </Card>
         <Card>
@@ -427,16 +441,22 @@ export default function ClassroomsPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats?.totalTypes ?? 0}</div>
-            <p className="text-xs text-muted-foreground">Категорий</p>
+            <p className="text-xs text-muted-foreground">
+              {isAdmin ? "Категорий" : "Среди ваших аудиторий"}
+            </p>
           </CardContent>
         </Card>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-3 lg:w-[400px]">
+        <TabsList className={isAdmin ? "grid w-full grid-cols-3 lg:w-[400px]" : "grid w-full max-w-[220px]"}>
           <TabsTrigger value="classrooms">Аудитории</TabsTrigger>
-          <TabsTrigger value="types">Типы</TabsTrigger>
-          <TabsTrigger value="buildings">Корпуса</TabsTrigger>
+          {isAdmin ? (
+            <>
+              <TabsTrigger value="types">Типы</TabsTrigger>
+              <TabsTrigger value="buildings">Корпуса</TabsTrigger>
+            </>
+          ) : null}
         </TabsList>
 
         <TabsContent value="classrooms" className="space-y-4">
@@ -610,6 +630,7 @@ export default function ClassroomsPage() {
           </Card>
         </TabsContent>
 
+        {isAdmin ? (
         <TabsContent value="types" className="space-y-4">
           <Card>
             <CardHeader>
@@ -618,11 +639,9 @@ export default function ClassroomsPage() {
                   <CardTitle>Типы аудиторий</CardTitle>
                   <CardDescription>Название, код (латиница), цвет, описание</CardDescription>
                 </div>
-                {isAdmin && (
-                  <Button onClick={() => { setTypeFormError(null); setTypeForm(emptyTypeForm()); setIsAddTypeOpen(true); }}>
-                    <Plus className="mr-2 h-4 w-4" />Добавить тип
-                  </Button>
-                )}
+                <Button onClick={() => { setTypeFormError(null); setTypeForm(emptyTypeForm()); setIsAddTypeOpen(true); }}>
+                  <Plus className="mr-2 h-4 w-4" />Добавить тип
+                </Button>
               </div>
             </CardHeader>
             <CardContent>
@@ -686,7 +705,9 @@ export default function ClassroomsPage() {
             </CardContent>
           </Card>
         </TabsContent>
+        ) : null}
 
+        {isAdmin ? (
         <TabsContent value="buildings" className="space-y-4">
           <Card>
             <CardHeader>
@@ -695,11 +716,9 @@ export default function ClassroomsPage() {
                   <CardTitle>Корпуса</CardTitle>
                   <CardDescription>Название, адрес, этажи, описание</CardDescription>
                 </div>
-                {isAdmin && (
-                  <Button onClick={() => { setBuildingFormError(null); setBuildingForm(emptyBuildingForm()); setIsAddBuildingOpen(true); }}>
-                    <Plus className="mr-2 h-4 w-4" />Добавить корпус
-                  </Button>
-                )}
+                <Button onClick={() => { setBuildingFormError(null); setBuildingForm(emptyBuildingForm()); setIsAddBuildingOpen(true); }}>
+                  <Plus className="mr-2 h-4 w-4" />Добавить корпус
+                </Button>
               </div>
             </CardHeader>
             <CardContent>
@@ -768,6 +787,7 @@ export default function ClassroomsPage() {
             </CardContent>
           </Card>
         </TabsContent>
+        ) : null}
       </Tabs>
 
       {/* Classroom dialogs */}

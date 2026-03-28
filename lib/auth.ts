@@ -119,3 +119,9 @@ export function isAdminSession(
 ): boolean {
   return session?.user?.role === "ADMIN"
 }
+
+export function isTeacherSession(
+  session: { user?: { id?: string; role?: string | null } | null } | null | undefined
+): boolean {
+  return session?.user?.role === "TEACHER"
+}

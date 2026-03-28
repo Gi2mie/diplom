@@ -49,6 +49,7 @@ model User {
   notifications     Notification[]      // Уведомления пользователя
   changeHistories   ChangeHistory[]     // История изменений, созданная пользователем
   responsibleRooms  Classroom[]         // Кабинеты, за которые отвечает
+  softwareRequests  SoftwareRequest[]   // Заявки на ПО
 
   @@map("users")
 }
@@ -115,6 +116,7 @@ model Classroom {
   classroomType ClassroomType? @relation(fields: [classroomTypeId], references: [id], onDelete: SetNull)
   responsible   User?          @relation(fields: [responsibleId], references: [id], onDelete: SetNull)
   workstations  Workstation[] // Рабочие места в кабинете
+  softwareRequests SoftwareRequest[]
 
   @@map("classrooms")
 }
@@ -151,6 +153,7 @@ model Workstation {
   // Связи
   classroom   Classroom   @relation(fields: [classroomId], references: [id], onDelete: Cascade)
   equipment   Equipment[]
+  softwareRequests SoftwareRequest[]
 
   @@unique([classroomId, code])
   @@map("workstations")
@@ -340,6 +343,46 @@ model InstalledSoftware {
 
   @@unique([equipmentId, softwareId]) // Одно ПО на одном оборудовании один раз
   @@map("installed_software")
+}
+
+// ==========================================
+// ЗАЯВКИ НА ПО (установка / обновление / удаление)
+// ==========================================
+
+enum SoftwareRequestKind {
+  INSTALL
+  UPDATE
+  UNINSTALL
+}
+
+enum SoftwareRequestStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  REJECTED
+}
+
+model SoftwareRequest {
+  id              String                @id @default(cuid())
+  kind            SoftwareRequestKind
+  softwareName    String                @map("software_name")
+  softwareVersion String                @default("") @map("software_version")
+  description     String                @db.Text
+  classroomId     String                @map("classroom_id")
+  workstationId   String?               @map("workstation_id")
+  wholeClassroom  Boolean               @default(false) @map("whole_classroom")
+  priority        IssuePriority         @default(MEDIUM)
+  status          SoftwareRequestStatus @default(PENDING)
+  adminComment    String?               @map("admin_comment") @db.Text
+  requesterId     String                @map("requester_id")
+  createdAt       DateTime              @default(now()) @map("created_at")
+  updatedAt       DateTime              @updatedAt @map("updated_at")
+
+  classroom   Classroom    @relation(fields: [classroomId], references: [id], onDelete: Cascade)
+  workstation Workstation? @relation(fields: [workstationId], references: [id], onDelete: SetNull)
+  requester   User         @relation(fields: [requesterId], references: [id], onDelete: Cascade)
+
+  @@map("software_requests")
 }
 
 // ==========================================

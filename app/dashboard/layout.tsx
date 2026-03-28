@@ -58,12 +58,29 @@ type NavigationItem = {
   title: string
   href: string
   icon: any
-  badge?: string
 }
 
 type NavigationGroup = {
   title: string
   items: NavigationItem[]
+}
+
+type NavCounts = {
+  softwareRequests: number
+  activeRepairs: number
+  issues: number
+}
+
+function formatNavBadge(href: string, counts: NavCounts | null, isAdmin: boolean): string | null {
+  if (!isAdmin || !counts) return null
+  const map: Record<string, number> = {
+    "/dashboard/software-requests": counts.softwareRequests,
+    "/dashboard/repairs": counts.activeRepairs,
+    "/dashboard/issues": counts.issues,
+  }
+  const n = map[href]
+  if (n === undefined || n < 1) return null
+  return String(n)
 }
 
 // Навигация для администратора
@@ -93,8 +110,7 @@ const adminNavigation: NavigationGroup[] = [
   {
     title: "Заявки и ремонт",
     items: [
-      { title: "Заявки на ремонт", href: "/dashboard/requests", icon: ClipboardList, badge: "5" },
-      { title: "Заявки на ПО", href: "/dashboard/software-requests", icon: HardDrive, badge: "2" },
+      { title: "Заявки на ПО", href: "/dashboard/software-requests", icon: HardDrive },
       { title: "Активные ремонты", href: "/dashboard/repairs", icon: Wrench },
       { title: "Неисправности", href: "/dashboard/issues", icon: AlertTriangle },
     ]
@@ -146,8 +162,10 @@ export default function DashboardLayout({
   const pathname = usePathname()
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
+  const [navCounts, setNavCounts] = useState<NavCounts | null>(null)
 
   const { data: session, status } = useSession()
+  const isAdminSession = session?.user?.role === "ADMIN"
 
   useEffect(() => {
     if (typeof window === "undefined") return
@@ -167,6 +185,35 @@ export default function DashboardLayout({
     return () => window.removeEventListener("hashchange", openFromHash)
   }, [pathname])
 
+  useEffect(() => {
+    if (!isAdminSession) {
+      setNavCounts(null)
+      return
+    }
+    let cancelled = false
+    fetch("/api/dashboard-nav-counts", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((d: NavCounts) => {
+        if (
+          cancelled ||
+          typeof d?.softwareRequests !== "number" ||
+          typeof d?.activeRepairs !== "number" ||
+          typeof d?.issues !== "number"
+        ) {
+          return
+        }
+        setNavCounts({
+          softwareRequests: d.softwareRequests,
+          activeRepairs: d.activeRepairs,
+          issues: d.issues,
+        })
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [isAdminSession])
+
   if (status === "loading") {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -181,7 +228,7 @@ export default function DashboardLayout({
     return null
   }
   
-  const isAdmin = session.user.role === "ADMIN"
+  const isAdmin = isAdminSession
   const navigation = isAdmin ? adminNavigation : teacherNavigation
 
   const nameParts = (session.user.name || "").split(/\s+/).filter(Boolean)
@@ -230,7 +277,9 @@ export default function DashboardLayout({
               <SidebarGroupLabel>{group.title}</SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu>
-                  {group.items.map((item) => (
+                  {group.items.map((item) => {
+                    const navBadgeText = formatNavBadge(item.href, navCounts, isAdmin)
+                    return (
                     <SidebarMenuItem key={item.href}>
                       <SidebarMenuButton 
                         asChild 
@@ -240,15 +289,16 @@ export default function DashboardLayout({
                         <Link href={item.href}>
                           <item.icon className="h-4 w-4" />
                           <span>{item.title}</span>
-                          {item.badge && (
+                          {navBadgeText ? (
                             <Badge variant="secondary" className="ml-auto text-xs">
-                              {item.badge}
+                              {navBadgeText}
                             </Badge>
-                          )}
+                          ) : null}
                         </Link>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
-                  ))}
+                    )
+                  })}
                 </SidebarMenu>
               </SidebarGroupContent>
             </SidebarGroup>

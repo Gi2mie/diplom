@@ -1,15 +1,16 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
-import { getMockSession, getCurrentMockPermissions, type MockSession, type MockPermissions } from "@/lib/mock-auth"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import Link from "next/link"
+import { useSession } from "next-auth/react"
+import { RepairStatus, UserRole } from "@prisma/client"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
-import { Textarea } from "@/components/ui/textarea"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Progress } from "@/components/ui/progress"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import {
   Table,
   TableBody,
@@ -39,484 +40,300 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
-import { 
-  Plus, 
-  Search, 
-  MoreHorizontal, 
-  Eye, 
-  Pencil, 
-  Trash2, 
-  X,
-  Wrench,
-  Clock,
-  CheckCircle,
-  Pause,
-  Play,
-  User,
-  Calendar,
-  Timer
-} from "lucide-react"
+import { Search, Eye, Wrench, Clock, CheckCircle, XCircle, ListOrdered, MoreHorizontal } from "lucide-react"
+import { fetchDashboardRepairs, patchRepairStatus, type DashboardRepairRow } from "@/lib/api/repairs-dashboard"
 
-// Типы
-type RepairStatus = "pending" | "in_progress" | "paused" | "completed" | "cancelled"
-
-interface Repair {
+type ClassroomBrief = {
   id: string
-  requestId: string
-  title: string
-  description: string
-  classroom: string
-  workstation: string
-  equipment: string
-  status: RepairStatus
-  assignedTo: string
-  startedAt: string
-  estimatedCompletion: string
-  completedAt: string | null
-  progress: number
-  workLog: string
-  partsUsed: string
-  cost: number
+  number: string
+  name: string | null
+  building: { name: string } | null
 }
 
-// Mock данные аудиторий
-const mockClassrooms = [
-  "Аудитория 301",
-  "Аудитория 302",
-  "Компьютерный класс 105",
-  "Компьютерный класс 106",
-  "Лекционный зал 401",
-  "Лаборатория 201",
-]
-
-// Mock данные рабочих мест
-const mockWorkstations: Record<string, string[]> = {
-  "Аудитория 301": ["Рабочее место 1", "Рабочее место 2", "Рабочее место 3", "Преподавательское"],
-  "Аудитория 302": ["Рабочее место 1", "Рабочее место 2", "Преподавательское"],
-  "Компьютерный класс 105": ["Рабочее место 1", "Рабочее место 2", "Рабочее место 3", "Рабочее место 4", "Рабочее место 5"],
-  "Компьютерный класс 106": ["Рабочее место 1", "Рабочее место 2", "Рабочее место 3", "Рабочее место 4"],
-  "Лекционный зал 401": ["Преподавательское", "Проекторная"],
-  "Лаборатория 201": ["Рабочее место 1", "Рабочее место 2", "Рабочее место 3"],
+function personLabel(p: { firstName: string; lastName: string; middleName: string | null }): string {
+  const m = p.middleName ? ` ${p.middleName}` : ""
+  return `${p.lastName} ${p.firstName}${m}`.trim()
 }
 
-// Mock данные техников
-const mockTechnicians = [
-  "Сидоров В.М.",
-  "Кузнецов А.И.",
-  "Морозов Д.С.",
-  "Волков П.Н.",
-]
+function classroomLine(c: ClassroomBrief | null | undefined): string {
+  if (!c) return "—"
+  const t = c.name?.trim() || `Аудитория ${c.number}`
+  return c.building?.name ? `${t} (${c.building.name})` : t
+}
 
-// Mock данные ремонтов
-const mockRepairs: Repair[] = [
-  {
-    id: "1",
-    requestId: "2",
-    title: "Диагностика и ремонт системного блока",
-    description: "Системный блок периодически зависает. Требуется диагностика и устранение проблемы.",
-    classroom: "Компьютерный класс 105",
-    workstation: "Рабочее место 3",
-    equipment: "Системный блок Dell OptiPlex",
-    status: "in_progress",
-    assignedTo: "Сидоров В.М.",
-    startedAt: "2025-03-25",
-    estimatedCompletion: "2025-03-27",
-    completedAt: null,
-    progress: 60,
-    workLog: "Проведена диагностика. Обнаружен перегрев процессора. Выполнена чистка от пыли, замена термопасты.",
-    partsUsed: "Термопаста Arctic MX-4",
-    cost: 500
-  },
-  {
-    id: "2",
-    requestId: "4",
-    title: "Ремонт проектора",
-    description: "Проектор не выводит изображение при включении.",
-    classroom: "Лекционный зал 401",
-    workstation: "Проекторная",
-    equipment: "Проектор Epson EB-X51",
-    status: "pending",
-    assignedTo: "Кузнецов А.И.",
-    startedAt: "2025-03-26",
-    estimatedCompletion: "2025-03-28",
-    completedAt: null,
-    progress: 0,
-    workLog: "",
-    partsUsed: "",
-    cost: 0
-  },
-  {
-    id: "3",
-    requestId: "6",
-    title: "Замена материнской платы",
-    description: "Компьютер не включается после скачка напряжения.",
-    classroom: "Аудитория 302",
-    workstation: "Рабочее место 1",
-    equipment: "Системный блок HP ProDesk",
-    status: "paused",
-    assignedTo: "Морозов Д.С.",
-    startedAt: "2025-03-20",
-    estimatedCompletion: "2025-03-30",
-    completedAt: null,
-    progress: 30,
-    workLog: "Диагностика выявила выход из строя материнской платы. Ожидание поставки запчастей.",
-    partsUsed: "",
-    cost: 0
-  },
-  {
-    id: "4",
-    requestId: "7",
-    title: "Ремонт монитора",
-    description: "Монитор мерцает и периодически гаснет.",
-    classroom: "Компьютерный класс 106",
-    workstation: "Рабочее место 2",
-    equipment: "Монитор Samsung 24 дюйма",
-    status: "completed",
-    assignedTo: "Волков П.Н.",
-    startedAt: "2025-03-18",
-    estimatedCompletion: "2025-03-20",
-    completedAt: "2025-03-19",
-    progress: 100,
-    workLog: "Заменены конденсаторы в блоке питания монитора. Монитор работает стабильно.",
-    partsUsed: "Конденсаторы 470мкФ x3, 1000мкФ x2",
-    cost: 1200
-  },
+function repairLocation(row: DashboardRepairRow): string {
+  const ws = row.equipment.workstation
+  if (!ws) return "—"
+  const room = classroomLine(ws.classroom)
+  const wsName = ws.name?.trim() ? `${ws.code} — ${ws.name}` : ws.code
+  return `${room} · ${wsName}`
+}
+
+function fmtDateTime(iso: string | null): string {
+  if (!iso) return "—"
+  try {
+    return new Date(iso).toLocaleString("ru-RU", { dateStyle: "short", timeStyle: "short" })
+  } catch {
+    return "—"
+  }
+}
+
+const statusMeta: Record<
+  RepairStatus,
+  { label: string; variant: "default" | "secondary" | "destructive" | "outline"; icon: typeof Wrench }
+> = {
+  [RepairStatus.PLANNED]: { label: "В очереди", variant: "secondary", icon: Clock },
+  [RepairStatus.IN_PROGRESS]: { label: "В работе", variant: "default", icon: Wrench },
+  [RepairStatus.COMPLETED]: { label: "Готово", variant: "outline", icon: CheckCircle },
+  [RepairStatus.CANCELLED]: { label: "Отменено", variant: "destructive", icon: XCircle },
+}
+
+const statusSelectOrder: RepairStatus[] = [
+  RepairStatus.PLANNED,
+  RepairStatus.IN_PROGRESS,
+  RepairStatus.COMPLETED,
+  RepairStatus.CANCELLED,
 ]
 
 export default function RepairsPage() {
-  const [session, setSession] = useState<MockSession | null>(null)
-  const [permissions, setPermissions] = useState<MockPermissions | null>(null)
-  const [repairs, setRepairs] = useState<Repair[]>(mockRepairs)
-  
-  // Диалоги
-  const [viewDialogOpen, setViewDialogOpen] = useState(false)
-  const [addDialogOpen, setAddDialogOpen] = useState(false)
-  const [editDialogOpen, setEditDialogOpen] = useState(false)
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
-  const [selectedRepair, setSelectedRepair] = useState<Repair | null>(null)
-  
-  // Фильтры
+  const { data: session, status: sessionStatus } = useSession()
+  const [repairs, setRepairs] = useState<DashboardRepairRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
   const [searchQuery, setSearchQuery] = useState("")
-  const [selectedClassroom, setSelectedClassroom] = useState("all")
-  const [selectedWorkstation, setSelectedWorkstation] = useState("all")
-  const [selectedStatus, setSelectedStatus] = useState<RepairStatus | "all">("all")
-  const [selectedTechnician, setSelectedTechnician] = useState("all")
-  
-  // Форма
-  const [formData, setFormData] = useState({
-    title: "",
-    description: "",
-    classroom: "",
-    workstation: "",
-    equipment: "",
-    status: "pending" as RepairStatus,
-    assignedTo: "",
-    estimatedCompletion: "",
-    progress: 0,
-    workLog: "",
-    partsUsed: "",
-    cost: 0
-  })
-  
-  useEffect(() => {
-    setSession(getMockSession())
-    setPermissions(getCurrentMockPermissions())
+  const [filterClassroomId, setFilterClassroomId] = useState<string>("all")
+  const [filterWorkstationId, setFilterWorkstationId] = useState<string>("all")
+  const [filterStatus, setFilterStatus] = useState<RepairStatus | "all">("all")
+
+  const [viewOpen, setViewOpen] = useState(false)
+  const [selected, setSelected] = useState<DashboardRepairRow | null>(null)
+  const [statusSavingId, setStatusSavingId] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const list = await fetchDashboardRepairs({ activeOnly: true })
+      setRepairs(list)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Ошибка загрузки")
+    } finally {
+      setLoading(false)
+    }
   }, [])
-  
-  // Статистика
-  const stats = useMemo(() => ({
-    total: repairs.length,
-    pending: repairs.filter(r => r.status === "pending").length,
-    inProgress: repairs.filter(r => r.status === "in_progress").length,
-    paused: repairs.filter(r => r.status === "paused").length,
-    completed: repairs.filter(r => r.status === "completed").length,
-  }), [repairs])
-  
-  // Фильтрация
-  const filteredRepairs = useMemo(() => {
-    return repairs.filter(item => {
-      const matchesSearch = 
-        item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.equipment.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.assignedTo.toLowerCase().includes(searchQuery.toLowerCase())
-      
-      const matchesClassroom = selectedClassroom === "all" || item.classroom === selectedClassroom
-      const matchesWorkstation = selectedWorkstation === "all" || item.workstation === selectedWorkstation
-      const matchesStatus = selectedStatus === "all" || item.status === selectedStatus
-      const matchesTechnician = selectedTechnician === "all" || item.assignedTo === selectedTechnician
-      
-      return matchesSearch && matchesClassroom && matchesWorkstation && matchesStatus && matchesTechnician
-    })
-  }, [repairs, searchQuery, selectedClassroom, selectedWorkstation, selectedStatus, selectedTechnician])
-  
-  // Рабочие места для выбранной аудитории
-  const availableWorkstations = useMemo(() => {
-    if (selectedClassroom === "all") return []
-    return mockWorkstations[selectedClassroom] || []
-  }, [selectedClassroom])
-  
-  const formWorkstations = useMemo(() => {
-    if (!formData.classroom) return []
-    return mockWorkstations[formData.classroom] || []
-  }, [formData.classroom])
-  
-  // Сброс фильтров
-  const resetFilters = () => {
-    setSearchQuery("")
-    setSelectedClassroom("all")
-    setSelectedWorkstation("all")
-    setSelectedStatus("all")
-    setSelectedTechnician("all")
-  }
-  
-  const hasFilters = searchQuery || selectedClassroom !== "all" || selectedWorkstation !== "all" || selectedStatus !== "all" || selectedTechnician !== "all"
-  
-  // Получить информацию о статусе
-  const getStatusInfo = (status: RepairStatus) => {
-    const statuses = {
-      pending: { label: "Ожидает", variant: "secondary" as const, icon: Clock, color: "text-slate-500" },
-      in_progress: { label: "В работе", variant: "default" as const, icon: Wrench, color: "text-blue-500" },
-      paused: { label: "Приостановлен", variant: "outline" as const, icon: Pause, color: "text-orange-500" },
-      completed: { label: "Завершён", variant: "outline" as const, icon: CheckCircle, color: "text-green-500" },
-      cancelled: { label: "Отменён", variant: "destructive" as const, icon: X, color: "text-red-500" },
+
+  useEffect(() => {
+    if (sessionStatus === "authenticated" && session?.user?.role === UserRole.ADMIN) {
+      void load()
     }
-    return statuses[status]
-  }
-  
-  // Обработчики
-  const handleView = (item: Repair) => {
-    setSelectedRepair(item)
-    setViewDialogOpen(true)
-  }
-  
-  const handleEdit = (item: Repair) => {
-    setSelectedRepair(item)
-    setFormData({
-      title: item.title,
-      description: item.description,
-      classroom: item.classroom,
-      workstation: item.workstation,
-      equipment: item.equipment,
-      status: item.status,
-      assignedTo: item.assignedTo,
-      estimatedCompletion: item.estimatedCompletion,
-      progress: item.progress,
-      workLog: item.workLog,
-      partsUsed: item.partsUsed,
-      cost: item.cost
-    })
-    setEditDialogOpen(true)
-  }
-  
-  const handleDelete = (item: Repair) => {
-    setSelectedRepair(item)
-    setDeleteDialogOpen(true)
-  }
-  
-  const handleAdd = () => {
-    setFormData({
-      title: "",
-      description: "",
-      classroom: "",
-      workstation: "",
-      equipment: "",
-      status: "pending",
-      assignedTo: "",
-      estimatedCompletion: "",
-      progress: 0,
-      workLog: "",
-      partsUsed: "",
-      cost: 0
-    })
-    setAddDialogOpen(true)
-  }
-  
-  const handleSaveNew = () => {
-    const newRepair: Repair = {
-      id: String(Date.now()),
-      requestId: "",
-      title: formData.title,
-      description: formData.description,
-      classroom: formData.classroom,
-      workstation: formData.workstation,
-      equipment: formData.equipment,
-      status: formData.status,
-      assignedTo: formData.assignedTo,
-      startedAt: new Date().toISOString().split("T")[0],
-      estimatedCompletion: formData.estimatedCompletion,
-      completedAt: null,
-      progress: formData.progress,
-      workLog: formData.workLog,
-      partsUsed: formData.partsUsed,
-      cost: formData.cost
-    }
-    setRepairs([newRepair, ...repairs])
-    setAddDialogOpen(false)
-  }
-  
-  const handleSaveEdit = () => {
-    if (!selectedRepair) return
-    
-    const updatedRepairs = repairs.map(r => {
-      if (r.id === selectedRepair.id) {
-        return {
-          ...r,
-          title: formData.title,
-          description: formData.description,
-          classroom: formData.classroom,
-          workstation: formData.workstation,
-          equipment: formData.equipment,
-          status: formData.status,
-          assignedTo: formData.assignedTo,
-          estimatedCompletion: formData.estimatedCompletion,
-          progress: formData.progress,
-          workLog: formData.workLog,
-          partsUsed: formData.partsUsed,
-          cost: formData.cost,
-          completedAt: formData.status === "completed" ? new Date().toISOString().split("T")[0] : r.completedAt
+  }, [sessionStatus, session?.user?.role, load])
+
+  const handleRepairStatusChange = async (rowId: string, status: RepairStatus) => {
+    setStatusSavingId(rowId)
+    setError(null)
+    try {
+      const updated = await patchRepairStatus(rowId, status)
+      const hideFromActive = status === RepairStatus.COMPLETED || status === RepairStatus.CANCELLED
+      const dialogForThis = selected?.id === rowId
+
+      setRepairs((prev) => {
+        if (hideFromActive) return prev.filter((r) => r.id !== rowId)
+        return prev.map((r) => (r.id === rowId ? updated : r))
+      })
+
+      if (dialogForThis) {
+        if (hideFromActive) {
+          setSelected(null)
+          setViewOpen(false)
+        } else {
+          setSelected(updated)
         }
       }
-      return r
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не удалось сохранить статус")
+    } finally {
+      setStatusSavingId(null)
+    }
+  }
+
+  const classroomOptions = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const r of repairs) {
+      const c = r.equipment.workstation?.classroom
+      if (c) m.set(c.id, classroomLine(c))
+    }
+    return [...m.entries()].sort((a, b) => a[1].localeCompare(b[1], "ru"))
+  }, [repairs])
+
+  const workstationFilterOptions = useMemo(() => {
+    if (filterClassroomId === "all") return []
+    const m = new Map<string, string>()
+    for (const r of repairs) {
+      const ws = r.equipment.workstation
+      if (ws?.classroom.id === filterClassroomId) {
+        const label = ws.name?.trim() ? `${ws.code} — ${ws.name}` : ws.code
+        m.set(ws.id, label)
+      }
+    }
+    return [...m.entries()].sort((a, b) => a[1].localeCompare(b[1], "ru"))
+  }, [repairs, filterClassroomId])
+
+  const filtered = useMemo(() => {
+    const q = searchQuery.toLowerCase().trim()
+    return repairs.filter((row) => {
+      const cId = row.equipment.workstation?.classroom.id
+      const wsId = row.equipment.workstation?.id
+      const assignee = row.assignedTo ? personLabel(row.assignedTo).toLowerCase() : ""
+      const creator = personLabel(row.createdBy).toLowerCase()
+      const issueTitle = row.issueReport?.title?.toLowerCase() ?? ""
+      const matchesQ =
+        !q ||
+        row.description.toLowerCase().includes(q) ||
+        row.equipment.name.toLowerCase().includes(q) ||
+        row.equipment.inventoryNumber.toLowerCase().includes(q) ||
+        assignee.includes(q) ||
+        creator.includes(q) ||
+        issueTitle.includes(q)
+      const matchesC = filterClassroomId === "all" || cId === filterClassroomId
+      const matchesW = filterWorkstationId === "all" || wsId === filterWorkstationId
+      const matchesS = filterStatus === "all" || row.status === filterStatus
+      return matchesQ && matchesC && matchesW && matchesS
     })
-    
-    setRepairs(updatedRepairs)
-    setEditDialogOpen(false)
+  }, [repairs, searchQuery, filterClassroomId, filterWorkstationId, filterStatus])
+
+  const stats = useMemo(() => {
+    const planned = repairs.filter((r) => r.status === RepairStatus.PLANNED).length
+    const inProg = repairs.filter((r) => r.status === RepairStatus.IN_PROGRESS).length
+    const withIssue = repairs.filter((r) => r.issueReport).length
+    return { total: repairs.length, planned, inProg, withIssue }
+  }, [repairs])
+
+  const resetFilters = () => {
+    setSearchQuery("")
+    setFilterClassroomId("all")
+    setFilterWorkstationId("all")
+    setFilterStatus("all")
   }
-  
-  const handleConfirmDelete = () => {
-    if (!selectedRepair) return
-    setRepairs(repairs.filter(r => r.id !== selectedRepair.id))
-    setDeleteDialogOpen(false)
-  }
-  
-  // Загрузка
-  if (!session || !permissions) {
+
+  const hasFilters =
+    searchQuery.trim() !== "" ||
+    filterClassroomId !== "all" ||
+    filterWorkstationId !== "all" ||
+    filterStatus !== "all"
+
+  if (sessionStatus === "loading") {
     return (
       <div className="space-y-6">
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <Skeleton className="h-8 w-64" />
-          <Skeleton className="h-10 w-40" />
-        </div>
-        <div className="grid gap-4 md:grid-cols-4">
-          {[1, 2, 3, 4].map((i) => (
-            <Card key={i}>
-              <CardHeader className="pb-2">
-                <Skeleton className="h-4 w-20" />
-              </CardHeader>
-              <CardContent>
-                <Skeleton className="h-8 w-16" />
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+        <Skeleton className="h-8 w-64" />
+        <Skeleton className="h-40 w-full" />
       </div>
     )
   }
-  
-  const isAdmin = session.user.role === "ADMIN"
+
+  if (!session?.user || session.user.role !== UserRole.ADMIN) {
+    return (
+      <Card>
+        <CardContent className="py-10 text-center text-muted-foreground">
+          Раздел доступен только администратору.
+        </CardContent>
+      </Card>
+    )
+  }
 
   return (
     <div className="space-y-6">
-      {/* Заголовок */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Активные ремонты</h1>
           <p className="text-muted-foreground">
-            Управление текущими работами по ремонту оборудования
+            Оборудование в ремонте (запланировано и в работе). Записи создаются из обращений о неисправностях.
           </p>
         </div>
-        {isAdmin && (
-          <Button onClick={handleAdd}>
-            <Plus className="mr-2 h-4 w-4" />
-            Добавить ремонт
-          </Button>
-        )}
+        <Button type="button" variant="outline" asChild>
+          <Link href="/dashboard/issues">К неисправностям</Link>
+        </Button>
       </div>
-      
-      {/* Статистика */}
-      <div className="grid gap-4 md:grid-cols-5">
+
+      {error ? (
+        <Alert variant="destructive">
+          <AlertDescription className="flex flex-wrap items-center gap-2">
+            {error}
+            <Button type="button" size="sm" variant="outline" onClick={() => void load()}>
+              Повторить
+            </Button>
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      <div className="grid gap-4 md:grid-cols-4">
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Всего</CardTitle>
-            <Wrench className="h-4 w-4 text-muted-foreground" />
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Всего активных</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.total}</div>
+            {loading ? <Skeleton className="h-8 w-12" /> : <div className="text-2xl font-bold">{stats.total}</div>}
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Ожидают</CardTitle>
-            <Clock className="h-4 w-4 text-slate-500" />
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">В очереди</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-slate-600">{stats.pending}</div>
+            {loading ? (
+              <Skeleton className="h-8 w-12" />
+            ) : (
+              <div className="text-2xl font-bold text-slate-600">{stats.planned}</div>
+            )}
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">В работе</CardTitle>
-            <Play className="h-4 w-4 text-blue-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-blue-600">{stats.inProgress}</div>
+            {loading ? (
+              <Skeleton className="h-8 w-12" />
+            ) : (
+              <div className="text-2xl font-bold text-blue-600">{stats.inProg}</div>
+            )}
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Приостановлены</CardTitle>
-            <Pause className="h-4 w-4 text-orange-500" />
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">По обращениям</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-orange-600">{stats.paused}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Завершены</CardTitle>
-            <CheckCircle className="h-4 w-4 text-green-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">{stats.completed}</div>
+            {loading ? (
+              <Skeleton className="h-8 w-12" />
+            ) : (
+              <div className="text-2xl font-bold text-emerald-700">{stats.withIssue}</div>
+            )}
           </CardContent>
         </Card>
       </div>
-      
-      {/* Фильтры */}
+
       <Card>
         <CardHeader className="pb-4">
           <CardTitle className="text-base">Фильтры</CardTitle>
+          <CardDescription>Поиск и отбор по аудитории и статусу</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid gap-4 md:grid-cols-5">
-            {/* Поиск */}
             <div className="relative md:col-span-2">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder="Поиск по ремонтам..."
+                placeholder="Оборудование, инв. номер, обращение, ФИО…"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-9"
               />
             </div>
-            
-            {/* Аудитория */}
-            <Select 
-              value={selectedClassroom} 
-              onValueChange={(value) => {
-                setSelectedClassroom(value)
-                setSelectedWorkstation("all")
+            <Select
+              value={filterClassroomId}
+              onValueChange={(v) => {
+                setFilterClassroomId(v)
+                setFilterWorkstationId("all")
               }}
             >
               <SelectTrigger>
@@ -524,510 +341,246 @@ export default function RepairsPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Все аудитории</SelectItem>
-                {mockClassrooms.map((classroom) => (
-                  <SelectItem key={classroom} value={classroom}>{classroom}</SelectItem>
+                {classroomOptions.map(([id, label]) => (
+                  <SelectItem key={id} value={id}>
+                    {label}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            
-            {/* Рабочее место */}
-            <Select 
-              value={selectedWorkstation} 
-              onValueChange={setSelectedWorkstation}
-              disabled={selectedClassroom === "all"}
+            <Select
+              value={filterWorkstationId}
+              onValueChange={setFilterWorkstationId}
+              disabled={filterClassroomId === "all"}
             >
               <SelectTrigger>
                 <SelectValue placeholder="Рабочее место" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Все рабочие места</SelectItem>
-                {availableWorkstations.map((ws) => (
-                  <SelectItem key={ws} value={ws}>{ws}</SelectItem>
+                <SelectItem value="all">Все РМ</SelectItem>
+                {workstationFilterOptions.map(([id, label]) => (
+                  <SelectItem key={id} value={id}>
+                    {label}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            
-            {/* Статус */}
-            <Select value={selectedStatus} onValueChange={(value) => setSelectedStatus(value as RepairStatus | "all")}>
+            <Select
+              value={filterStatus}
+              onValueChange={(v) => setFilterStatus(v === "all" ? "all" : (v as RepairStatus))}
+            >
               <SelectTrigger>
                 <SelectValue placeholder="Статус" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Все статусы</SelectItem>
-                <SelectItem value="pending">Ожидают</SelectItem>
-                <SelectItem value="in_progress">В работе</SelectItem>
-                <SelectItem value="paused">Приостановлены</SelectItem>
-                <SelectItem value="completed">Завершены</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          
-          <div className="mt-4 flex items-center gap-4">
-            {/* Техник */}
-            <Select value={selectedTechnician} onValueChange={setSelectedTechnician}>
-              <SelectTrigger className="w-48">
-                <SelectValue placeholder="Техник" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Все техники</SelectItem>
-                {mockTechnicians.map((tech) => (
-                  <SelectItem key={tech} value={tech}>{tech}</SelectItem>
+                {(Object.keys(statusMeta) as RepairStatus[]).map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {statusMeta[s].label}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            
-            {hasFilters && (
-              <Button variant="ghost" onClick={resetFilters} className="text-muted-foreground">
-                <X className="mr-2 h-4 w-4" />
-                Сбросить фильтры
+            <div className="flex items-end">
+              <Button type="button" variant="outline" className="w-full" disabled={!hasFilters} onClick={resetFilters}>
+                Сбросить
               </Button>
-            )}
+            </div>
           </div>
         </CardContent>
       </Card>
-      
-      {/* Таблица ремонтов */}
+
       <Card>
         <CardHeader>
-          <CardTitle>Список ремонтов</CardTitle>
+          <CardTitle className="text-base">Список</CardTitle>
           <CardDescription>
-            Найдено: {filteredRepairs.length} из {repairs.length}
+            Показано {filtered.length} из {repairs.length}
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Ремонт</TableHead>
-                <TableHead>Местоположение</TableHead>
-                <TableHead>Техник</TableHead>
-                <TableHead>Прогресс</TableHead>
-                <TableHead>Статус</TableHead>
-                <TableHead className="text-right">Действия</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredRepairs.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                    Ремонты не найдены
-                  </TableCell>
-                </TableRow>
-              ) : (
-                filteredRepairs.map((item) => {
-                  const statusInfo = getStatusInfo(item.status)
-                  const StatusIcon = statusInfo.icon
-                  
-                  return (
-                    <TableRow key={item.id}>
-                      <TableCell>
-                        <div>
-                          <div className="font-medium">{item.title}</div>
-                          <div className="text-sm text-muted-foreground">{item.equipment}</div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div>
-                          <div className="font-medium">{item.classroom}</div>
-                          <div className="text-sm text-muted-foreground">{item.workstation}</div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <User className="h-4 w-4 text-muted-foreground" />
-                          <span>{item.assignedTo}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="space-y-1">
-                          <div className="flex items-center justify-between text-sm">
-                            <span>{item.progress}%</span>
-                          </div>
-                          <Progress value={item.progress} className="h-2" />
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={statusInfo.variant} className="gap-1">
-                          <StatusIcon className="h-3 w-3" />
-                          {statusInfo.label}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon">
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => handleView(item)}>
-                              <Eye className="mr-2 h-4 w-4" />
-                              Просмотр
-                            </DropdownMenuItem>
-                            {isAdmin && (
-                              <>
-                                <DropdownMenuItem onClick={() => handleEdit(item)}>
-                                  <Pencil className="mr-2 h-4 w-4" />
-                                  Редактировать
-                                </DropdownMenuItem>
-                                <DropdownMenuItem 
-                                  onClick={() => handleDelete(item)}
-                                  className="text-destructive"
-                                >
-                                  <Trash2 className="mr-2 h-4 w-4" />
-                                  Удалить
-                                </DropdownMenuItem>
-                              </>
-                            )}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-                    </TableRow>
-                  )
-                })
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-      
-      {/* Диалог просмотра */}
-      <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Детали ремонта</DialogTitle>
-            <DialogDescription>Подробная информация о ремонте</DialogDescription>
-          </DialogHeader>
-          {selectedRepair && (
-            <div className="space-y-4">
-              <div>
-                <h3 className="text-lg font-semibold">{selectedRepair.title}</h3>
-                <p className="text-muted-foreground mt-1">{selectedRepair.description}</p>
-              </div>
-              
-              <div className="space-y-2">
-                <Label className="text-muted-foreground">Прогресс выполнения</Label>
-                <div className="flex items-center gap-4">
-                  <Progress value={selectedRepair.progress} className="flex-1" />
-                  <span className="font-medium">{selectedRepair.progress}%</span>
-                </div>
-              </div>
-              
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <Label className="text-muted-foreground">Аудитория</Label>
-                  <p className="font-medium">{selectedRepair.classroom}</p>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">Рабочее место</Label>
-                  <p className="font-medium">{selectedRepair.workstation}</p>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">Оборудование</Label>
-                  <p className="font-medium">{selectedRepair.equipment}</p>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">Техник</Label>
-                  <p className="font-medium">{selectedRepair.assignedTo}</p>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">Дата начала</Label>
-                  <p className="font-medium">{selectedRepair.startedAt}</p>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">Планируемое завершение</Label>
-                  <p className="font-medium">{selectedRepair.estimatedCompletion}</p>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">Статус</Label>
-                  <div className="mt-1">
-                    <Badge variant={getStatusInfo(selectedRepair.status).variant}>
-                      {getStatusInfo(selectedRepair.status).label}
-                    </Badge>
-                  </div>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">Стоимость</Label>
-                  <p className="font-medium">{selectedRepair.cost} руб.</p>
-                </div>
-              </div>
-              
-              {selectedRepair.workLog && (
-                <div>
-                  <Label className="text-muted-foreground">Журнал работ</Label>
-                  <p className="mt-1 p-3 bg-muted rounded-md text-sm">{selectedRepair.workLog}</p>
-                </div>
-              )}
-              
-              {selectedRepair.partsUsed && (
-                <div>
-                  <Label className="text-muted-foreground">Использованные запчасти</Label>
-                  <p className="mt-1 p-3 bg-muted rounded-md text-sm">{selectedRepair.partsUsed}</p>
-                </div>
-              )}
+        <CardContent className="p-0 sm:p-6 sm:pt-0">
+          {loading ? (
+            <div className="space-y-2 p-6">
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+            </div>
+          ) : filtered.length === 0 ? (
+            <p className="p-6 text-sm text-muted-foreground">Нет записей по выбранным условиям.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Оборудование</TableHead>
+                    <TableHead className="min-w-[12rem]">Статус</TableHead>
+                    <TableHead>Обращение</TableHead>
+                    <TableHead>Начало</TableHead>
+                    <TableHead className="w-[52px]" />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filtered.map((row) => {
+                    return (
+                      <TableRow key={row.id}>
+                        <TableCell>
+                          <div className="font-medium">{row.equipment.name}</div>
+                          <div className="text-xs text-muted-foreground">инв. {row.equipment.inventoryNumber}</div>
+                        </TableCell>
+                        <TableCell className="py-2">
+                          <Select
+                            value={row.status}
+                            onValueChange={(v) => void handleRepairStatusChange(row.id, v as RepairStatus)}
+                            disabled={statusSavingId === row.id}
+                          >
+                            <SelectTrigger className="h-8 w-[11.5rem]">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {statusSelectOrder.map((s) => (
+                                <SelectItem key={s} value={s}>
+                                  {statusMeta[s].label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </TableCell>
+                        <TableCell className="max-w-[200px] text-sm">
+                          {row.issueReport ? (
+                            <span className="line-clamp-2" title={row.issueReport.title}>
+                              {row.issueReport.title}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+                          {fmtDateTime(row.startedAt)}
+                        </TableCell>
+                        <TableCell>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button type="button" variant="ghost" size="icon" aria-label="Действия">
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  setSelected(row)
+                                  setViewOpen(true)
+                                }}
+                              >
+                                <Eye className="mr-2 h-4 w-4" />
+                                Просмотр
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
+                </TableBody>
+              </Table>
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      <Dialog open={viewOpen} onOpenChange={setViewOpen}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Ремонт</DialogTitle>
+            <DialogDescription>Карточка активного ремонта</DialogDescription>
+          </DialogHeader>
+          {selected ? (
+            <div className="space-y-3 text-sm">
+              <div>
+                <span className="text-muted-foreground">Оборудование:</span>
+                <p className="mt-1 font-medium">
+                  {selected.equipment.name} (инв. {selected.equipment.inventoryNumber})
+                </p>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Место:</span>
+                <p className="mt-1">{repairLocation(selected)}</p>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Статус:</span>
+                <p className="mt-1">
+                  <Badge variant={statusMeta[selected.status].variant}>{statusMeta[selected.status].label}</Badge>
+                </p>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Описание работ:</span>
+                <p className="mt-1 whitespace-pre-wrap">{selected.description}</p>
+              </div>
+              {selected.diagnosis?.trim() ? (
+                <div>
+                  <span className="text-muted-foreground">Диагноз:</span>
+                  <p className="mt-1 whitespace-pre-wrap">{selected.diagnosis}</p>
+                </div>
+              ) : null}
+              {selected.workPerformed?.trim() ? (
+                <div>
+                  <span className="text-muted-foreground">Выполнено:</span>
+                  <p className="mt-1 whitespace-pre-wrap">{selected.workPerformed}</p>
+                </div>
+              ) : null}
+              {selected.partsUsed?.trim() ? (
+                <div>
+                  <span className="text-muted-foreground">Запчасти:</span>
+                  <p className="mt-1 whitespace-pre-wrap">{selected.partsUsed}</p>
+                </div>
+              ) : null}
+              {selected.cost != null && selected.cost !== "" ? (
+                <div>
+                  <span className="text-muted-foreground">Стоимость:</span>
+                  <p className="mt-1">{selected.cost}</p>
+                </div>
+              ) : null}
+              <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+                <div>
+                  <span className="block">Создано</span>
+                  {fmtDateTime(selected.createdAt)}
+                </div>
+                <div>
+                  <span className="block">Начало</span>
+                  {fmtDateTime(selected.startedAt)}
+                </div>
+                <div>
+                  <span className="block">Завершение</span>
+                  {fmtDateTime(selected.completedAt)}
+                </div>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Кто завёл:</span>
+                <p className="mt-1">{personLabel(selected.createdBy)}</p>
+              </div>
+              {selected.assignedTo ? (
+                <div>
+                  <span className="text-muted-foreground">Исполнитель:</span>
+                  <p className="mt-1">{personLabel(selected.assignedTo)}</p>
+                </div>
+              ) : null}
+              {selected.issueReport ? (
+                <div className="rounded-md border p-3">
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    <ListOrdered className="h-4 w-4" />
+                    Связанное обращение
+                  </div>
+                  <p className="mt-1 font-medium">{selected.issueReport.title}</p>
+                  <p className="text-xs text-muted-foreground">Статус обращения: {selected.issueReport.status}</p>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setViewDialogOpen(false)}>
+            <Button type="button" variant="outline" onClick={() => setViewOpen(false)}>
               Закрыть
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      
-      {/* Диалог добавления */}
-      <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Добавить ремонт</DialogTitle>
-            <DialogDescription>Создайте новую запись о ремонте</DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4 max-h-[60vh] overflow-y-auto">
-            <div className="grid gap-2">
-              <Label htmlFor="title">Название</Label>
-              <Input
-                id="title"
-                value={formData.title}
-                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                placeholder="Краткое название работ"
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="description">Описание</Label>
-              <Textarea
-                id="description"
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                placeholder="Подробное описание работ"
-                rows={2}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="grid gap-2">
-                <Label>Аудитория</Label>
-                <Select 
-                  value={formData.classroom} 
-                  onValueChange={(value) => setFormData({ ...formData, classroom: value, workstation: "" })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Выберите аудиторию" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {mockClassrooms.map((classroom) => (
-                      <SelectItem key={classroom} value={classroom}>{classroom}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid gap-2">
-                <Label>Рабочее место</Label>
-                <Select 
-                  value={formData.workstation} 
-                  onValueChange={(value) => setFormData({ ...formData, workstation: value })}
-                  disabled={!formData.classroom}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Выберите рабочее место" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {formWorkstations.map((ws) => (
-                      <SelectItem key={ws} value={ws}>{ws}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="grid gap-2">
-                <Label htmlFor="equipment">Оборудование</Label>
-                <Input
-                  id="equipment"
-                  value={formData.equipment}
-                  onChange={(e) => setFormData({ ...formData, equipment: e.target.value })}
-                  placeholder="Название оборудования"
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label>Техник</Label>
-                <Select 
-                  value={formData.assignedTo} 
-                  onValueChange={(value) => setFormData({ ...formData, assignedTo: value })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Выберите техника" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {mockTechnicians.map((tech) => (
-                      <SelectItem key={tech} value={tech}>{tech}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="grid gap-2">
-                <Label htmlFor="estimatedCompletion">Планируемое завершение</Label>
-                <Input
-                  id="estimatedCompletion"
-                  type="date"
-                  value={formData.estimatedCompletion}
-                  onChange={(e) => setFormData({ ...formData, estimatedCompletion: e.target.value })}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="cost">Стоимость (руб.)</Label>
-                <Input
-                  id="cost"
-                  type="number"
-                  value={formData.cost}
-                  onChange={(e) => setFormData({ ...formData, cost: Number(e.target.value) })}
-                />
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAddDialogOpen(false)}>
-              Отмена
-            </Button>
-            <Button onClick={handleSaveNew} disabled={!formData.title || !formData.classroom || !formData.assignedTo}>
-              Добавить
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      
-      {/* Диалог редактирования */}
-      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Редактировать ремонт</DialogTitle>
-            <DialogDescription>Измените информацию о ремонте</DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4 max-h-[60vh] overflow-y-auto">
-            <div className="grid gap-2">
-              <Label htmlFor="edit-title">Название</Label>
-              <Input
-                id="edit-title"
-                value={formData.title}
-                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="edit-description">Описание</Label>
-              <Textarea
-                id="edit-description"
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                rows={2}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="grid gap-2">
-                <Label>Статус</Label>
-                <Select 
-                  value={formData.status} 
-                  onValueChange={(value) => setFormData({ ...formData, status: value as RepairStatus })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="pending">Ожидает</SelectItem>
-                    <SelectItem value="in_progress">В работе</SelectItem>
-                    <SelectItem value="paused">Приостановлен</SelectItem>
-                    <SelectItem value="completed">Завершён</SelectItem>
-                    <SelectItem value="cancelled">Отменён</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="edit-progress">Прогресс (%)</Label>
-                <Input
-                  id="edit-progress"
-                  type="number"
-                  min="0"
-                  max="100"
-                  value={formData.progress}
-                  onChange={(e) => setFormData({ ...formData, progress: Number(e.target.value) })}
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="grid gap-2">
-                <Label>Техник</Label>
-                <Select 
-                  value={formData.assignedTo} 
-                  onValueChange={(value) => setFormData({ ...formData, assignedTo: value })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {mockTechnicians.map((tech) => (
-                      <SelectItem key={tech} value={tech}>{tech}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="edit-cost">Стоимость (руб.)</Label>
-                <Input
-                  id="edit-cost"
-                  type="number"
-                  value={formData.cost}
-                  onChange={(e) => setFormData({ ...formData, cost: Number(e.target.value) })}
-                />
-              </div>
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="edit-workLog">Журнал работ</Label>
-              <Textarea
-                id="edit-workLog"
-                value={formData.workLog}
-                onChange={(e) => setFormData({ ...formData, workLog: e.target.value })}
-                placeholder="Опишите выполненные работы"
-                rows={3}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="edit-partsUsed">Использованные запчасти</Label>
-              <Input
-                id="edit-partsUsed"
-                value={formData.partsUsed}
-                onChange={(e) => setFormData({ ...formData, partsUsed: e.target.value })}
-                placeholder="Список запчастей"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEditDialogOpen(false)}>
-              Отмена
-            </Button>
-            <Button onClick={handleSaveEdit}>
-              Сохранить
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      
-      {/* Диалог удаления */}
-      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Удалить ремонт?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Вы уверены, что хотите удалить запись о ремонте "{selectedRepair?.title}"? 
-              Это действие нельзя отменить.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Отмена</AlertDialogCancel>
-            <AlertDialogAction variant="destructive" onClick={handleConfirmDelete}>
-              Удалить
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   )
 }

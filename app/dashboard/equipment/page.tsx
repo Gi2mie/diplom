@@ -360,7 +360,9 @@ export default function EquipmentPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Управление оборудованием</h1>
           <p className="text-muted-foreground">
-            {isAdmin ? "Добавление, редактирование и удаление оборудования" : "Просмотр оборудования"}
+            {isAdmin
+              ? "Добавление, редактирование и удаление оборудования"
+              : "Просмотр оборудования в аудиториях, за которые вы ответственны"}
           </p>
         </div>
         {isAdmin && (

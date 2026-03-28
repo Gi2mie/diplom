@@ -1,7 +1,12 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
-import { getMockSession, getCurrentMockPermissions, type MockSession, type MockPermissions } from "@/lib/mock-auth"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { useSession } from "next-auth/react"
+import {
+  IssuePriority,
+  IssueStatus,
+  UserRole,
+} from "@prisma/client"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -9,6 +14,8 @@ import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Textarea } from "@/components/ui/textarea"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import {
   Table,
   TableBody,
@@ -39,1034 +46,976 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
-import { 
-  Plus, 
-  Search, 
-  MoreHorizontal, 
-  Eye, 
-  Pencil, 
-  Trash2, 
+  Plus,
+  Search,
+  MoreHorizontal,
+  Eye,
+  Pencil,
   X,
   AlertTriangle,
   AlertCircle,
   CheckCircle,
   Clock,
-  Calendar,
   Wrench,
-  XCircle
+  XCircle,
+  Loader2,
 } from "lucide-react"
+import { fetchClassroomRegistry, type RegistryClassroom, type RegistryTeacher } from "@/lib/api/classroom-registry"
+import { fetchWorkstations, type ApiWorkstation } from "@/lib/api/workstations"
+import { fetchEquipmentDashboardList, type DashboardEquipmentRow } from "@/lib/api/equipment-dashboard"
+import {
+  fetchAdminIssueReports,
+  createAdminIssueReport,
+  updateAdminIssueReport,
+  postRepairsForIssue,
+  type AdminIssueReportRow,
+} from "@/lib/api/admin-issue-reports"
 
-// Типы
-type IssueSeverity = "low" | "medium" | "high" | "critical"
-type IssueStatus = "open" | "acknowledged" | "in_repair" | "resolved" | "closed"
-type IssueType = "hardware" | "software" | "network" | "other"
-
-interface Issue {
-  id: string
-  title: string
-  description: string
-  classroom: string
-  workstation: string
-  equipment: string
-  type: IssueType
-  severity: IssueSeverity
-  status: IssueStatus
-  reportedBy: string
-  reportedAt: string
-  acknowledgedAt: string | null
-  resolvedAt: string | null
-  resolution: string
-  relatedRepairId: string | null
+function personLabel(p: { firstName: string; lastName: string; middleName: string | null }): string {
+  const m = p.middleName ? ` ${p.middleName}` : ""
+  return `${p.lastName} ${p.firstName}${m}`.trim()
 }
 
-// Mock данные аудиторий
-const mockClassrooms = [
-  "Аудитория 301",
-  "Аудитория 302",
-  "Компьютерный класс 105",
-  "Компьютерный класс 106",
-  "Лекционный зал 401",
-  "Лаборатория 201",
-]
-
-// Mock данные рабочих мест
-const mockWorkstations: Record<string, string[]> = {
-  "Аудитория 301": ["Рабочее место 1", "Рабочее место 2", "Рабочее место 3", "Преподавательское"],
-  "Аудитория 302": ["Рабочее место 1", "Рабочее место 2", "Преподавательское"],
-  "Компьютерный класс 105": ["Рабочее место 1", "Рабочее место 2", "Рабочее место 3", "Рабочее место 4", "Рабочее место 5"],
-  "Компьютерный класс 106": ["Рабочее место 1", "Рабочее место 2", "Рабочее место 3", "Рабочее место 4"],
-  "Лекционный зал 401": ["Преподавательское", "Проекторная"],
-  "Лаборатория 201": ["Рабочее место 1", "Рабочее место 2", "Рабочее место 3"],
+type ClassroomBrief = {
+  number: string
+  name: string | null
+  building: { name: string } | null
 }
 
-// Mock данные неисправностей
-const mockIssues: Issue[] = [
-  {
-    id: "1",
-    title: "Не включается монитор",
-    description: "Монитор Samsung не реагирует на кнопку включения. Индикатор питания не горит. Кабель питания проверен.",
-    classroom: "Аудитория 301",
-    workstation: "Рабочее место 1",
-    equipment: "Монитор Samsung 24 дюйма",
-    type: "hardware",
-    severity: "high",
-    status: "open",
-    reportedBy: "Петров И.С.",
-    reportedAt: "2025-03-25",
-    acknowledgedAt: null,
-    resolvedAt: null,
-    resolution: "",
-    relatedRepairId: null
-  },
-  {
-    id: "2",
-    title: "Зависание системы",
-    description: "Компьютер периодически зависает при работе с несколькими приложениями. Требуется перезагрузка.",
-    classroom: "Компьютерный класс 105",
-    workstation: "Рабочее место 3",
-    equipment: "Системный блок Dell OptiPlex",
-    type: "hardware",
-    severity: "medium",
-    status: "in_repair",
-    reportedBy: "Иванова А.П.",
-    reportedAt: "2025-03-24",
-    acknowledgedAt: "2025-03-24",
-    resolvedAt: null,
-    resolution: "",
-    relatedRepairId: "1"
-  },
-  {
-    id: "3",
-    title: "Ошибка драйвера принтера",
-    description: "При попытке печати выдается ошибка драйвера. Переустановка драйвера не помогает.",
-    classroom: "Аудитория 302",
-    workstation: "Преподавательское",
-    equipment: "Принтер HP LaserJet Pro",
-    type: "software",
-    severity: "medium",
-    status: "acknowledged",
-    reportedBy: "Козлов Д.А.",
-    reportedAt: "2025-03-23",
-    acknowledgedAt: "2025-03-24",
-    resolvedAt: null,
-    resolution: "",
-    relatedRepairId: null
-  },
-  {
-    id: "4",
-    title: "Нет подключения к сети",
-    description: "Компьютер не видит сетевое подключение. Кабель проверен, на других компьютерах сеть работает.",
-    classroom: "Лаборатория 201",
-    workstation: "Рабочее место 2",
-    equipment: "Системный блок HP ProDesk",
-    type: "network",
-    severity: "high",
-    status: "resolved",
-    reportedBy: "Смирнова Е.В.",
-    reportedAt: "2025-03-20",
-    acknowledgedAt: "2025-03-20",
-    resolvedAt: "2025-03-21",
-    resolution: "Заменена сетевая карта. Подключение восстановлено.",
-    relatedRepairId: null
-  },
-  {
-    id: "5",
-    title: "Проектор выключается",
-    description: "Проектор самопроизвольно выключается через 10-15 минут работы. Возможно перегрев.",
-    classroom: "Лекционный зал 401",
-    workstation: "Проекторная",
-    equipment: "Проектор Epson EB-X51",
-    type: "hardware",
-    severity: "critical",
-    status: "open",
-    reportedBy: "Николаев П.Р.",
-    reportedAt: "2025-03-25",
-    acknowledgedAt: null,
-    resolvedAt: null,
-    resolution: "",
-    relatedRepairId: null
-  },
-  {
-    id: "6",
-    title: "Синий экран при загрузке",
-    description: "Компьютер показывает синий экран смерти (BSOD) при загрузке Windows. Ошибка DRIVER_IRQL_NOT_LESS_OR_EQUAL.",
-    classroom: "Компьютерный класс 106",
-    workstation: "Рабочее место 4",
-    equipment: "Системный блок Lenovo ThinkCentre",
-    type: "software",
-    severity: "high",
-    status: "closed",
-    reportedBy: "Волкова М.И.",
-    reportedAt: "2025-03-18",
-    acknowledgedAt: "2025-03-18",
-    resolvedAt: "2025-03-19",
-    resolution: "Обновлены драйверы, выполнена проверка системных файлов. Система работает стабильно.",
-    relatedRepairId: null
-  },
+function classroomLine(c: ClassroomBrief | null | undefined): string {
+  if (!c) return "—"
+  const t = c.name?.trim() || `Аудитория ${c.number}`
+  return c.building?.name ? `${t} (${c.building.name})` : t
+}
+
+function issueLocation(row: AdminIssueReportRow): string {
+  const ws = row.equipment.workstation
+  if (!ws) return "—"
+  const room = classroomLine(ws.classroom)
+  const wsName = ws.name?.trim() ? `${ws.code} — ${ws.name}` : ws.code
+  return `${room} · ${wsName}`
+}
+
+const statusMeta: Record<
+  IssueStatus,
+  { label: string; variant: "default" | "secondary" | "destructive" | "outline"; icon: typeof AlertCircle }
+> = {
+  [IssueStatus.NEW]: { label: "Новое", variant: "destructive", icon: AlertCircle },
+  [IssueStatus.IN_PROGRESS]: { label: "В работе", variant: "default", icon: Wrench },
+  [IssueStatus.RESOLVED]: { label: "Решено", variant: "outline", icon: CheckCircle },
+  [IssueStatus.CLOSED]: { label: "Закрыто", variant: "outline", icon: XCircle },
+  [IssueStatus.REJECTED]: { label: "Отклонено", variant: "secondary", icon: XCircle },
+}
+
+const priorityMeta: Record<IssuePriority, { label: string; className: string }> = {
+  [IssuePriority.LOW]: { label: "Низкий", className: "bg-slate-100 text-slate-800 border-slate-200" },
+  [IssuePriority.MEDIUM]: { label: "Средний", className: "bg-blue-100 text-blue-800 border-blue-200" },
+  [IssuePriority.HIGH]: { label: "Высокий", className: "bg-orange-100 text-orange-800 border-orange-200" },
+  [IssuePriority.CRITICAL]: { label: "Критический", className: "bg-red-100 text-red-800 border-red-200" },
+}
+
+const priorityOptions: { value: IssuePriority; label: string }[] = [
+  { value: IssuePriority.LOW, label: "Низкий" },
+  { value: IssuePriority.MEDIUM, label: "Средний" },
+  { value: IssuePriority.HIGH, label: "Высокий" },
+  { value: IssuePriority.CRITICAL, label: "Критический" },
 ]
+
+/** Фильтр журнала: без «Решено» (остаётся в карточке и при редактировании). */
+const issueStatusFilterOptions: IssueStatus[] = [
+  IssueStatus.NEW,
+  IssueStatus.IN_PROGRESS,
+  IssueStatus.CLOSED,
+  IssueStatus.REJECTED,
+]
+
+/** Статусы, доступные администратору при редактировании (без «Новое» и «Закрыто»). */
+const issueAdminEditStatuses: IssueStatus[] = [
+  IssueStatus.IN_PROGRESS,
+  IssueStatus.RESOLVED,
+  IssueStatus.REJECTED,
+]
+
+function issueEditFormInitialStatus(row: AdminIssueReportRow): IssueStatus {
+  return issueAdminEditStatuses.includes(row.status) ? row.status : IssueStatus.IN_PROGRESS
+}
 
 export default function IssuesPage() {
-  const [session, setSession] = useState<MockSession | null>(null)
-  const [permissions, setPermissions] = useState<MockPermissions | null>(null)
-  const [issues, setIssues] = useState<Issue[]>(mockIssues)
-  
-  // Диалоги
-  const [viewDialogOpen, setViewDialogOpen] = useState(false)
-  const [addDialogOpen, setAddDialogOpen] = useState(false)
-  const [editDialogOpen, setEditDialogOpen] = useState(false)
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
-  const [selectedIssue, setSelectedIssue] = useState<Issue | null>(null)
-  
-  // Фильтры
+  const { data: session, status: sessionStatus } = useSession()
+  const [issues, setIssues] = useState<AdminIssueReportRow[]>([])
+  const [classrooms, setClassrooms] = useState<RegistryClassroom[]>([])
+  const [teachers, setTeachers] = useState<RegistryTeacher[]>([])
+  const [workstations, setWorkstations] = useState<ApiWorkstation[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
   const [searchQuery, setSearchQuery] = useState("")
-  const [selectedClassroom, setSelectedClassroom] = useState("all")
-  const [selectedWorkstation, setSelectedWorkstation] = useState("all")
-  const [selectedStatus, setSelectedStatus] = useState<IssueStatus | "all">("all")
-  const [selectedSeverity, setSelectedSeverity] = useState<IssueSeverity | "all">("all")
-  const [selectedType, setSelectedType] = useState<IssueType | "all">("all")
-  
-  // Форма
-  const [formData, setFormData] = useState({
+  const [filterClassroomId, setFilterClassroomId] = useState<string>("all")
+  const [filterWorkstationId, setFilterWorkstationId] = useState<string>("all")
+  const [filterStatus, setFilterStatus] = useState<IssueStatus | "all">("all")
+  const [filterPriority, setFilterPriority] = useState<IssuePriority | "all">("all")
+
+  const [viewOpen, setViewOpen] = useState(false)
+  const [addOpen, setAddOpen] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
+  const [repairOpen, setRepairOpen] = useState(false)
+  const [selected, setSelected] = useState<AdminIssueReportRow | null>(null)
+
+  const [addForm, setAddForm] = useState({
+    classroomId: "",
+    workstationId: "",
+    equipmentId: "",
+    reporterId: "",
     title: "",
     description: "",
-    classroom: "",
-    workstation: "",
-    equipment: "",
-    type: "hardware" as IssueType,
-    severity: "medium" as IssueSeverity,
-    status: "open" as IssueStatus,
-    resolution: ""
+    priority: IssuePriority.MEDIUM as IssuePriority,
   })
-  
-  useEffect(() => {
-    setSession(getMockSession())
-    setPermissions(getCurrentMockPermissions())
+  const [addEquipment, setAddEquipment] = useState<DashboardEquipmentRow[]>([])
+  const [editForm, setEditForm] = useState({
+    title: "",
+    description: "",
+    status: IssueStatus.NEW as IssueStatus,
+    priority: IssuePriority.MEDIUM as IssuePriority,
+    resolution: "",
+  })
+  const [repairWsId, setRepairWsId] = useState<string>("all")
+  const [repairPick, setRepairPick] = useState<Record<string, boolean>>({})
+  const [repairEquipment, setRepairEquipment] = useState<DashboardEquipmentRow[]>([])
+  const [saving, setSaving] = useState(false)
+
+  const loadAll = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const [list, reg, ws] = await Promise.all([
+        fetchAdminIssueReports(),
+        fetchClassroomRegistry(),
+        fetchWorkstations(),
+      ])
+      setIssues(list)
+      setClassrooms(reg.classrooms)
+      setTeachers(reg.teachers)
+      setWorkstations(ws)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Ошибка загрузки")
+    } finally {
+      setLoading(false)
+    }
   }, [])
-  
-  // Статистика
-  const stats = useMemo(() => ({
-    total: issues.length,
-    open: issues.filter(i => i.status === "open").length,
-    acknowledged: issues.filter(i => i.status === "acknowledged").length,
-    inRepair: issues.filter(i => i.status === "in_repair").length,
-    resolved: issues.filter(i => i.status === "resolved" || i.status === "closed").length,
-    critical: issues.filter(i => i.severity === "critical" && i.status !== "resolved" && i.status !== "closed").length,
-  }), [issues])
-  
-  // Фильтрация
-  const filteredIssues = useMemo(() => {
-    return issues.filter(item => {
-      const matchesSearch = 
-        item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.equipment.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.reportedBy.toLowerCase().includes(searchQuery.toLowerCase())
-      
-      const matchesClassroom = selectedClassroom === "all" || item.classroom === selectedClassroom
-      const matchesWorkstation = selectedWorkstation === "all" || item.workstation === selectedWorkstation
-      const matchesStatus = selectedStatus === "all" || item.status === selectedStatus
-      const matchesSeverity = selectedSeverity === "all" || item.severity === selectedSeverity
-      const matchesType = selectedType === "all" || item.type === selectedType
-      
-      return matchesSearch && matchesClassroom && matchesWorkstation && matchesStatus && matchesSeverity && matchesType
+
+  useEffect(() => {
+    if (sessionStatus === "authenticated" && session?.user?.role === UserRole.ADMIN) {
+      void loadAll()
+    }
+  }, [sessionStatus, session?.user?.role, loadAll])
+
+  useEffect(() => {
+    if (filterStatus === IssueStatus.RESOLVED) {
+      setFilterStatus("all")
+    }
+  }, [filterStatus])
+
+  useEffect(() => {
+    if (!addForm.classroomId) {
+      setAddEquipment([])
+      return
+    }
+    let cancelled = false
+    fetchEquipmentDashboardList({
+      classroomId: addForm.classroomId,
+      ...(addForm.workstationId ? { workstationId: addForm.workstationId } : {}),
     })
-  }, [issues, searchQuery, selectedClassroom, selectedWorkstation, selectedStatus, selectedSeverity, selectedType])
-  
-  // Рабочие места для выбранной аудитории
-  const availableWorkstations = useMemo(() => {
-    if (selectedClassroom === "all") return []
-    return mockWorkstations[selectedClassroom] || []
-  }, [selectedClassroom])
-  
-  const formWorkstations = useMemo(() => {
-    if (!formData.classroom) return []
-    return mockWorkstations[formData.classroom] || []
-  }, [formData.classroom])
-  
-  // Сброс фильтров
+      .then((rows) => {
+        if (!cancelled) setAddEquipment(rows)
+      })
+      .catch(() => {
+        if (!cancelled) setAddEquipment([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [addForm.classroomId, addForm.workstationId])
+
+  const issueAnchorClassroomId = selected?.equipment.workstation?.classroom.id
+
+  useEffect(() => {
+    if (!repairOpen || !issueAnchorClassroomId) {
+      setRepairEquipment([])
+      return
+    }
+    let cancelled = false
+    fetchEquipmentDashboardList({
+      classroomId: issueAnchorClassroomId,
+      ...(repairWsId !== "all" ? { workstationId: repairWsId } : {}),
+    })
+      .then((rows) => {
+        if (!cancelled) setRepairEquipment(rows)
+      })
+      .catch(() => {
+        if (!cancelled) setRepairEquipment([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [repairOpen, issueAnchorClassroomId, repairWsId])
+
+  const filterWsOptions = useMemo(() => {
+    if (filterClassroomId === "all") return []
+    return workstations.filter((w) => w.classroomId === filterClassroomId)
+  }, [filterClassroomId, workstations])
+
+  const addWsOptions = useMemo(() => {
+    if (!addForm.classroomId) return []
+    return workstations.filter((w) => w.classroomId === addForm.classroomId)
+  }, [addForm.classroomId, workstations])
+
+  const repairWsOptions = useMemo(() => {
+    if (!issueAnchorClassroomId) return []
+    return workstations.filter((w) => w.classroomId === issueAnchorClassroomId)
+  }, [issueAnchorClassroomId, workstations])
+
+  const filteredIssues = useMemo(() => {
+    const q = searchQuery.toLowerCase()
+    return issues.filter((row) => {
+      const roomId = row.equipment.workstation?.classroom.id
+      const wsId = row.equipment.workstation?.id
+      const matchesQ =
+        !q ||
+        row.title.toLowerCase().includes(q) ||
+        row.description.toLowerCase().includes(q) ||
+        row.equipment.name.toLowerCase().includes(q) ||
+        personLabel(row.reporter).toLowerCase().includes(q)
+      const matchesC = filterClassroomId === "all" || roomId === filterClassroomId
+      const matchesW = filterWorkstationId === "all" || wsId === filterWorkstationId
+      const matchesS = filterStatus === "all" || row.status === filterStatus
+      const matchesP = filterPriority === "all" || row.priority === filterPriority
+      return matchesQ && matchesC && matchesW && matchesS && matchesP
+    })
+  }, [issues, searchQuery, filterClassroomId, filterWorkstationId, filterStatus, filterPriority])
+
+  const stats = useMemo(() => {
+    const open = issues.filter((i) => i.status === IssueStatus.NEW).length
+    const inProg = issues.filter((i) => i.status === IssueStatus.IN_PROGRESS).length
+    const done = issues.filter((i) => i.status === IssueStatus.RESOLVED || i.status === IssueStatus.CLOSED).length
+    const crit = issues.filter(
+      (i) => i.priority === IssuePriority.CRITICAL && i.status !== IssueStatus.RESOLVED && i.status !== IssueStatus.CLOSED && i.status !== IssueStatus.REJECTED
+    ).length
+    return { total: issues.length, open, inProg, done, crit }
+  }, [issues])
+
   const resetFilters = () => {
     setSearchQuery("")
-    setSelectedClassroom("all")
-    setSelectedWorkstation("all")
-    setSelectedStatus("all")
-    setSelectedSeverity("all")
-    setSelectedType("all")
+    setFilterClassroomId("all")
+    setFilterWorkstationId("all")
+    setFilterStatus("all")
+    setFilterPriority("all")
   }
-  
-  const hasFilters = searchQuery || selectedClassroom !== "all" || selectedWorkstation !== "all" || selectedStatus !== "all" || selectedSeverity !== "all" || selectedType !== "all"
-  
-  // Получить информацию о статусе
-  const getStatusInfo = (status: IssueStatus) => {
-    const statuses = {
-      open: { label: "Открыта", variant: "destructive" as const, icon: AlertCircle },
-      acknowledged: { label: "Принята", variant: "secondary" as const, icon: Clock },
-      in_repair: { label: "В ремонте", variant: "default" as const, icon: Wrench },
-      resolved: { label: "Решена", variant: "outline" as const, icon: CheckCircle },
-      closed: { label: "Закрыта", variant: "outline" as const, icon: XCircle },
-    }
-    return statuses[status]
-  }
-  
-  // Получить информацию о критичности
-  const getSeverityInfo = (severity: IssueSeverity) => {
-    const severities = {
-      low: { label: "Низкая", color: "bg-slate-100 text-slate-700 border-slate-200" },
-      medium: { label: "Средняя", color: "bg-blue-100 text-blue-700 border-blue-200" },
-      high: { label: "Высокая", color: "bg-orange-100 text-orange-700 border-orange-200" },
-      critical: { label: "Критическая", color: "bg-red-100 text-red-700 border-red-200" },
-    }
-    return severities[severity]
-  }
-  
-  // Получить информацию о типе
-  const getTypeInfo = (type: IssueType) => {
-    const types = {
-      hardware: { label: "Оборудование", color: "bg-purple-100 text-purple-700 border-purple-200" },
-      software: { label: "ПО", color: "bg-cyan-100 text-cyan-700 border-cyan-200" },
-      network: { label: "Сеть", color: "bg-green-100 text-green-700 border-green-200" },
-      other: { label: "Другое", color: "bg-gray-100 text-gray-700 border-gray-200" },
-    }
-    return types[type]
-  }
-  
-  // Обработчики
-  const handleView = (item: Issue) => {
-    setSelectedIssue(item)
-    setViewDialogOpen(true)
-  }
-  
-  const handleEdit = (item: Issue) => {
-    setSelectedIssue(item)
-    setFormData({
-      title: item.title,
-      description: item.description,
-      classroom: item.classroom,
-      workstation: item.workstation,
-      equipment: item.equipment,
-      type: item.type,
-      severity: item.severity,
-      status: item.status,
-      resolution: item.resolution
-    })
-    setEditDialogOpen(true)
-  }
-  
-  const handleDelete = (item: Issue) => {
-    setSelectedIssue(item)
-    setDeleteDialogOpen(true)
-  }
-  
-  const handleAdd = () => {
-    setFormData({
+
+  const openAdd = () => {
+    setAddForm({
+      classroomId: "",
+      workstationId: "",
+      equipmentId: "",
+      reporterId: "",
       title: "",
       description: "",
-      classroom: "",
-      workstation: "",
-      equipment: "",
-      type: "hardware",
-      severity: "medium",
-      status: "open",
-      resolution: ""
+      priority: IssuePriority.MEDIUM,
     })
-    setAddDialogOpen(true)
+    setAddOpen(true)
   }
-  
-  const handleSaveNew = () => {
-    const newIssue: Issue = {
-      id: String(Date.now()),
-      title: formData.title,
-      description: formData.description,
-      classroom: formData.classroom,
-      workstation: formData.workstation,
-      equipment: formData.equipment,
-      type: formData.type,
-      severity: formData.severity,
-      status: "open",
-      reportedBy: session?.user.name || "Неизвестный",
-      reportedAt: new Date().toISOString().split("T")[0],
-      acknowledgedAt: null,
-      resolvedAt: null,
-      resolution: "",
-      relatedRepairId: null
+
+  const submitAdd = async () => {
+    if (!addForm.equipmentId || !addForm.reporterId || !addForm.title.trim()) return
+    setSaving(true)
+    try {
+      await createAdminIssueReport({
+        equipmentId: addForm.equipmentId,
+        reporterId: addForm.reporterId,
+        title: addForm.title.trim(),
+        description: addForm.description.trim(),
+        priority: addForm.priority,
+      })
+      setAddOpen(false)
+      await loadAll()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Ошибка")
+    } finally {
+      setSaving(false)
     }
-    setIssues([newIssue, ...issues])
-    setAddDialogOpen(false)
   }
-  
-  const handleSaveEdit = () => {
-    if (!selectedIssue) return
-    
-    const updatedIssues = issues.map(i => {
-      if (i.id === selectedIssue.id) {
-        const now = new Date().toISOString().split("T")[0]
-        return {
-          ...i,
-          title: formData.title,
-          description: formData.description,
-          classroom: formData.classroom,
-          workstation: formData.workstation,
-          equipment: formData.equipment,
-          type: formData.type,
-          severity: formData.severity,
-          status: formData.status,
-          resolution: formData.resolution,
-          acknowledgedAt: formData.status !== "open" && !i.acknowledgedAt ? now : i.acknowledgedAt,
-          resolvedAt: (formData.status === "resolved" || formData.status === "closed") && !i.resolvedAt ? now : i.resolvedAt
-        }
-      }
-      return i
+
+  const openEdit = (row: AdminIssueReportRow) => {
+    setSelected(row)
+    setEditForm({
+      title: row.title,
+      description: row.description,
+      status: issueEditFormInitialStatus(row),
+      priority: row.priority,
+      resolution: row.resolution ?? "",
     })
-    
-    setIssues(updatedIssues)
-    setEditDialogOpen(false)
+    setEditOpen(true)
   }
-  
-  const handleConfirmDelete = () => {
-    if (!selectedIssue) return
-    setIssues(issues.filter(i => i.id !== selectedIssue.id))
-    setDeleteDialogOpen(false)
+
+  const submitEdit = async () => {
+    if (!selected) return
+    setSaving(true)
+    try {
+      await updateAdminIssueReport(selected.id, {
+        title: editForm.title.trim(),
+        description: editForm.description,
+        status: editForm.status,
+        priority: editForm.priority,
+        resolution: editForm.resolution.trim() || null,
+      })
+      setEditOpen(false)
+      setSelected(null)
+      await loadAll()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Ошибка")
+    } finally {
+      setSaving(false)
+    }
   }
-  
-  // Загрузка
-  if (!session || !permissions) {
+
+  const openRepair = (row: AdminIssueReportRow) => {
+    setSelected(row)
+    setRepairWsId("all")
+    setRepairPick({})
+    setRepairOpen(true)
+  }
+
+  const submitRepair = async () => {
+    if (!selected || !issueAnchorClassroomId) return
+    const ids = Object.entries(repairPick)
+      .filter(([, v]) => v)
+      .map(([k]) => k)
+    if (ids.length === 0) return
+    setSaving(true)
+    try {
+      await postRepairsForIssue(selected.id, {
+        classroomId: issueAnchorClassroomId,
+        equipmentIds: ids,
+      })
+      setRepairOpen(false)
+      setSelected(null)
+      await loadAll()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Ошибка")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const editHasActiveRepairs = Boolean(selected && selected.repairs.length > 0)
+
+  if (sessionStatus === "loading") {
     return (
       <div className="space-y-6">
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <Skeleton className="h-8 w-64" />
-          <Skeleton className="h-10 w-40" />
-        </div>
-        <div className="grid gap-4 md:grid-cols-5">
-          {[1, 2, 3, 4, 5].map((i) => (
-            <Card key={i}>
-              <CardHeader className="pb-2">
-                <Skeleton className="h-4 w-20" />
-              </CardHeader>
-              <CardContent>
-                <Skeleton className="h-8 w-16" />
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+        <Skeleton className="h-8 w-64" />
+        <Skeleton className="h-40 w-full" />
       </div>
     )
   }
-  
-  const isAdmin = session.user.role === "ADMIN"
+
+  if (!session?.user || session.user.role !== UserRole.ADMIN) {
+    return (
+      <Card>
+        <CardContent className="py-10 text-center text-muted-foreground">
+          Раздел доступен только администратору.
+        </CardContent>
+      </Card>
+    )
+  }
 
   return (
     <div className="space-y-6">
-      {/* Заголовок */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Неисправности</h1>
           <p className="text-muted-foreground">
-            Журнал зафиксированных неисправностей оборудования
+            Обращения по всем аудиториям и рабочим местам. Постановка на ремонт фиксируется в «Активных ремонтах».
           </p>
         </div>
-        <Button onClick={handleAdd}>
+        <Button onClick={openAdd}>
           <Plus className="mr-2 h-4 w-4" />
-          Добавить неисправность
+          Добавить обращение
         </Button>
       </div>
-      
-      {/* Статистика */}
-      <div className="grid gap-4 md:grid-cols-6">
+
+      {error ? (
+        <Alert variant="destructive">
+          <AlertDescription className="flex flex-wrap items-center gap-2">
+            {error}
+            <Button type="button" size="sm" variant="outline" onClick={() => setError(null)}>
+              Скрыть
+            </Button>
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      <div className="grid gap-4 md:grid-cols-5">
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">Всего</CardTitle>
-            <AlertTriangle className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.total}</div>
+            {loading ? <Skeleton className="h-8 w-12" /> : <div className="text-2xl font-bold">{stats.total}</div>}
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Открытые</CardTitle>
-            <AlertCircle className="h-4 w-4 text-red-500" />
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Новые</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-red-600">{stats.open}</div>
+            {loading ? <Skeleton className="h-8 w-12" /> : <div className="text-2xl font-bold text-red-600">{stats.open}</div>}
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Принятые</CardTitle>
-            <Clock className="h-4 w-4 text-blue-500" />
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">В работе</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-blue-600">{stats.acknowledged}</div>
+            {loading ? <Skeleton className="h-8 w-12" /> : <div className="text-2xl font-bold text-blue-600">{stats.inProg}</div>}
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">В ремонте</CardTitle>
-            <Wrench className="h-4 w-4 text-orange-500" />
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Решено / закрыто</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-orange-600">{stats.inRepair}</div>
+            {loading ? <Skeleton className="h-8 w-12" /> : <div className="text-2xl font-bold text-green-600">{stats.done}</div>}
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Решены</CardTitle>
-            <CheckCircle className="h-4 w-4 text-green-500" />
+        <Card className={stats.crit > 0 ? "border-red-200 bg-red-50/50 dark:bg-red-950/20" : ""}>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Критические (открытые)</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">{stats.resolved}</div>
-          </CardContent>
-        </Card>
-        <Card className={stats.critical > 0 ? "border-red-200 bg-red-50" : ""}>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Критические</CardTitle>
-            <AlertTriangle className={`h-4 w-4 ${stats.critical > 0 ? "text-red-500" : "text-muted-foreground"}`} />
-          </CardHeader>
-          <CardContent>
-            <div className={`text-2xl font-bold ${stats.critical > 0 ? "text-red-600" : ""}`}>{stats.critical}</div>
+            {loading ? <Skeleton className="h-8 w-12" /> : <div className={`text-2xl font-bold ${stats.crit > 0 ? "text-red-600" : ""}`}>{stats.crit}</div>}
           </CardContent>
         </Card>
       </div>
-      
-      {/* Фильтры */}
+
       <Card>
-        <CardHeader className="pb-4">
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 pb-4">
           <CardTitle className="text-base">Фильтры</CardTitle>
+          <Button variant="ghost" size="sm" onClick={resetFilters}>
+            <X className="mr-2 h-4 w-4" />
+            Сбросить
+          </Button>
         </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 md:grid-cols-5">
-            {/* Поиск */}
-            <div className="relative md:col-span-2">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="Поиск по неисправностям..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9"
-              />
-            </div>
-            
-            {/* Аудитория */}
-            <Select 
-              value={selectedClassroom} 
-              onValueChange={(value) => {
-                setSelectedClassroom(value)
-                setSelectedWorkstation("all")
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Аудитория" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Все аудитории</SelectItem>
-                {mockClassrooms.map((classroom) => (
-                  <SelectItem key={classroom} value={classroom}>{classroom}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            
-            {/* Рабочее место */}
-            <Select 
-              value={selectedWorkstation} 
-              onValueChange={setSelectedWorkstation}
-              disabled={selectedClassroom === "all"}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Рабочее место" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Все рабочие места</SelectItem>
-                {availableWorkstations.map((ws) => (
-                  <SelectItem key={ws} value={ws}>{ws}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            
-            {/* Статус */}
-            <Select value={selectedStatus} onValueChange={(value) => setSelectedStatus(value as IssueStatus | "all")}>
-              <SelectTrigger>
-                <SelectValue placeholder="Статус" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Все статусы</SelectItem>
-                <SelectItem value="open">Открытые</SelectItem>
-                <SelectItem value="acknowledged">Принятые</SelectItem>
-                <SelectItem value="in_repair">В ремонте</SelectItem>
-                <SelectItem value="resolved">Решены</SelectItem>
-                <SelectItem value="closed">Закрыты</SelectItem>
-              </SelectContent>
-            </Select>
+        <CardContent className="grid gap-4 md:grid-cols-5">
+          <div className="relative md:col-span-2">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input className="pl-9" placeholder="Поиск…" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
           </div>
-          
-          <div className="mt-4 flex flex-wrap items-center gap-4">
-            {/* Критичность */}
-            <Select value={selectedSeverity} onValueChange={(value) => setSelectedSeverity(value as IssueSeverity | "all")}>
-              <SelectTrigger className="w-48">
-                <SelectValue placeholder="Критичность" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Все уровни</SelectItem>
-                <SelectItem value="critical">Критическая</SelectItem>
-                <SelectItem value="high">Высокая</SelectItem>
-                <SelectItem value="medium">Средняя</SelectItem>
-                <SelectItem value="low">Низкая</SelectItem>
-              </SelectContent>
-            </Select>
-            
-            {/* Тип */}
-            <Select value={selectedType} onValueChange={(value) => setSelectedType(value as IssueType | "all")}>
-              <SelectTrigger className="w-48">
-                <SelectValue placeholder="Тип" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Все типы</SelectItem>
-                <SelectItem value="hardware">Оборудование</SelectItem>
-                <SelectItem value="software">ПО</SelectItem>
-                <SelectItem value="network">Сеть</SelectItem>
-                <SelectItem value="other">Другое</SelectItem>
-              </SelectContent>
-            </Select>
-            
-            {hasFilters && (
-              <Button variant="ghost" onClick={resetFilters} className="text-muted-foreground">
-                <X className="mr-2 h-4 w-4" />
-                Сбросить фильтры
-              </Button>
-            )}
-          </div>
+          <Select
+            value={filterClassroomId}
+            onValueChange={(v) => {
+              setFilterClassroomId(v)
+              setFilterWorkstationId("all")
+            }}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Аудитория" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Все аудитории</SelectItem>
+              {classrooms.map((c) => (
+                <SelectItem key={c.id} value={c.id}>
+                  {c.name?.trim() || `№${c.number}`}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={filterWorkstationId} onValueChange={setFilterWorkstationId} disabled={filterClassroomId === "all"}>
+            <SelectTrigger>
+              <SelectValue placeholder="Рабочее место" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Все РМ</SelectItem>
+              {filterWsOptions.map((w) => (
+                <SelectItem key={w.id} value={w.id}>
+                  {w.code}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={filterStatus} onValueChange={(v) => setFilterStatus(v as IssueStatus | "all")}>
+            <SelectTrigger>
+              <SelectValue placeholder="Статус" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Все статусы</SelectItem>
+              {issueStatusFilterOptions.map((s) => (
+                <SelectItem key={s} value={s}>
+                  {statusMeta[s].label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={filterPriority} onValueChange={(v) => setFilterPriority(v as IssuePriority | "all")}>
+            <SelectTrigger>
+              <SelectValue placeholder="Приоритет" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Все</SelectItem>
+              {priorityOptions.map((o) => (
+                <SelectItem key={o.value} value={o.value}>
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </CardContent>
       </Card>
-      
-      {/* Таблица неисправностей */}
+
       <Card>
         <CardHeader>
-          <CardTitle>Список неисправностей</CardTitle>
-          <CardDescription>
-            Найдено: {filteredIssues.length} из {issues.length}
-          </CardDescription>
+          <CardTitle>Журнал</CardTitle>
+          <CardDescription>Найдено: {filteredIssues.length}</CardDescription>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Неисправность</TableHead>
-                <TableHead>Местоположение</TableHead>
-                <TableHead>Тип</TableHead>
-                <TableHead>Критичность</TableHead>
-                <TableHead>Статус</TableHead>
-                <TableHead>Дата</TableHead>
-                <TableHead className="text-right">Действия</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredIssues.length === 0 ? (
+          {loading ? (
+            <Skeleton className="h-64 w-full" />
+          ) : (
+            <Table>
+              <TableHeader>
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                    Неисправности не найдены
-                  </TableCell>
+                  <TableHead>Обращение</TableHead>
+                  <TableHead>Оборудование</TableHead>
+                  <TableHead>Заявитель</TableHead>
+                  <TableHead>Статус</TableHead>
+                  <TableHead>Приоритет</TableHead>
+                  <TableHead>Ремонты</TableHead>
+                  <TableHead className="text-right">Действия</TableHead>
                 </TableRow>
-              ) : (
-                filteredIssues.map((item) => {
-                  const statusInfo = getStatusInfo(item.status)
-                  const severityInfo = getSeverityInfo(item.severity)
-                  const typeInfo = getTypeInfo(item.type)
-                  const StatusIcon = statusInfo.icon
-                  
-                  return (
-                    <TableRow key={item.id}>
-                      <TableCell>
-                        <div>
-                          <div className="font-medium">{item.title}</div>
-                          <div className="text-sm text-muted-foreground truncate max-w-xs">{item.equipment}</div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div>
-                          <div className="font-medium">{item.classroom}</div>
-                          <div className="text-sm text-muted-foreground">{item.workstation}</div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className={typeInfo.color}>
-                          {typeInfo.label}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className={severityInfo.color}>
-                          {severityInfo.label}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={statusInfo.variant} className="gap-1">
-                          <StatusIcon className="h-3 w-3" />
-                          {statusInfo.label}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                          <Calendar className="h-3 w-3" />
-                          {item.reportedAt}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon">
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => handleView(item)}>
-                              <Eye className="mr-2 h-4 w-4" />
-                              Просмотр
-                            </DropdownMenuItem>
-                            {isAdmin && (
-                              <>
-                                <DropdownMenuItem onClick={() => handleEdit(item)}>
-                                  <Pencil className="mr-2 h-4 w-4" />
-                                  Редактировать
-                                </DropdownMenuItem>
-                                <DropdownMenuItem 
-                                  onClick={() => handleDelete(item)}
-                                  className="text-destructive"
-                                >
-                                  <Trash2 className="mr-2 h-4 w-4" />
-                                  Удалить
-                                </DropdownMenuItem>
-                              </>
-                            )}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-                    </TableRow>
-                  )
-                })
-              )}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {filteredIssues.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="py-10 text-center text-muted-foreground">
+                      Нет записей
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filteredIssues.map((row) => {
+                    const sm = statusMeta[row.status]
+                    const Icon = sm.icon
+                    const pm = priorityMeta[row.priority]
+                    return (
+                      <TableRow key={row.id}>
+                        <TableCell>
+                          <div className="font-medium">{row.title}</div>
+                          <div className="line-clamp-1 text-xs text-muted-foreground">{row.description}</div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="text-sm">{row.equipment.name}</div>
+                          <div className="text-xs text-muted-foreground">инв. {row.equipment.inventoryNumber}</div>
+                        </TableCell>
+                        <TableCell className="text-sm">{personLabel(row.reporter)}</TableCell>
+                        <TableCell>
+                          <Badge variant={sm.variant} className="gap-1">
+                            <Icon className="h-3 w-3" />
+                            {sm.label}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className={pm.className}>
+                            {pm.label}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {row.repairs.length > 0 ? (
+                            <span className="text-sm text-orange-600">{row.repairs.length} активн.</span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon">
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  setSelected(row)
+                                  setViewOpen(true)
+                                }}
+                              >
+                                <Eye className="mr-2 h-4 w-4" />
+                                Просмотр
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => openEdit(row)}>
+                                <Pencil className="mr-2 h-4 w-4" />
+                                Изменить
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => openRepair(row)}>
+                                <Wrench className="mr-2 h-4 w-4" />
+                                На ремонт
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })
+                )}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
-      
-      {/* Диалог просмотра */}
-      <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
-        <DialogContent className="max-w-2xl">
+
+      <Dialog open={viewOpen} onOpenChange={setViewOpen}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Детали неисправности</DialogTitle>
-            <DialogDescription>Подробная информация о неисправности</DialogDescription>
+            <DialogTitle>{selected?.title}</DialogTitle>
+            <DialogDescription>Обращение о неисправности</DialogDescription>
           </DialogHeader>
-          {selectedIssue && (
-            <div className="space-y-4">
+          {selected ? (
+            <div className="space-y-3 text-sm">
               <div>
-                <h3 className="text-lg font-semibold">{selectedIssue.title}</h3>
-                <p className="text-muted-foreground mt-1">{selectedIssue.description}</p>
+                <span className="text-muted-foreground">Описание:</span>
+                <p className="mt-1 whitespace-pre-wrap">{selected.description}</p>
               </div>
-              
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <Label className="text-muted-foreground">Аудитория</Label>
-                  <p className="font-medium">{selectedIssue.classroom}</p>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">Рабочее место</Label>
-                  <p className="font-medium">{selectedIssue.workstation}</p>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">Оборудование</Label>
-                  <p className="font-medium">{selectedIssue.equipment}</p>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">Тип</Label>
-                  <div className="mt-1">
-                    <Badge variant="outline" className={getTypeInfo(selectedIssue.type).color}>
-                      {getTypeInfo(selectedIssue.type).label}
-                    </Badge>
-                  </div>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">Критичность</Label>
-                  <div className="mt-1">
-                    <Badge variant="outline" className={getSeverityInfo(selectedIssue.severity).color}>
-                      {getSeverityInfo(selectedIssue.severity).label}
-                    </Badge>
-                  </div>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">Статус</Label>
-                  <div className="mt-1">
-                    <Badge variant={getStatusInfo(selectedIssue.status).variant}>
-                      {getStatusInfo(selectedIssue.status).label}
-                    </Badge>
-                  </div>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">Сообщил</Label>
-                  <p className="font-medium">{selectedIssue.reportedBy}</p>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">Дата обнаружения</Label>
-                  <p className="font-medium">{selectedIssue.reportedAt}</p>
-                </div>
-                {selectedIssue.acknowledgedAt && (
-                  <div>
-                    <Label className="text-muted-foreground">Дата принятия</Label>
-                    <p className="font-medium">{selectedIssue.acknowledgedAt}</p>
-                  </div>
-                )}
-                {selectedIssue.resolvedAt && (
-                  <div>
-                    <Label className="text-muted-foreground">Дата решения</Label>
-                    <p className="font-medium">{selectedIssue.resolvedAt}</p>
-                  </div>
-                )}
+              <div>
+                <span className="text-muted-foreground">Оборудование в обращении:</span>
+                <p className="font-medium">
+                  {selected.equipment.name} (инв. {selected.equipment.inventoryNumber})
+                </p>
               </div>
-              
-              {selectedIssue.resolution && (
-                <div>
-                  <Label className="text-muted-foreground">Решение</Label>
-                  <p className="mt-1 p-3 bg-muted rounded-md text-sm">{selectedIssue.resolution}</p>
+              <div>
+                <span className="text-muted-foreground">Место:</span>
+                <p>{issueLocation(selected)}</p>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Заявитель:</span>
+                <p>{personLabel(selected.reporter)}</p>
+              </div>
+              {selected.resolution?.trim() ? (
+                <div className="rounded-md bg-muted p-3">
+                  <span className="text-muted-foreground">Комментарий / решение:</span>
+                  <p className="mt-1 whitespace-pre-wrap">{selected.resolution}</p>
                 </div>
-              )}
+              ) : null}
+              {selected.repairs.length > 0 ? (
+                <div>
+                  <span className="text-muted-foreground">Активные ремонты по обращению:</span>
+                  <ul className="mt-1 list-inside list-disc">
+                    {selected.repairs.map((r) => (
+                      <li key={r.id}>
+                        {r.equipment.name} (инв. {r.equipment.inventoryNumber})
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
             </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Новое обращение</DialogTitle>
+            <DialogDescription>Выберите аудиторию, рабочее место, оборудование и заявителя</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3 py-2">
+            <div className="grid gap-2">
+              <Label>Аудитория</Label>
+              <Select
+                value={addForm.classroomId}
+                onValueChange={(v) =>
+                  setAddForm({ ...addForm, classroomId: v, workstationId: "", equipmentId: "" })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Выберите" />
+                </SelectTrigger>
+                <SelectContent>
+                  {classrooms.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name?.trim() || `№${c.number}`}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label>Рабочее место</Label>
+              <Select
+                value={addForm.workstationId ? addForm.workstationId : "__any__"}
+                onValueChange={(v) =>
+                  setAddForm({
+                    ...addForm,
+                    workstationId: v === "__any__" ? "" : v,
+                    equipmentId: "",
+                  })
+                }
+                disabled={!addForm.classroomId}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Все / выберите РМ" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__any__">Любое в аудитории</SelectItem>
+                  {addWsOptions.map((w) => (
+                    <SelectItem key={w.id} value={w.id}>
+                      {w.code}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label>Оборудование</Label>
+              <Select
+                value={addForm.equipmentId}
+                onValueChange={(v) => setAddForm({ ...addForm, equipmentId: v })}
+                disabled={!addForm.classroomId}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Выберите единицу" />
+                </SelectTrigger>
+                <SelectContent>
+                  {addEquipment.map((e) => (
+                    <SelectItem key={e.id} value={e.id}>
+                      {e.name} · {e.inventoryNumber}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label>Заявитель (преподаватель)</Label>
+              <Select
+                value={addForm.reporterId}
+                onValueChange={(v) => setAddForm({ ...addForm, reporterId: v })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Выберите" />
+                </SelectTrigger>
+                <SelectContent>
+                  {teachers.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.lastName} {t.firstName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label>Заголовок</Label>
+              <Input value={addForm.title} onChange={(e) => setAddForm({ ...addForm, title: e.target.value })} />
+            </div>
+            <div className="grid gap-2">
+              <Label>Описание</Label>
+              <Textarea
+                rows={3}
+                value={addForm.description}
+                onChange={(e) => setAddForm({ ...addForm, description: e.target.value })}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label>Приоритет</Label>
+              <Select
+                value={addForm.priority}
+                onValueChange={(v) => setAddForm({ ...addForm, priority: v as IssuePriority })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {priorityOptions.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddOpen(false)}>
+              Отмена
+            </Button>
+            <Button
+              disabled={saving || !addForm.equipmentId || !addForm.reporterId || !addForm.title.trim()}
+              onClick={() => void submitAdd()}
+            >
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Создать"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Изменить обращение</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-3 py-2">
+            <div className="grid gap-2">
+              <Label>Заголовок</Label>
+              <Input value={editForm.title} onChange={(e) => setEditForm({ ...editForm, title: e.target.value })} />
+            </div>
+            <div className="grid gap-2">
+              <Label>Описание</Label>
+              <Textarea
+                rows={3}
+                value={editForm.description}
+                onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label>Статус</Label>
+              <Select
+                value={editForm.status}
+                onValueChange={(v) => setEditForm({ ...editForm, status: v as IssueStatus })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {issueAdminEditStatuses.map((s) => (
+                    <SelectItem
+                      key={s}
+                      value={s}
+                      disabled={
+                        editHasActiveRepairs &&
+                        (s === IssueStatus.RESOLVED || s === IssueStatus.REJECTED)
+                      }
+                    >
+                      {statusMeta[s].label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {editHasActiveRepairs ? (
+                <p className="text-xs text-muted-foreground">
+                  Пока есть ремонты в очереди или в работе, нельзя перевести обращение в «Решено» или «Отклонено».
+                </p>
+              ) : null}
+            </div>
+            <div className="grid gap-2">
+              <Label>Приоритет</Label>
+              <Select
+                value={editForm.priority}
+                onValueChange={(v) => setEditForm({ ...editForm, priority: v as IssuePriority })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {priorityOptions.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label>Решение / комментарий для заявителя</Label>
+              <Textarea
+                rows={3}
+                value={editForm.resolution}
+                onChange={(e) => setEditForm({ ...editForm, resolution: e.target.value })}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditOpen(false)}>
+              Отмена
+            </Button>
+            <Button disabled={saving} onClick={() => void submitEdit()}>
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Сохранить"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={repairOpen} onOpenChange={setRepairOpen}>
+        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Поставить на ремонт</DialogTitle>
+            <DialogDescription>
+              Выберите оборудование в той же аудитории, что и обращение. У заявителя в «Моих заявках» появится
+              комментарий о ремонте выбранных устройств.
+            </DialogDescription>
+          </DialogHeader>
+          {!issueAnchorClassroomId ? (
+            <Alert>
+              <AlertDescription>
+                У оборудования в этом обращении нет привязки к аудитории — постановка на ремонт недоступна.
+              </AlertDescription>
+            </Alert>
+          ) : (
+            <>
+              <div className="grid gap-2">
+                <Label>Рабочее место (фильтр)</Label>
+                <Select value={repairWsId} onValueChange={setRepairWsId}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Вся аудитория</SelectItem>
+                    {repairWsOptions.map((w) => (
+                      <SelectItem key={w.id} value={w.id}>
+                        {w.code}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="max-h-56 space-y-2 overflow-y-auto rounded-md border p-2">
+                {repairEquipment.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Нет оборудования в выборке</p>
+                ) : (
+                  repairEquipment.map((e) => (
+                    <label key={e.id} className="flex cursor-pointer items-start gap-2 text-sm">
+                      <Checkbox
+                        checked={Boolean(repairPick[e.id])}
+                        onCheckedChange={(c) =>
+                          setRepairPick((p) => ({ ...p, [e.id]: c === true }))
+                        }
+                      />
+                      <span>
+                        <span className="font-medium">{e.name}</span>
+                        <span className="text-muted-foreground"> · инв. {e.inventoryNumber}</span>
+                        {e.workstationCode ? (
+                          <span className="block text-xs text-muted-foreground">{e.workstationCode}</span>
+                        ) : null}
+                      </span>
+                    </label>
+                  ))
+                )}
+              </div>
+            </>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setViewDialogOpen(false)}>
-              Закрыть
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      
-      {/* Диалог добавления */}
-      <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Добавить неисправность</DialogTitle>
-            <DialogDescription>Зафиксируйте новую неисправность оборудования</DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid gap-2">
-              <Label htmlFor="title">Название</Label>
-              <Input
-                id="title"
-                value={formData.title}
-                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                placeholder="Краткое описание проблемы"
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="description">Описание</Label>
-              <Textarea
-                id="description"
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                placeholder="Подробное описание неисправности"
-                rows={3}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="grid gap-2">
-                <Label>Аудитория</Label>
-                <Select 
-                  value={formData.classroom} 
-                  onValueChange={(value) => setFormData({ ...formData, classroom: value, workstation: "" })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Выберите аудиторию" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {mockClassrooms.map((classroom) => (
-                      <SelectItem key={classroom} value={classroom}>{classroom}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid gap-2">
-                <Label>Рабочее место</Label>
-                <Select 
-                  value={formData.workstation} 
-                  onValueChange={(value) => setFormData({ ...formData, workstation: value })}
-                  disabled={!formData.classroom}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Выберите рабочее место" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {formWorkstations.map((ws) => (
-                      <SelectItem key={ws} value={ws}>{ws}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="grid grid-cols-3 gap-4">
-              <div className="grid gap-2">
-                <Label htmlFor="equipment">Оборудование</Label>
-                <Input
-                  id="equipment"
-                  value={formData.equipment}
-                  onChange={(e) => setFormData({ ...formData, equipment: e.target.value })}
-                  placeholder="Название"
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label>Тип</Label>
-                <Select 
-                  value={formData.type} 
-                  onValueChange={(value) => setFormData({ ...formData, type: value as IssueType })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="hardware">Оборудование</SelectItem>
-                    <SelectItem value="software">ПО</SelectItem>
-                    <SelectItem value="network">Сеть</SelectItem>
-                    <SelectItem value="other">Другое</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid gap-2">
-                <Label>Критичность</Label>
-                <Select 
-                  value={formData.severity} 
-                  onValueChange={(value) => setFormData({ ...formData, severity: value as IssueSeverity })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="low">Низкая</SelectItem>
-                    <SelectItem value="medium">Средняя</SelectItem>
-                    <SelectItem value="high">Высокая</SelectItem>
-                    <SelectItem value="critical">Критическая</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAddDialogOpen(false)}>
+            <Button variant="outline" onClick={() => setRepairOpen(false)}>
               Отмена
             </Button>
-            <Button onClick={handleSaveNew} disabled={!formData.title || !formData.classroom}>
-              Добавить
+            <Button
+              disabled={
+                saving ||
+                !issueAnchorClassroomId ||
+                Object.values(repairPick).filter(Boolean).length === 0
+              }
+              onClick={() => void submitRepair()}
+            >
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Создать ремонты"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      
-      {/* Диалог редактирования */}
-      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Редактировать неисправность</DialogTitle>
-            <DialogDescription>Измените информацию о неисправности</DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4 max-h-[60vh] overflow-y-auto">
-            <div className="grid gap-2">
-              <Label htmlFor="edit-title">Название</Label>
-              <Input
-                id="edit-title"
-                value={formData.title}
-                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="edit-description">Описание</Label>
-              <Textarea
-                id="edit-description"
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                rows={3}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="grid gap-2">
-                <Label>Статус</Label>
-                <Select 
-                  value={formData.status} 
-                  onValueChange={(value) => setFormData({ ...formData, status: value as IssueStatus })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="open">Открыта</SelectItem>
-                    <SelectItem value="acknowledged">Принята</SelectItem>
-                    <SelectItem value="in_repair">В ремонте</SelectItem>
-                    <SelectItem value="resolved">Решена</SelectItem>
-                    <SelectItem value="closed">Закрыта</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid gap-2">
-                <Label>Критичность</Label>
-                <Select 
-                  value={formData.severity} 
-                  onValueChange={(value) => setFormData({ ...formData, severity: value as IssueSeverity })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="low">Низкая</SelectItem>
-                    <SelectItem value="medium">Средняя</SelectItem>
-                    <SelectItem value="high">Высокая</SelectItem>
-                    <SelectItem value="critical">Критическая</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            {(formData.status === "resolved" || formData.status === "closed") && (
-              <div className="grid gap-2">
-                <Label htmlFor="edit-resolution">Решение</Label>
-                <Textarea
-                  id="edit-resolution"
-                  value={formData.resolution}
-                  onChange={(e) => setFormData({ ...formData, resolution: e.target.value })}
-                  placeholder="Опишите, как была решена проблема"
-                  rows={3}
-                />
-              </div>
-            )}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEditDialogOpen(false)}>
-              Отмена
-            </Button>
-            <Button onClick={handleSaveEdit}>
-              Сохранить
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      
-      {/* Диалог удаления */}
-      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Удалить неисправность?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Вы уверены, что хотите удалить запись о неисправности "{selectedIssue?.title}"? 
-              Это действие нельзя отменить.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Отмена</AlertDialogCancel>
-            <AlertDialogAction variant="destructive" onClick={handleConfirmDelete}>
-              Удалить
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+
     </div>
   )
 }
