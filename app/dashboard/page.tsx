@@ -16,9 +16,7 @@ import {
   Plus,
   ArrowRight,
   Package,
-  BarChart3,
   ClipboardList,
-  Bell,
   HardDrive,
   Laptop,
   Settings,
@@ -33,31 +31,11 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { fetchClassroomRegistry } from "@/lib/api/classroom-registry"
 import { fetchMyRequests, type MyRequestListItem } from "@/lib/api/my-requests"
 import { fetchEquipmentDashboardList } from "@/lib/api/equipment-dashboard"
-
-interface DashboardStats {
-  totalEquipment: number
-  workingEquipment: number
-  faultyEquipment: number
-  inRepairEquipment: number
-  totalClassrooms: number
-  totalWorkstations: number
-  openRequests: number
-  pendingRequests: number
-  inProgressRequests: number
-  completedRequestsThisMonth: number
-  totalUsers: number
-  activeRepairs: number
-  softwareCount: number
-  categoriesCount: number
-}
-
-interface Notification {
-  id: string
-  title: string
-  description: string
-  time: string
-  type: "info" | "warning" | "error"
-}
+import {
+  fetchAdminDashboardStats,
+  type AdminDashboardRecentIssue,
+  type AdminDashboardStats,
+} from "@/lib/api/admin-dashboard-stats"
 
 type TeacherDashboardSummary = {
   classrooms: number
@@ -70,117 +48,40 @@ type TeacherDashboardSummary = {
   myRequestsRejected: number
 }
 
+/** Сводка по полю «Статус» в карточках оборудования (сумма даёт totalEquipment). */
+function formatEquipmentStatusBreakdown(s: AdminDashboardStats): string {
+  const parts: string[] = [`исправно ${s.workingEquipment}`]
+  if (s.faultyEquipment > 0) parts.push(`требует проверки ${s.faultyEquipment}`)
+  if (s.inRepairEquipment > 0) parts.push(`в ремонте ${s.inRepairEquipment}`)
+  if (s.equipmentDecommissioned > 0) parts.push(`списано ${s.equipmentDecommissioned}`)
+  if (s.equipmentNotInUse > 0) parts.push(`не используется ${s.equipmentNotInUse}`)
+  return parts.join(" · ")
+}
+
 export default function DashboardPage() {
   const { data: session, status } = useSession()
-  const [stats, setStats] = useState<DashboardStats | null>(null)
-  const [recentRequests, setRecentRequests] = useState<
-    {
-      id: string
-      title: string
-      classroom: string
-      status: "pending" | "in_progress" | "completed"
-      date: string
-      priority: "low" | "medium" | "high"
-      author: string
-    }[]
-  >([])
-  const [notifications, setNotifications] = useState<Notification[]>([])
+  const [stats, setStats] = useState<AdminDashboardStats | null>(null)
+  const [recentRequests, setRecentRequests] = useState<AdminDashboardRecentIssue[]>([])
+  const [adminError, setAdminError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [teacherSummary, setTeacherSummary] = useState<TeacherDashboardSummary | null>(null)
   const [teacherRecent, setTeacherRecent] = useState<MyRequestListItem[]>([])
   const [teacherError, setTeacherError] = useState<string | null>(null)
 
-  const loadAdminDashboard = useCallback(() => {
-    const timer = setTimeout(() => {
-      setStats({
-        totalEquipment: 156,
-        workingEquipment: 142,
-        faultyEquipment: 8,
-        inRepairEquipment: 6,
-        totalClassrooms: 24,
-        totalWorkstations: 96,
-        openRequests: 12,
-        pendingRequests: 5,
-        inProgressRequests: 4,
-        completedRequestsThisMonth: 38,
-        totalUsers: 45,
-        activeRepairs: 4,
-        softwareCount: 32,
-        categoriesCount: 8,
-      })
-      setRecentRequests([
-        {
-          id: "1",
-          title: "Не работает проектор",
-          classroom: "Аудитория 301",
-          status: "pending",
-          date: "2025-03-25",
-          priority: "high",
-          author: "Петров И.С.",
-        },
-        {
-          id: "2",
-          title: "Замена клавиатуры",
-          classroom: "Компьютерный класс 105",
-          status: "in_progress",
-          date: "2025-03-24",
-          priority: "medium",
-          author: "Сидорова А.В.",
-        },
-        {
-          id: "3",
-          title: "Настройка Wi-Fi",
-          classroom: "Аудитория 412",
-          status: "pending",
-          date: "2025-03-24",
-          priority: "low",
-          author: "Козлов М.А.",
-        },
-        {
-          id: "4",
-          title: "Сломан монитор",
-          classroom: "Лаборатория 201",
-          status: "in_progress",
-          date: "2025-03-23",
-          priority: "high",
-          author: "Иванов П.П.",
-        },
-        {
-          id: "5",
-          title: "Обновление ПО",
-          classroom: "Аудитория 118",
-          status: "completed",
-          date: "2025-03-22",
-          priority: "low",
-          author: "Николаева Е.К.",
-        },
-      ])
-      setNotifications([
-        {
-          id: "1",
-          title: "Новая заявка",
-          description: "Петров И.С. сообщил о проблеме с проектором",
-          time: "5 мин назад",
-          type: "warning",
-        },
-        {
-          id: "2",
-          title: "Ремонт завершён",
-          description: "Монитор в ауд. 305 отремонтирован",
-          time: "1 час назад",
-          type: "info",
-        },
-        {
-          id: "3",
-          title: "Критическая поломка",
-          description: "Системный блок в ауд. 201 не включается",
-          time: "2 часа назад",
-          type: "error",
-        },
-      ])
+  const loadAdminDashboard = useCallback(async () => {
+    setAdminError(null)
+    setLoading(true)
+    try {
+      const { stats: nextStats, recentIssues } = await fetchAdminDashboardStats()
+      setStats(nextStats)
+      setRecentRequests(recentIssues)
+    } catch (e) {
+      setAdminError(e instanceof Error ? e.message : "Не удалось загрузить данные")
+      setStats(null)
+      setRecentRequests([])
+    } finally {
       setLoading(false)
-    }, 500)
-    return timer
+    }
   }, [])
 
   const loadTeacherDashboard = useCallback(async () => {
@@ -233,8 +134,8 @@ export default function DashboardPage() {
       setTeacherSummary(null)
       setTeacherRecent([])
       setTeacherError(null)
-      const timer = loadAdminDashboard()
-      return () => clearTimeout(timer)
+      void loadAdminDashboard()
+      return
     }
 
     void loadTeacherDashboard()
@@ -250,7 +151,14 @@ export default function DashboardPage() {
 
   const isAdmin = session.user.role === "ADMIN"
   const firstName = session.user.name?.split(" ")?.[1] || session.user.name?.split(" ")?.[0] || ""
-  const workingPercentage = stats ? Math.round((stats.workingEquipment / stats.totalEquipment) * 100) : 0
+  const equipmentInServiceTotal =
+    stats !== null
+      ? Math.max(0, stats.totalEquipment - stats.equipmentDecommissioned)
+      : 0
+  const workingPercentage =
+    stats && equipmentInServiceTotal > 0
+      ? Math.round((stats.workingEquipment / equipmentInServiceTotal) * 100)
+      : 0
 
   const getStatusBadge = (s: (typeof recentRequests)[number]["status"]) => {
     switch (s) {
@@ -258,6 +166,8 @@ export default function DashboardPage() {
         return <Badge variant="secondary">Ожидает</Badge>
       case "in_progress":
         return <Badge variant="default">В работе</Badge>
+      case "rejected":
+        return <Badge variant="destructive">Отклонено</Badge>
       case "completed":
         return <Badge variant="outline" className="text-green-600 border-green-600">Выполнено</Badge>
     }
@@ -291,17 +201,6 @@ export default function DashboardPage() {
     }
   }
   
-  const getNotificationIcon = (type: Notification["type"]) => {
-    switch (type) {
-      case "warning":
-        return <AlertTriangle className="h-4 w-4 text-orange-500" />
-      case "error":
-        return <AlertTriangle className="h-4 w-4 text-red-500" />
-      default:
-        return <CheckCircle2 className="h-4 w-4 text-green-500" />
-    }
-  }
-
   return (
     <div className="space-y-6">
       {/* Welcome Section */}
@@ -320,7 +219,7 @@ export default function DashboardPage() {
         {isAdmin ? (
           <div className="flex gap-2">
             <Button asChild>
-              <Link href="/dashboard/reports/new">
+              <Link href="/dashboard/reports">
                 <FileText className="mr-2 h-4 w-4" />
                 Создать отчёт
               </Link>
@@ -345,6 +244,17 @@ export default function DashboardPage() {
       {/* Admin Dashboard */}
       {isAdmin && (
         <>
+          {adminError ? (
+            <Alert variant="destructive" className="mb-2">
+              <AlertDescription className="flex flex-wrap items-center gap-2">
+                {adminError}
+                <Button type="button" variant="outline" size="sm" onClick={() => void loadAdminDashboard()}>
+                  Повторить
+                </Button>
+              </AlertDescription>
+            </Alert>
+          ) : null}
+
           {/* Primary Stats - Заявки */}
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             <Card className="border-l-4 border-l-orange-500">
@@ -382,6 +292,11 @@ export default function DashboardPage() {
                     <p className="text-xs text-muted-foreground">
                       В {stats?.totalClassrooms} аудиториях
                     </p>
+                    {stats ? (
+                      <p className="text-xs text-muted-foreground mt-1 leading-snug">
+                        По статусам: {formatEquipmentStatusBreakdown(stats)}
+                      </p>
+                    ) : null}
                   </>
                 )}
               </CardContent>
@@ -418,7 +333,7 @@ export default function DashboardPage() {
                   <>
                     <div className="text-2xl font-bold text-green-600">{stats?.completedRequestsThisMonth}</div>
                     <p className="text-xs text-muted-foreground">
-                      Заявок в этом месяце
+                      Обращений закрыто в этом месяце
                     </p>
                   </>
                 )}
@@ -442,7 +357,9 @@ export default function DashboardPage() {
                     <div className="mt-2">
                       <Progress value={workingPercentage} className="h-2" />
                       <p className="text-xs text-muted-foreground mt-1">
-                        {workingPercentage}% в рабочем состоянии
+                        {stats
+                          ? `${workingPercentage}% от ${equipmentInServiceTotal} ед. в учёте (без списанных), со статусом «Исправно»`
+                          : `${workingPercentage}% в рабочем состоянии`}
                       </p>
                     </div>
                   </>
@@ -462,7 +379,7 @@ export default function DashboardPage() {
                   <>
                     <div className="text-2xl font-bold text-red-600">{stats?.faultyEquipment}</div>
                     <p className="text-xs text-muted-foreground">
-                      Требует ремонта
+                      Статус «Требует проверки»
                     </p>
                   </>
                 )}
@@ -533,9 +450,9 @@ export default function DashboardPage() {
             <Card className="lg:col-span-2">
               <CardHeader className="flex flex-row items-center justify-between">
                 <div>
-                  <CardTitle>Последние заявки</CardTitle>
+                  <CardTitle>Последние обращения</CardTitle>
                   <CardDescription>
-                    Недавно поступившие заявки от преподавателей
+                    Недавние обращения о неисправностях
                   </CardDescription>
                 </div>
                 <Button variant="ghost" size="sm" asChild>
@@ -558,6 +475,8 @@ export default function DashboardPage() {
                       </div>
                     ))}
                   </div>
+                ) : recentRequests.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Пока нет обращений</p>
                 ) : (
                   <div className="space-y-4">
                     {recentRequests.map((request) => (
@@ -586,43 +505,7 @@ export default function DashboardPage() {
               </CardContent>
             </Card>
 
-            {/* Notifications & Quick Actions */}
             <div className="space-y-4">
-              {/* Notifications */}
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className="text-base">Уведомления</CardTitle>
-                  <Button variant="ghost" size="sm" asChild>
-                    <Link href="/dashboard/notifications">
-                      <Bell className="h-4 w-4" />
-                    </Link>
-                  </Button>
-                </CardHeader>
-                <CardContent>
-                  {loading ? (
-                    <div className="space-y-3">
-                      {[1, 2, 3].map((i) => (
-                        <Skeleton key={i} className="h-12 w-full" />
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      {notifications.map((notification) => (
-                        <div key={notification.id} className="flex items-start gap-3">
-                          {getNotificationIcon(notification.type)}
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium truncate">{notification.title}</p>
-                            <p className="text-xs text-muted-foreground truncate">{notification.description}</p>
-                            <p className="text-xs text-muted-foreground mt-0.5">{notification.time}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Quick Actions */}
               <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base">Быстрые действия</CardTitle>
@@ -651,12 +534,6 @@ export default function DashboardPage() {
                     <Link href="/dashboard/reports">
                       <FileText className="mr-2 h-4 w-4" />
                       Создать отчёт
-                    </Link>
-                  </Button>
-                  <Button variant="outline" className="w-full justify-start" asChild>
-                    <Link href="/dashboard/statistics">
-                      <BarChart3 className="mr-2 h-4 w-4" />
-                      Статистика и аналитика
                     </Link>
                   </Button>
                 </CardContent>

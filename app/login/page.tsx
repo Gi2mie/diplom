@@ -74,7 +74,7 @@ export default function LoginPage() {
               <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/20 backdrop-blur-sm">
                 <Monitor className="h-6 w-6 text-white" />
               </div>
-              <span className="text-2xl font-semibold text-white tracking-tight">EduTrack</span>
+              <span className="text-2xl font-semibold text-white tracking-tight">EduControl</span>
             </div>
 
             <h1 className="text-4xl xl:text-5xl font-bold text-white leading-tight mb-6 text-balance">
@@ -126,7 +126,7 @@ export default function LoginPage() {
             <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary">
               <Monitor className="h-5 w-5 text-primary-foreground" />
             </div>
-            <span className="text-xl font-semibold text-foreground tracking-tight">EduTrack</span>
+            <span className="text-xl font-semibold text-foreground tracking-tight">EduControl</span>
           </div>
 
           <Card className="border border-border/60 shadow-xl shadow-primary/10 bg-card dark:border-border dark:shadow-black/20">
@@ -223,7 +223,7 @@ export default function LoginPage() {
           </Card>
 
           <p className="mt-6 text-center text-xs text-muted-foreground">
-            EduTrack v1.0 &copy; {new Date().getFullYear()}
+            EduControl v1.0 &copy; {new Date().getFullYear()}
           </p>
         </div>
       </div>

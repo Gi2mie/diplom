@@ -261,7 +261,7 @@ export default function DashboardLayout({
               <Monitor className="h-5 w-5 text-primary-foreground" />
             </div>
             <div className="flex flex-col">
-              <span className="text-lg font-semibold">EduTrack</span>
+              <span className="text-lg font-semibold">EduControl</span>
               <span className="text-xs text-muted-foreground">
                 {isAdmin ? "Администратор" : "Преподаватель"}
               </span>
@@ -362,7 +362,7 @@ export default function DashboardLayout({
           <Breadcrumb>
             <BreadcrumbList>
               <BreadcrumbItem>
-                <BreadcrumbLink href="/dashboard">EduTrack</BreadcrumbLink>
+                <BreadcrumbLink href="/dashboard">EduControl</BreadcrumbLink>
               </BreadcrumbItem>
               {currentPage && currentPage.href !== "/dashboard" && (
                 <>

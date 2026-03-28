@@ -16,7 +16,7 @@ const _geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'EduTrack - Мониторинг учебного оборудования',
+  title: 'EduControl - Мониторинг учебного оборудования',
   description: 'Система учёта и мониторинга состояния учебного оборудования в компьютерных классах',
   generator: 'v0.app',
   icons: {
