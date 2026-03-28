@@ -35,7 +35,7 @@ export async function getWorkstationsByClassroom(
           },
         },
       },
-      orderBy: { number: "asc" },
+      orderBy: { code: "asc" },
     })
 
     return {

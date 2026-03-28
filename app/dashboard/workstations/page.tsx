@@ -1,6 +1,8 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { useSession } from "next-auth/react"
+import { WorkstationStatus } from "@prisma/client"
 import {
   Plus,
   Search,
@@ -14,10 +16,11 @@ import {
   Mouse,
   Cpu,
   X,
-  RefreshCw,
   Download,
   School,
-  Package
+  Package,
+  Box,
+  Loader2,
 } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -67,403 +70,400 @@ import {
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Skeleton } from "@/components/ui/skeleton"
-import { getMockSession, getCurrentMockPermissions, type MockSession, type MockPermissions } from "@/lib/mock-auth"
+import { Checkbox } from "@/components/ui/checkbox"
+import { fetchClassroomRegistry, type RegistryClassroom } from "@/lib/api/classroom-registry"
+import {
+  fetchWorkstations,
+  createWorkstationApi,
+  updateWorkstationApi,
+  deleteWorkstationApi,
+  type ApiWorkstation,
+} from "@/lib/api/workstations"
+import { workstationRmPrefix, pcNameFromRmCode, suffixFromRmCode } from "@/lib/workstation-code"
 
-// Типы
-type WorkstationStatus = "active" | "inactive" | "maintenance" | "faulty"
-
-interface Classroom {
-  id: string
-  name: string
-  number: string
-  buildingName: string
+const statusConfig: Record<
+  WorkstationStatus,
+  { label: string; variant: "default" | "secondary" | "destructive" | "outline" }
+> = {
+  [WorkstationStatus.ACTIVE]: { label: "Активно", variant: "default" },
+  [WorkstationStatus.MAINTENANCE]: { label: "На обслуживании", variant: "outline" },
+  [WorkstationStatus.FAULTY]: { label: "Неисправно", variant: "destructive" },
 }
 
-interface Workstation {
-  id: string
+type WorkstationFormState = {
   name: string
-  number: string
   classroomId: string
+  numberSuffix: string
   status: WorkstationStatus
   pcName: string
   hasMonitor: boolean
   hasKeyboard: boolean
   hasMouse: boolean
   hasHeadphones: boolean
-  equipmentCount: number
+  hasOtherEquipment: boolean
+  otherEquipmentNote: string
+  description: string
   lastMaintenance: string
-  notes: string
 }
 
-// Mock данные аудиторий
-const mockClassrooms: Classroom[] = [
-  { id: "1", name: "Аудитория 301", number: "301", buildingName: "Главный корпус" },
-  { id: "2", name: "Компьютерный класс 105", number: "105", buildingName: "Главный корпус" },
-  { id: "3", name: "Лекционный зал 401", number: "401", buildingName: "Главный корпус" },
-  { id: "4", name: "Лаборатория 201", number: "201", buildingName: "Корпус Б" },
-  { id: "5", name: "Конференц-зал", number: "501", buildingName: "Главный корпус" },
-]
+const emptyForm = (): WorkstationFormState => ({
+  name: "",
+  classroomId: "",
+  numberSuffix: "",
+  status: WorkstationStatus.ACTIVE,
+  pcName: "",
+  hasMonitor: true,
+  hasKeyboard: true,
+  hasMouse: true,
+  hasHeadphones: false,
+  hasOtherEquipment: false,
+  otherEquipmentNote: "",
+  description: "",
+  lastMaintenance: "",
+})
 
-// Mock данные рабочих мест
-const initialWorkstations: Workstation[] = [
-  {
-    id: "1",
-    name: "Рабочее место 1",
-    number: "RM-301-01",
-    classroomId: "1",
-    status: "active",
-    pcName: "PC-301-01",
-    hasMonitor: true,
-    hasKeyboard: true,
-    hasMouse: true,
-    hasHeadphones: false,
-    equipmentCount: 4,
-    lastMaintenance: "2025-02-15",
-    notes: "Основное рабочее место преподавателя"
-  },
-  {
-    id: "2",
-    name: "Рабочее место 2",
-    number: "RM-301-02",
-    classroomId: "1",
-    status: "active",
-    pcName: "PC-301-02",
-    hasMonitor: true,
-    hasKeyboard: true,
-    hasMouse: true,
-    hasHeadphones: false,
-    equipmentCount: 4,
-    lastMaintenance: "2025-02-15",
-    notes: ""
-  },
-  {
-    id: "3",
-    name: "Рабочее место 1",
-    number: "RM-105-01",
-    classroomId: "2",
-    status: "active",
-    pcName: "PC-105-01",
-    hasMonitor: true,
-    hasKeyboard: true,
-    hasMouse: true,
-    hasHeadphones: true,
-    equipmentCount: 5,
-    lastMaintenance: "2025-03-01",
-    notes: "Место преподавателя"
-  },
-  {
-    id: "4",
-    name: "Рабочее место 2",
-    number: "RM-105-02",
-    classroomId: "2",
-    status: "active",
-    pcName: "PC-105-02",
-    hasMonitor: true,
-    hasKeyboard: true,
-    hasMouse: true,
-    hasHeadphones: true,
-    equipmentCount: 5,
-    lastMaintenance: "2025-03-01",
-    notes: ""
-  },
-  {
-    id: "5",
-    name: "Рабочее место 3",
-    number: "RM-105-03",
-    classroomId: "2",
-    status: "faulty",
-    pcName: "PC-105-03",
-    hasMonitor: true,
-    hasKeyboard: true,
-    hasMouse: false,
-    hasHeadphones: true,
-    equipmentCount: 4,
-    lastMaintenance: "2025-01-20",
-    notes: "Неисправна мышь, требуется замена"
-  },
-  {
-    id: "6",
-    name: "Рабочее место 4",
-    number: "RM-105-04",
-    classroomId: "2",
-    status: "maintenance",
-    pcName: "PC-105-04",
-    hasMonitor: true,
-    hasKeyboard: true,
-    hasMouse: true,
-    hasHeadphones: true,
-    equipmentCount: 5,
-    lastMaintenance: "2025-03-20",
-    notes: "На техническом обслуживании"
-  },
-  {
-    id: "7",
-    name: "Рабочее место 5",
-    number: "RM-105-05",
-    classroomId: "2",
-    status: "active",
-    pcName: "PC-105-05",
-    hasMonitor: true,
-    hasKeyboard: true,
-    hasMouse: true,
-    hasHeadphones: true,
-    equipmentCount: 5,
-    lastMaintenance: "2025-03-01",
-    notes: ""
-  },
-  {
-    id: "8",
-    name: "Рабочее место 6",
-    number: "RM-105-06",
-    classroomId: "2",
-    status: "active",
-    pcName: "PC-105-06",
-    hasMonitor: true,
-    hasKeyboard: true,
-    hasMouse: true,
-    hasHeadphones: true,
-    equipmentCount: 5,
-    lastMaintenance: "2025-03-01",
-    notes: ""
-  },
-  {
-    id: "9",
-    name: "Преподавательское место",
-    number: "RM-401-01",
-    classroomId: "3",
-    status: "active",
-    pcName: "PC-401-01",
-    hasMonitor: true,
-    hasKeyboard: true,
-    hasMouse: true,
-    hasHeadphones: false,
-    equipmentCount: 6,
-    lastMaintenance: "2025-02-28",
-    notes: "Подключен проектор"
-  },
-  {
-    id: "10",
-    name: "Рабочее место 1",
-    number: "RM-201-01",
-    classroomId: "4",
-    status: "active",
-    pcName: "PC-201-01",
-    hasMonitor: true,
-    hasKeyboard: true,
-    hasMouse: true,
-    hasHeadphones: false,
-    equipmentCount: 8,
-    lastMaintenance: "2025-03-10",
-    notes: "Лабораторное оборудование"
-  },
-  {
-    id: "11",
-    name: "Рабочее место 2",
-    number: "RM-201-02",
-    classroomId: "4",
-    status: "inactive",
-    pcName: "",
-    hasMonitor: false,
-    hasKeyboard: false,
-    hasMouse: false,
-    hasHeadphones: false,
-    equipmentCount: 0,
-    lastMaintenance: "",
-    notes: "Не укомплектовано"
-  },
-]
-
-const statusConfig: Record<WorkstationStatus, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
-  active: { label: "Активно", variant: "default" },
-  inactive: { label: "Неактивно", variant: "secondary" },
-  maintenance: { label: "Обслуживание", variant: "outline" },
-  faulty: { label: "Неисправно", variant: "destructive" },
+function equipmentCount(ws: ApiWorkstation): number {
+  return [
+    ws.hasMonitor,
+    ws.hasKeyboard,
+    ws.hasMouse,
+    ws.hasHeadphones,
+    Boolean(ws.pcName?.trim()),
+    ws.hasOtherEquipment,
+  ].filter(Boolean).length
 }
 
 export default function WorkstationsPage() {
-  const [session, setSession] = useState<MockSession | null>(null)
-  const [permissions, setPermissions] = useState<MockPermissions | null>(null)
-  const [workstations, setWorkstations] = useState<Workstation[]>(initialWorkstations)
-  
-  // Filters
+  const { data: session, status: sessionStatus } = useSession()
+  const [classrooms, setClassrooms] = useState<RegistryClassroom[]>([])
+  const [workstations, setWorkstations] = useState<ApiWorkstation[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
   const [searchQuery, setSearchQuery] = useState("")
   const [filterClassroom, setFilterClassroom] = useState<string>("all")
   const [filterStatus, setFilterStatus] = useState<string>("all")
-  
-  // Dialog states
+
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
-  const [selectedWorkstation, setSelectedWorkstation] = useState<Workstation | null>(null)
-  
-  // Form state
-  const [formData, setFormData] = useState<Partial<Workstation>>({
-    name: "",
-    number: "",
-    classroomId: "",
-    status: "active",
-    pcName: "",
-    hasMonitor: true,
-    hasKeyboard: true,
-    hasMouse: true,
-    hasHeadphones: false,
-    notes: ""
-  })
-  
-  useEffect(() => {
-    setSession(getMockSession())
-    setPermissions(getCurrentMockPermissions())
+  const [selectedWorkstation, setSelectedWorkstation] = useState<ApiWorkstation | null>(null)
+  const [form, setForm] = useState<WorkstationFormState>(emptyForm)
+  const [formError, setFormError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  const isAdmin = session?.user?.role === "ADMIN"
+
+  const loadData = useCallback(async () => {
+    try {
+      setError(null)
+      const [reg, ws] = await Promise.all([fetchClassroomRegistry(), fetchWorkstations()])
+      setClassrooms(reg.classrooms)
+      setWorkstations(ws)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Ошибка загрузки")
+    } finally {
+      setLoading(false)
+    }
   }, [])
-  
-  // Фильтрация
+
+  useEffect(() => {
+    if (sessionStatus === "authenticated") void loadData()
+  }, [loadData, sessionStatus])
+
+  const getClassroom = useCallback(
+    (id: string) => classrooms.find((c) => c.id === id),
+    [classrooms]
+  )
+
+  const countInClassroom = useCallback(
+    (classroomId: string, excludeWorkstationId?: string) =>
+      workstations.filter((w) => w.classroomId === classroomId && w.id !== excludeWorkstationId)
+        .length,
+    [workstations]
+  )
+
+  const isClassroomAtCapacity = useCallback(
+    (classroomId: string, excludeWorkstationId?: string) => {
+      const c = getClassroom(classroomId)
+      if (!c || c.capacity == null) return false
+      return countInClassroom(classroomId, excludeWorkstationId) >= c.capacity
+    },
+    [getClassroom, countInClassroom]
+  )
+
+  const capacityMessage = useCallback(
+    (classroomId: string, excludeWorkstationId?: string) => {
+      const c = getClassroom(classroomId)
+      if (!c || c.capacity == null) return null
+      if (!isClassroomAtCapacity(classroomId, excludeWorkstationId)) return null
+      return `В аудитории ${c.number} уже занято все места по вместимости (${c.capacity}). Добавить рабочее место нельзя.`
+    },
+    [getClassroom, isClassroomAtCapacity]
+  )
+
   const filteredWorkstations = useMemo(() => {
-    return workstations.filter(ws => {
-      const matchesSearch = searchQuery === "" || 
-        ws.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        ws.number.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        ws.pcName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        ws.notes.toLowerCase().includes(searchQuery.toLowerCase())
-      
+    return workstations.filter((ws) => {
+      const q = searchQuery.toLowerCase()
+      const blob = `${ws.name} ${ws.code} ${ws.pcName} ${ws.description} ${ws.otherEquipmentNote}`.toLowerCase()
+      const matchesSearch = !q || blob.includes(q)
       const matchesClassroom = filterClassroom === "all" || ws.classroomId === filterClassroom
       const matchesStatus = filterStatus === "all" || ws.status === filterStatus
-      
       return matchesSearch && matchesClassroom && matchesStatus
     })
   }, [workstations, searchQuery, filterClassroom, filterStatus])
-  
-  // Статистика
+
   const stats = useMemo(() => {
     return {
       total: workstations.length,
-      active: workstations.filter(ws => ws.status === "active").length,
-      faulty: workstations.filter(ws => ws.status === "faulty").length,
-      maintenance: workstations.filter(ws => ws.status === "maintenance").length,
+      active: workstations.filter((w) => w.status === WorkstationStatus.ACTIVE).length,
+      faulty: workstations.filter((w) => w.status === WorkstationStatus.FAULTY).length,
+      maintenance: workstations.filter((w) => w.status === WorkstationStatus.MAINTENANCE).length,
     }
   }, [workstations])
-  
+
   const getClassroomName = (classroomId: string) => {
-    const classroom = mockClassrooms.find(c => c.id === classroomId)
-    return classroom ? `${classroom.number} - ${classroom.name}` : "Не указана"
+    const c = getClassroom(classroomId)
+    if (!c) return "Не указана"
+    const title = c.name ? `${c.number} — ${c.name}` : c.number
+    return title
   }
-  
-  const getClassroomShort = (classroomId: string) => {
-    const classroom = mockClassrooms.find(c => c.id === classroomId)
-    return classroom ? classroom.number : "—"
-  }
-  
+
+  const getClassroomShort = (classroomId: string) => getClassroom(classroomId)?.number ?? "—"
+
   const resetFilters = () => {
     setSearchQuery("")
     setFilterClassroom("all")
     setFilterStatus("all")
   }
-  
-  const hasActiveFilters = searchQuery !== "" || filterClassroom !== "all" || filterStatus !== "all"
-  
-  // CRUD операции
+
+  const hasActiveFilters =
+    searchQuery !== "" || filterClassroom !== "all" || filterStatus !== "all"
+
+  const selectedClassroomForForm = form.classroomId ? getClassroom(form.classroomId) : undefined
+  const rmPrefix = selectedClassroomForForm
+    ? workstationRmPrefix(selectedClassroomForForm.number)
+    : ""
+
+  useEffect(() => {
+    const c = classrooms.find((x) => x.id === form.classroomId)
+    if (!c) return
+    const suffix = form.numberSuffix.trim()
+    if (!suffix) {
+      setForm((f) => (f.pcName === "" ? f : { ...f, pcName: "" }))
+      return
+    }
+    const full = workstationRmPrefix(c.number) + suffix
+    const nextPc = pcNameFromRmCode(full, c.number)
+    setForm((f) => (f.pcName === nextPc ? f : { ...f, pcName: nextPc }))
+  }, [form.classroomId, form.numberSuffix, classrooms])
+
   const handleAdd = () => {
-    setFormData({
-      name: "",
-      number: "",
-      classroomId: "",
-      status: "active",
-      pcName: "",
-      hasMonitor: true,
-      hasKeyboard: true,
-      hasMouse: true,
-      hasHeadphones: false,
-      notes: ""
-    })
+    setForm(emptyForm())
+    setFormError(null)
     setIsAddDialogOpen(true)
   }
-  
-  const handleEdit = (workstation: Workstation) => {
-    setSelectedWorkstation(workstation)
-    setFormData({
-      name: workstation.name,
-      number: workstation.number,
-      classroomId: workstation.classroomId,
-      status: workstation.status,
-      pcName: workstation.pcName,
-      hasMonitor: workstation.hasMonitor,
-      hasKeyboard: workstation.hasKeyboard,
-      hasMouse: workstation.hasMouse,
-      hasHeadphones: workstation.hasHeadphones,
-      notes: workstation.notes
+
+  const handleEdit = (ws: ApiWorkstation) => {
+    setSelectedWorkstation(ws)
+    const c = getClassroom(ws.classroomId)
+    const num = c?.number ?? ws.classroomNumber
+    setForm({
+      name: ws.name,
+      classroomId: ws.classroomId,
+      numberSuffix: c ? suffixFromRmCode(ws.code, num) : "",
+      status: ws.status,
+      pcName: ws.pcName,
+      hasMonitor: ws.hasMonitor,
+      hasKeyboard: ws.hasKeyboard,
+      hasMouse: ws.hasMouse,
+      hasHeadphones: ws.hasHeadphones,
+      hasOtherEquipment: ws.hasOtherEquipment,
+      otherEquipmentNote: ws.otherEquipmentNote,
+      description: ws.description,
+      lastMaintenance: ws.lastMaintenance || "",
     })
+    setFormError(null)
     setIsEditDialogOpen(true)
   }
-  
-  const handleView = (workstation: Workstation) => {
-    setSelectedWorkstation(workstation)
-    setIsViewDialogOpen(true)
+
+  const buildPayload = (): Parameters<typeof createWorkstationApi>[0] | null => {
+    const c = getClassroom(form.classroomId)
+    if (!c) {
+      setFormError("Выберите аудиторию")
+      return null
+    }
+    const suffix = form.numberSuffix.trim()
+    if (!suffix) {
+      setFormError("Укажите окончание номера рабочего места")
+      return null
+    }
+    const code = workstationRmPrefix(c.number) + suffix
+    if (form.hasOtherEquipment && !form.otherEquipmentNote.trim()) {
+      setFormError("Укажите примечание для комплектации «Другое»")
+      return null
+    }
+    return {
+      code,
+      classroomId: form.classroomId,
+      name: form.name.trim() || null,
+      description: form.description.trim() || null,
+      pcName: form.pcName.trim() || null,
+      status: form.status,
+      hasMonitor: form.hasMonitor,
+      hasKeyboard: form.hasKeyboard,
+      hasMouse: form.hasMouse,
+      hasHeadphones: form.hasHeadphones,
+      hasOtherEquipment: form.hasOtherEquipment,
+      otherEquipmentNote: form.hasOtherEquipment ? form.otherEquipmentNote.trim() : null,
+      lastMaintenance: form.lastMaintenance || null,
+    }
   }
-  
-  const handleDelete = (workstation: Workstation) => {
-    setSelectedWorkstation(workstation)
+
+  const handleSaveNew = async () => {
+    setFormError(null)
+    if (!form.name.trim()) {
+      setFormError("Укажите название")
+      return
+    }
+    if (!form.classroomId) {
+      setFormError("Выберите аудиторию")
+      return
+    }
+    if (isClassroomAtCapacity(form.classroomId)) {
+      setFormError(capacityMessage(form.classroomId) ?? "Нет свободных мест в аудитории")
+      return
+    }
+    const body = buildPayload()
+    if (!body) return
+    try {
+      setSaving(true)
+      await createWorkstationApi(body)
+      await loadData()
+      setIsAddDialogOpen(false)
+    } catch (e) {
+      setFormError(e instanceof Error ? e.message : "Ошибка сохранения")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleSaveEdit = async () => {
+    if (!selectedWorkstation) return
+    setFormError(null)
+    if (!form.name.trim()) {
+      setFormError("Укажите название")
+      return
+    }
+    if (!form.classroomId) {
+      setFormError("Выберите аудиторию")
+      return
+    }
+    if (isClassroomAtCapacity(form.classroomId, selectedWorkstation.id)) {
+      setFormError(
+        capacityMessage(form.classroomId, selectedWorkstation.id) ??
+          "Нет свободных мест в выбранной аудитории"
+      )
+      return
+    }
+    const body = buildPayload()
+    if (!body) return
+    try {
+      setSaving(true)
+      await updateWorkstationApi(selectedWorkstation.id, body)
+      await loadData()
+      setIsEditDialogOpen(false)
+      setSelectedWorkstation(null)
+    } catch (e) {
+      setFormError(e instanceof Error ? e.message : "Ошибка сохранения")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleDelete = (ws: ApiWorkstation) => {
+    setSelectedWorkstation(ws)
     setIsDeleteDialogOpen(true)
   }
-  
-  const handleSaveNew = () => {
-    const equipmentCount = [
-      formData.hasMonitor,
-      formData.hasKeyboard,
-      formData.hasMouse,
-      formData.hasHeadphones,
-      formData.pcName !== ""
-    ].filter(Boolean).length
-    
-    const newWorkstation: Workstation = {
-      id: Date.now().toString(),
-      name: formData.name || "",
-      number: formData.number || "",
-      classroomId: formData.classroomId || "",
-      status: formData.status as WorkstationStatus || "active",
-      pcName: formData.pcName || "",
-      hasMonitor: formData.hasMonitor || false,
-      hasKeyboard: formData.hasKeyboard || false,
-      hasMouse: formData.hasMouse || false,
-      hasHeadphones: formData.hasHeadphones || false,
-      equipmentCount: equipmentCount,
-      lastMaintenance: new Date().toISOString().split("T")[0],
-      notes: formData.notes || ""
+
+  const handleConfirmDelete = async () => {
+    if (!selectedWorkstation) return
+    try {
+      await deleteWorkstationApi(selectedWorkstation.id)
+      await loadData()
+      setIsDeleteDialogOpen(false)
+      setSelectedWorkstation(null)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Ошибка удаления")
+      setIsDeleteDialogOpen(false)
     }
-    setWorkstations([...workstations, newWorkstation])
-    setIsAddDialogOpen(false)
   }
-  
-  const handleSaveEdit = () => {
-    if (!selectedWorkstation) return
-    
-    const equipmentCount = [
-      formData.hasMonitor,
-      formData.hasKeyboard,
-      formData.hasMouse,
-      formData.hasHeadphones,
-      formData.pcName !== ""
-    ].filter(Boolean).length
-    
-    setWorkstations(workstations.map(ws => 
-      ws.id === selectedWorkstation.id 
-        ? { 
-            ...ws, 
-            ...formData,
-            equipmentCount
-          } as Workstation
-        : ws
-    ))
-    setIsEditDialogOpen(false)
-    setSelectedWorkstation(null)
-  }
-  
-  const handleConfirmDelete = () => {
-    if (!selectedWorkstation) return
-    setWorkstations(workstations.filter(ws => ws.id !== selectedWorkstation.id))
-    setIsDeleteDialogOpen(false)
-    setSelectedWorkstation(null)
-  }
-  
-  if (!session || !permissions) {
+
+  const renderEquipmentCheckboxes = () => (
+    <div className="grid grid-cols-2 gap-2">
+      <label className="flex items-center gap-2 rounded-md border p-3 cursor-pointer hover:bg-muted/50">
+        <Checkbox
+          checked={form.hasMonitor}
+          onCheckedChange={(v) => setForm((f) => ({ ...f, hasMonitor: Boolean(v) }))}
+        />
+        <Monitor className="h-4 w-4 text-blue-600" />
+        <span className="text-sm">Монитор</span>
+      </label>
+      <label className="flex items-center gap-2 rounded-md border p-3 cursor-pointer hover:bg-muted/50">
+        <Checkbox
+          checked={form.hasKeyboard}
+          onCheckedChange={(v) => setForm((f) => ({ ...f, hasKeyboard: Boolean(v) }))}
+        />
+        <Keyboard className="h-4 w-4 text-green-600" />
+        <span className="text-sm">Клавиатура</span>
+      </label>
+      <label className="flex items-center gap-2 rounded-md border p-3 cursor-pointer hover:bg-muted/50">
+        <Checkbox
+          checked={form.hasMouse}
+          onCheckedChange={(v) => setForm((f) => ({ ...f, hasMouse: Boolean(v) }))}
+        />
+        <Mouse className="h-4 w-4 text-purple-600" />
+        <span className="text-sm">Мышь</span>
+      </label>
+      <label className="flex items-center gap-2 rounded-md border p-3 cursor-pointer hover:bg-muted/50">
+        <Checkbox
+          checked={form.hasHeadphones}
+          onCheckedChange={(v) => setForm((f) => ({ ...f, hasHeadphones: Boolean(v) }))}
+        />
+        <Package className="h-4 w-4 text-amber-600" />
+        <span className="text-sm">Наушники</span>
+      </label>
+      <label className="col-span-2 flex items-center gap-2 rounded-md border p-3 cursor-pointer hover:bg-muted/50">
+        <Checkbox
+          checked={form.hasOtherEquipment}
+          onCheckedChange={(v) =>
+            setForm((f) => ({
+              ...f,
+              hasOtherEquipment: Boolean(v),
+              otherEquipmentNote: v ? f.otherEquipmentNote : "",
+            }))
+          }
+        />
+        <Box className="h-4 w-4 text-slate-600" />
+        <span className="text-sm">Другое</span>
+      </label>
+    </div>
+  )
+
+  const addCapacityWarning =
+    form.classroomId && isClassroomAtCapacity(form.classroomId)
+      ? capacityMessage(form.classroomId)
+      : null
+
+  const editCapacityWarning =
+    form.classroomId && selectedWorkstation
+      ? isClassroomAtCapacity(form.classroomId, selectedWorkstation.id)
+        ? capacityMessage(form.classroomId, selectedWorkstation.id)
+        : null
+      : null
+
+  if (sessionStatus === "loading" || (sessionStatus === "authenticated" && loading)) {
     return (
       <div className="space-y-6">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -496,30 +496,38 @@ export default function WorkstationsPage() {
       </div>
     )
   }
-  
+
+  if (sessionStatus === "unauthenticated") {
+    return null
+  }
+
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Рабочие места</h1>
-          <p className="text-muted-foreground">
-            Управление рабочими местами в аудиториях
-          </p>
+          <p className="text-muted-foreground">Управление рабочими местами в аудиториях</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm">
+          <Button variant="outline" size="sm" type="button" disabled>
             <Download className="mr-2 h-4 w-4" />
             Экспорт
           </Button>
-          <Button onClick={handleAdd}>
-            <Plus className="mr-2 h-4 w-4" />
-            Добавить рабочее место
-          </Button>
+          {isAdmin && (
+            <Button onClick={handleAdd} type="button">
+              <Plus className="mr-2 h-4 w-4" />
+              Добавить рабочее место
+            </Button>
+          )}
         </div>
       </div>
-      
-      {/* Stats */}
+
+      {error && (
+        <p className="text-sm text-destructive" role="alert">
+          {error}
+        </p>
+      )}
+
       <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -558,8 +566,7 @@ export default function WorkstationsPage() {
           </CardContent>
         </Card>
       </div>
-      
-      {/* Filters */}
+
       <Card>
         <CardHeader className="pb-4">
           <CardTitle className="text-base">Фильтры</CardTitle>
@@ -575,36 +582,36 @@ export default function WorkstationsPage() {
                 className="pl-9"
               />
             </div>
-            
+
             <Select value={filterClassroom} onValueChange={setFilterClassroom}>
               <SelectTrigger>
                 <SelectValue placeholder="Аудитория" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Все аудитории</SelectItem>
-                {mockClassrooms.map((classroom) => (
+                {classrooms.map((classroom) => (
                   <SelectItem key={classroom.id} value={classroom.id}>
-                    {classroom.number} - {classroom.name}
+                    {classroom.number}
+                    {classroom.name ? ` — ${classroom.name}` : ""}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            
+
             <Select value={filterStatus} onValueChange={setFilterStatus}>
               <SelectTrigger>
                 <SelectValue placeholder="Статус" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Все статусы</SelectItem>
-                <SelectItem value="active">Активно</SelectItem>
-                <SelectItem value="inactive">Неактивно</SelectItem>
-                <SelectItem value="maintenance">На обслуживании</SelectItem>
-                <SelectItem value="faulty">Неисправно</SelectItem>
+                <SelectItem value={WorkstationStatus.ACTIVE}>Активно</SelectItem>
+                <SelectItem value={WorkstationStatus.MAINTENANCE}>На обслуживании</SelectItem>
+                <SelectItem value={WorkstationStatus.FAULTY}>Неисправно</SelectItem>
               </SelectContent>
             </Select>
-            
+
             {hasActiveFilters && (
-              <Button variant="ghost" onClick={resetFilters} className="gap-2">
+              <Button variant="ghost" onClick={resetFilters} className="gap-2" type="button">
                 <X className="h-4 w-4" />
                 Сбросить
               </Button>
@@ -612,8 +619,7 @@ export default function WorkstationsPage() {
           </div>
         </CardContent>
       </Card>
-      
-      {/* Table */}
+
       <Card>
         <CardHeader>
           <CardTitle>Список рабочих мест</CardTitle>
@@ -635,14 +641,20 @@ export default function WorkstationsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredWorkstations.length === 0 ? (
+              {classrooms.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+                    Сначала добавьте аудитории в разделе «Аудитории».
+                  </TableCell>
+                </TableRow>
+              ) : filteredWorkstations.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={7} className="h-24 text-center">
                     <div className="flex flex-col items-center gap-2">
                       <MonitorSmartphone className="h-8 w-8 text-muted-foreground" />
                       <p className="text-muted-foreground">Рабочие места не найдены</p>
                       {hasActiveFilters && (
-                        <Button variant="link" onClick={resetFilters}>
+                        <Button variant="link" onClick={resetFilters} type="button">
                           Сбросить фильтры
                         </Button>
                       )}
@@ -652,7 +664,7 @@ export default function WorkstationsPage() {
               ) : (
                 filteredWorkstations.map((workstation) => (
                   <TableRow key={workstation.id}>
-                    <TableCell className="font-mono text-sm">{workstation.number}</TableCell>
+                    <TableCell className="font-mono text-sm">{workstation.code}</TableCell>
                     <TableCell className="font-medium">{workstation.name}</TableCell>
                     <TableCell>
                       <Badge variant="outline" className="gap-1">
@@ -668,18 +680,36 @@ export default function WorkstationsPage() {
                       )}
                     </TableCell>
                     <TableCell>
-                      <div className="flex gap-1">
+                      <div className="flex flex-wrap gap-1">
                         {workstation.hasMonitor && (
-                          <Monitor className="h-4 w-4 text-blue-600" title="Монитор" />
+                          <span title="Монитор">
+                            <Monitor className="h-4 w-4 text-blue-600" />
+                          </span>
                         )}
                         {workstation.hasKeyboard && (
-                          <Keyboard className="h-4 w-4 text-green-600" title="Клавиатура" />
+                          <span title="Клавиатура">
+                            <Keyboard className="h-4 w-4 text-green-600" />
+                          </span>
                         )}
                         {workstation.hasMouse && (
-                          <Mouse className="h-4 w-4 text-purple-600" title="Мышь" />
+                          <span title="Мышь">
+                            <Mouse className="h-4 w-4 text-purple-600" />
+                          </span>
+                        )}
+                        {workstation.hasHeadphones && (
+                          <span title="Наушники">
+                            <Package className="h-4 w-4 text-amber-600" />
+                          </span>
                         )}
                         {workstation.pcName && (
-                          <Cpu className="h-4 w-4 text-orange-600" title="Системный блок" />
+                          <span title="Системный блок">
+                            <Cpu className="h-4 w-4 text-orange-600" />
+                          </span>
+                        )}
+                        {workstation.hasOtherEquipment && (
+                          <span title="Другое">
+                            <Box className="h-4 w-4 text-slate-600" />
+                          </span>
                         )}
                       </div>
                     </TableCell>
@@ -691,29 +721,40 @@ export default function WorkstationsPage() {
                     <TableCell className="text-right">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon">
+                          <Button variant="ghost" size="icon" type="button">
                             <MoreHorizontal className="h-4 w-4" />
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           <DropdownMenuLabel>Действия</DropdownMenuLabel>
                           <DropdownMenuSeparator />
-                          <DropdownMenuItem onClick={() => handleView(workstation)}>
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setSelectedWorkstation(workstation)
+                              setIsViewDialogOpen(true)
+                            }}
+                          >
                             <Eye className="mr-2 h-4 w-4" />
                             Просмотр
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleEdit(workstation)}>
-                            <Pencil className="mr-2 h-4 w-4" />
-                            Редактировать
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem 
-                            onClick={() => handleDelete(workstation)}
-                            className="text-destructive"
-                          >
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            Удалить
-                          </DropdownMenuItem>
+                          {isAdmin && (
+                            <DropdownMenuItem onClick={() => handleEdit(workstation)}>
+                              <Pencil className="mr-2 h-4 w-4" />
+                              Редактировать
+                            </DropdownMenuItem>
+                          )}
+                          {isAdmin && (
+                            <>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                onClick={() => handleDelete(workstation)}
+                                className="text-destructive"
+                              >
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                Удалить
+                              </DropdownMenuItem>
+                            </>
+                          )}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>
@@ -724,304 +765,298 @@ export default function WorkstationsPage() {
           </Table>
         </CardContent>
       </Card>
-      
-      {/* Add Dialog */}
+
       <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Добавить рабочее место</DialogTitle>
-            <DialogDescription>
-              Заполните информацию о новом рабочем месте
-            </DialogDescription>
+            <DialogDescription>Заполните информацию о новом рабочем месте</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
+            {formError && <p className="text-sm text-destructive">{formError}</p>}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="name">Название</Label>
                 <Input
                   id="name"
                   placeholder="Рабочее место 1"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  value={form.name}
+                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="number">Номер</Label>
-                <Input
-                  id="number"
-                  placeholder="RM-101-01"
-                  value={formData.number}
-                  onChange={(e) => setFormData({ ...formData, number: e.target.value })}
-                />
+                <Label>Номер</Label>
+                <div className="flex min-h-9 items-stretch rounded-md border border-input bg-background">
+                  <span className="flex items-center border-r border-input bg-muted/40 px-3 font-mono text-sm text-muted-foreground select-none">
+                    {rmPrefix || "—"}
+                  </span>
+                  <Input
+                    className="border-0 shadow-none focus-visible:ring-0 rounded-none font-mono text-sm"
+                    placeholder="01"
+                    value={form.numberSuffix}
+                    onChange={(e) => setForm((f) => ({ ...f, numberSuffix: e.target.value }))}
+                    disabled={!form.classroomId}
+                  />
+                </div>
               </div>
             </div>
-            
+
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="classroom">Аудитория</Label>
-                <Select 
-                  value={formData.classroomId} 
-                  onValueChange={(value) => setFormData({ ...formData, classroomId: value })}
+                <Label>Аудитория</Label>
+                <Select
+                  value={form.classroomId || undefined}
+                  onValueChange={(value) => setForm((f) => ({ ...f, classroomId: value }))}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Выберите аудиторию" />
                   </SelectTrigger>
                   <SelectContent>
-                    {mockClassrooms.map((classroom) => (
+                    {classrooms.map((classroom) => (
                       <SelectItem key={classroom.id} value={classroom.id}>
-                        {classroom.number} - {classroom.name}
+                        {classroom.number}
+                        {classroom.name ? ` — ${classroom.name}` : ""}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+                {addCapacityWarning && (
+                  <p className="text-sm text-destructive">{addCapacityWarning}</p>
+                )}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="status">Статус</Label>
-                <Select 
-                  value={formData.status} 
-                  onValueChange={(value) => setFormData({ ...formData, status: value as WorkstationStatus })}
+                <Label>Статус</Label>
+                <Select
+                  value={form.status}
+                  onValueChange={(value) =>
+                    setForm((f) => ({ ...f, status: value as WorkstationStatus }))
+                  }
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Выберите статус" />
+                    <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="active">Активно</SelectItem>
-                    <SelectItem value="inactive">Неактивно</SelectItem>
-                    <SelectItem value="maintenance">На обслуживании</SelectItem>
-                    <SelectItem value="faulty">Неисправно</SelectItem>
+                    <SelectItem value={WorkstationStatus.ACTIVE}>Активно</SelectItem>
+                    <SelectItem value={WorkstationStatus.MAINTENANCE}>На обслуживании</SelectItem>
+                    <SelectItem value={WorkstationStatus.FAULTY}>Неисправно</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
             </div>
-            
+
             <div className="space-y-2">
               <Label htmlFor="pcName">Имя компьютера</Label>
               <Input
                 id="pcName"
-                placeholder="PC-101-01"
-                value={formData.pcName}
-                onChange={(e) => setFormData({ ...formData, pcName: e.target.value })}
+                className="font-mono text-sm"
+                placeholder="Заполняется по номеру"
+                value={form.pcName}
+                readOnly
               />
             </div>
-            
+
             <div className="space-y-2">
               <Label>Комплектация</Label>
-              <div className="grid grid-cols-2 gap-2">
-                <label className="flex items-center gap-2 rounded-md border p-3 cursor-pointer hover:bg-muted/50">
-                  <input
-                    type="checkbox"
-                    checked={formData.hasMonitor}
-                    onChange={(e) => setFormData({ ...formData, hasMonitor: e.target.checked })}
-                    className="rounded"
-                  />
-                  <Monitor className="h-4 w-4 text-blue-600" />
-                  <span className="text-sm">Монитор</span>
-                </label>
-                <label className="flex items-center gap-2 rounded-md border p-3 cursor-pointer hover:bg-muted/50">
-                  <input
-                    type="checkbox"
-                    checked={formData.hasKeyboard}
-                    onChange={(e) => setFormData({ ...formData, hasKeyboard: e.target.checked })}
-                    className="rounded"
-                  />
-                  <Keyboard className="h-4 w-4 text-green-600" />
-                  <span className="text-sm">Клавиатура</span>
-                </label>
-                <label className="flex items-center gap-2 rounded-md border p-3 cursor-pointer hover:bg-muted/50">
-                  <input
-                    type="checkbox"
-                    checked={formData.hasMouse}
-                    onChange={(e) => setFormData({ ...formData, hasMouse: e.target.checked })}
-                    className="rounded"
-                  />
-                  <Mouse className="h-4 w-4 text-purple-600" />
-                  <span className="text-sm">Мышь</span>
-                </label>
-                <label className="flex items-center gap-2 rounded-md border p-3 cursor-pointer hover:bg-muted/50">
-                  <input
-                    type="checkbox"
-                    checked={formData.hasHeadphones}
-                    onChange={(e) => setFormData({ ...formData, hasHeadphones: e.target.checked })}
-                    className="rounded"
-                  />
-                  <Package className="h-4 w-4 text-amber-600" />
-                  <span className="text-sm">Наушники</span>
-                </label>
-              </div>
+              {renderEquipmentCheckboxes()}
             </div>
-            
+
+            {form.hasOtherEquipment && (
+              <div className="space-y-2">
+                <Label htmlFor="other-note-add">Примечание к «Другое»</Label>
+                <Textarea
+                  id="other-note-add"
+                  value={form.otherEquipmentNote}
+                  onChange={(e) => setForm((f) => ({ ...f, otherEquipmentNote: e.target.value }))}
+                  rows={2}
+                />
+              </div>
+            )}
+
             <div className="space-y-2">
-              <Label htmlFor="notes">Примечания</Label>
+              <Label htmlFor="lastMaint">Последнее ТО</Label>
+              <Input
+                id="lastMaint"
+                type="date"
+                value={form.lastMaintenance}
+                onChange={(e) => setForm((f) => ({ ...f, lastMaintenance: e.target.value }))}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="desc">Примечания</Label>
               <Textarea
-                id="notes"
+                id="desc"
                 placeholder="Дополнительная информация..."
-                value={formData.notes}
-                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                value={form.description}
+                onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
                 rows={3}
               />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
+            <Button variant="outline" onClick={() => setIsAddDialogOpen(false)} type="button">
               Отмена
             </Button>
-            <Button onClick={handleSaveNew} disabled={!formData.name || !formData.classroomId}>
-              Добавить
+            <Button
+              onClick={() => void handleSaveNew()}
+              disabled={
+                saving ||
+                !form.name.trim() ||
+                !form.classroomId ||
+                Boolean(addCapacityWarning)
+              }
+              type="button"
+            >
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Добавить"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      
-      {/* Edit Dialog */}
+
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Редактировать рабочее место</DialogTitle>
-            <DialogDescription>
-              Измените информацию о рабочем месте
-            </DialogDescription>
+            <DialogDescription>Измените информацию о рабочем месте</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
+            {formError && <p className="text-sm text-destructive">{formError}</p>}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="edit-name">Название</Label>
                 <Input
                   id="edit-name"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  value={form.name}
+                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="edit-number">Номер</Label>
-                <Input
-                  id="edit-number"
-                  value={formData.number}
-                  onChange={(e) => setFormData({ ...formData, number: e.target.value })}
-                />
+                <Label>Номер</Label>
+                <div className="flex min-h-9 items-stretch rounded-md border border-input bg-background">
+                  <span className="flex items-center border-r border-input bg-muted/40 px-3 font-mono text-sm text-muted-foreground select-none">
+                    {rmPrefix || "—"}
+                  </span>
+                  <Input
+                    className="border-0 shadow-none focus-visible:ring-0 rounded-none font-mono text-sm"
+                    value={form.numberSuffix}
+                    onChange={(e) => setForm((f) => ({ ...f, numberSuffix: e.target.value }))}
+                    disabled={!form.classroomId}
+                  />
+                </div>
               </div>
             </div>
-            
+
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="edit-classroom">Аудитория</Label>
-                <Select 
-                  value={formData.classroomId} 
-                  onValueChange={(value) => setFormData({ ...formData, classroomId: value })}
+                <Label>Аудитория</Label>
+                <Select
+                  value={form.classroomId || undefined}
+                  onValueChange={(value) => setForm((f) => ({ ...f, classroomId: value }))}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Выберите аудиторию" />
                   </SelectTrigger>
                   <SelectContent>
-                    {mockClassrooms.map((classroom) => (
+                    {classrooms.map((classroom) => (
                       <SelectItem key={classroom.id} value={classroom.id}>
-                        {classroom.number} - {classroom.name}
+                        {classroom.number}
+                        {classroom.name ? ` — ${classroom.name}` : ""}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+                {editCapacityWarning && (
+                  <p className="text-sm text-destructive">{editCapacityWarning}</p>
+                )}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="edit-status">Статус</Label>
-                <Select 
-                  value={formData.status} 
-                  onValueChange={(value) => setFormData({ ...formData, status: value as WorkstationStatus })}
+                <Label>Статус</Label>
+                <Select
+                  value={form.status}
+                  onValueChange={(value) =>
+                    setForm((f) => ({ ...f, status: value as WorkstationStatus }))
+                  }
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Выберите статус" />
+                    <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="active">Активно</SelectItem>
-                    <SelectItem value="inactive">Неактивно</SelectItem>
-                    <SelectItem value="maintenance">На обслуживании</SelectItem>
-                    <SelectItem value="faulty">Неисправно</SelectItem>
+                    <SelectItem value={WorkstationStatus.ACTIVE}>Активно</SelectItem>
+                    <SelectItem value={WorkstationStatus.MAINTENANCE}>На обслуживании</SelectItem>
+                    <SelectItem value={WorkstationStatus.FAULTY}>Неисправно</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
             </div>
-            
+
             <div className="space-y-2">
               <Label htmlFor="edit-pcName">Имя компьютера</Label>
               <Input
                 id="edit-pcName"
-                value={formData.pcName}
-                onChange={(e) => setFormData({ ...formData, pcName: e.target.value })}
+                className="font-mono text-sm"
+                value={form.pcName}
+                readOnly
               />
             </div>
-            
+
             <div className="space-y-2">
               <Label>Комплектация</Label>
-              <div className="grid grid-cols-2 gap-2">
-                <label className="flex items-center gap-2 rounded-md border p-3 cursor-pointer hover:bg-muted/50">
-                  <input
-                    type="checkbox"
-                    checked={formData.hasMonitor}
-                    onChange={(e) => setFormData({ ...formData, hasMonitor: e.target.checked })}
-                    className="rounded"
-                  />
-                  <Monitor className="h-4 w-4 text-blue-600" />
-                  <span className="text-sm">Монитор</span>
-                </label>
-                <label className="flex items-center gap-2 rounded-md border p-3 cursor-pointer hover:bg-muted/50">
-                  <input
-                    type="checkbox"
-                    checked={formData.hasKeyboard}
-                    onChange={(e) => setFormData({ ...formData, hasKeyboard: e.target.checked })}
-                    className="rounded"
-                  />
-                  <Keyboard className="h-4 w-4 text-green-600" />
-                  <span className="text-sm">Клавиатура</span>
-                </label>
-                <label className="flex items-center gap-2 rounded-md border p-3 cursor-pointer hover:bg-muted/50">
-                  <input
-                    type="checkbox"
-                    checked={formData.hasMouse}
-                    onChange={(e) => setFormData({ ...formData, hasMouse: e.target.checked })}
-                    className="rounded"
-                  />
-                  <Mouse className="h-4 w-4 text-purple-600" />
-                  <span className="text-sm">Мышь</span>
-                </label>
-                <label className="flex items-center gap-2 rounded-md border p-3 cursor-pointer hover:bg-muted/50">
-                  <input
-                    type="checkbox"
-                    checked={formData.hasHeadphones}
-                    onChange={(e) => setFormData({ ...formData, hasHeadphones: e.target.checked })}
-                    className="rounded"
-                  />
-                  <Package className="h-4 w-4 text-amber-600" />
-                  <span className="text-sm">Наушники</span>
-                </label>
-              </div>
+              {renderEquipmentCheckboxes()}
             </div>
-            
+
+            {form.hasOtherEquipment && (
+              <div className="space-y-2">
+                <Label htmlFor="other-note-edit">Примечание к «Другое»</Label>
+                <Textarea
+                  id="other-note-edit"
+                  value={form.otherEquipmentNote}
+                  onChange={(e) => setForm((f) => ({ ...f, otherEquipmentNote: e.target.value }))}
+                  rows={2}
+                />
+              </div>
+            )}
+
             <div className="space-y-2">
-              <Label htmlFor="edit-notes">Примечания</Label>
+              <Label htmlFor="edit-lastMaint">Последнее ТО</Label>
+              <Input
+                id="edit-lastMaint"
+                type="date"
+                value={form.lastMaintenance}
+                onChange={(e) => setForm((f) => ({ ...f, lastMaintenance: e.target.value }))}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-desc">Примечания</Label>
               <Textarea
-                id="edit-notes"
-                value={formData.notes}
-                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                id="edit-desc"
+                value={form.description}
+                onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
                 rows={3}
               />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
+            <Button variant="outline" onClick={() => setIsEditDialogOpen(false)} type="button">
               Отмена
             </Button>
-            <Button onClick={handleSaveEdit}>
-              Сохранить
+            <Button
+              onClick={() => void handleSaveEdit()}
+              disabled={saving || Boolean(editCapacityWarning)}
+              type="button"
+            >
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Сохранить"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      
-      {/* View Dialog */}
+
       <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>Информация о рабочем месте</DialogTitle>
             <DialogDescription>
-              Детальная информация о рабочем месте {selectedWorkstation?.number}
+              Детальная информация о рабочем месте {selectedWorkstation?.code}
             </DialogDescription>
           </DialogHeader>
           {selectedWorkstation && (
@@ -1032,13 +1067,13 @@ export default function WorkstationsPage() {
                 </div>
                 <div>
                   <h3 className="text-lg font-semibold">{selectedWorkstation.name}</h3>
-                  <p className="text-sm text-muted-foreground font-mono">{selectedWorkstation.number}</p>
+                  <p className="text-sm text-muted-foreground font-mono">{selectedWorkstation.code}</p>
                 </div>
                 <Badge variant={statusConfig[selectedWorkstation.status].variant} className="ml-auto">
                   {statusConfig[selectedWorkstation.status].label}
                 </Badge>
               </div>
-              
+
               <div className="grid grid-cols-2 gap-4 pt-4 border-t">
                 <div>
                   <p className="text-sm text-muted-foreground">Аудитория</p>
@@ -1049,15 +1084,15 @@ export default function WorkstationsPage() {
                   <p className="font-medium font-mono">{selectedWorkstation.pcName || "—"}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Единиц оборудования</p>
-                  <p className="font-medium">{selectedWorkstation.equipmentCount}</p>
+                  <p className="text-sm text-muted-foreground">Единиц комплектации (позиций)</p>
+                  <p className="font-medium">{equipmentCount(selectedWorkstation)}</p>
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Последнее ТО</p>
                   <p className="font-medium">{selectedWorkstation.lastMaintenance || "—"}</p>
                 </div>
               </div>
-              
+
               <div className="pt-4 border-t">
                 <p className="text-sm text-muted-foreground mb-2">Комплектация</p>
                 <div className="flex flex-wrap gap-2">
@@ -1091,45 +1126,61 @@ export default function WorkstationsPage() {
                       Системный блок
                     </Badge>
                   )}
+                  {selectedWorkstation.hasOtherEquipment && (
+                    <Badge variant="outline" className="gap-1">
+                      <Box className="h-3 w-3 text-slate-600" />
+                      Другое
+                      {selectedWorkstation.otherEquipmentNote
+                        ? `: ${selectedWorkstation.otherEquipmentNote}`
+                        : ""}
+                    </Badge>
+                  )}
                 </div>
               </div>
-              
-              {selectedWorkstation.notes && (
+
+              {selectedWorkstation.description && (
                 <div className="pt-4 border-t">
                   <p className="text-sm text-muted-foreground mb-1">Примечания</p>
-                  <p className="text-sm">{selectedWorkstation.notes}</p>
+                  <p className="text-sm">{selectedWorkstation.description}</p>
                 </div>
               )}
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsViewDialogOpen(false)}>
+            <Button variant="outline" onClick={() => setIsViewDialogOpen(false)} type="button">
               Закрыть
             </Button>
-            <Button onClick={() => {
-              setIsViewDialogOpen(false)
-              if (selectedWorkstation) handleEdit(selectedWorkstation)
-            }}>
-              <Pencil className="mr-2 h-4 w-4" />
-              Редактировать
-            </Button>
+            {isAdmin && (
+              <Button
+                onClick={() => {
+                  setIsViewDialogOpen(false)
+                  if (selectedWorkstation) handleEdit(selectedWorkstation)
+                }}
+                type="button"
+              >
+                <Pencil className="mr-2 h-4 w-4" />
+                Редактировать
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      
-      {/* Delete Confirmation */}
+
       <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Удалить рабочее место?</AlertDialogTitle>
             <AlertDialogDescription>
-              Вы уверены, что хотите удалить рабочее место "{selectedWorkstation?.name}" ({selectedWorkstation?.number})?
-              Это действие нельзя отменить.
+              Вы уверены, что хотите удалить рабочее место «{selectedWorkstation?.name}» (
+              {selectedWorkstation?.code})? Это действие нельзя отменить.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Отмена</AlertDialogCancel>
-            <AlertDialogAction onClick={handleConfirmDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+            <AlertDialogAction
+              onClick={() => void handleConfirmDelete()}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
               Удалить
             </AlertDialogAction>
           </AlertDialogFooter>

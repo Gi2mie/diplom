@@ -95,6 +95,12 @@ const getStatusInfo = (status: UiStatus) => {
   }
 }
 
+/** Этаж в пределах 1…число этажей корпуса (если корпус выбран и в нём есть этажи). */
+function clampClassroomFloor(floor: number, building: RegistryBuilding | undefined): number {
+  if (!building || building.floors < 1) return floor
+  return Math.min(Math.max(floor, 1), building.floors)
+}
+
 const emptyClassroomForm = () => ({
   name: "",
   number: "",
@@ -243,6 +249,15 @@ export default function ClassroomsPage() {
     if (!classroomForm.name.trim()) {
       setClassroomFormError("Укажите название")
       return
+    }
+    if (classroomForm.buildingId) {
+      const b = buildings.find((x) => x.id === classroomForm.buildingId)
+      if (b && b.floors >= 1 && (classroomForm.floor < 1 || classroomForm.floor > b.floors)) {
+        setClassroomFormError(
+          `Этаж не может быть больше ${b.floors} (в корпусе «${b.name}» указано столько этажей).`
+        )
+        return
+      }
     }
     try {
       setClassroomSaving(true)
@@ -1001,6 +1016,11 @@ function ClassroomFormFields({
   types: RegistryClassroomType[]
   teachers: { id: string; firstName: string; lastName: string; middleName: string | null; email: string }[]
 }) {
+  const selectedBuilding = form.buildingId
+    ? buildings.find((x) => x.id === form.buildingId)
+    : undefined
+  const maxFloor = selectedBuilding && selectedBuilding.floors >= 1 ? selectedBuilding.floors : undefined
+
   return (
     <div className="grid gap-4 py-2">
       <div className="grid grid-cols-2 gap-4">
@@ -1039,7 +1059,20 @@ function ClassroomFormFields({
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label>Корпус</Label>
-          <Select value={form.buildingId || "__none__"} onValueChange={(v) => setForm((f) => ({ ...f, buildingId: v === "__none__" ? "" : v }))}>
+          <Select
+            value={form.buildingId || "__none__"}
+            onValueChange={(v) => {
+              const buildingId = v === "__none__" ? "" : v
+              setForm((f) => {
+                const b = buildingId ? buildings.find((x) => x.id === buildingId) : undefined
+                return {
+                  ...f,
+                  buildingId,
+                  floor: clampClassroomFloor(f.floor, b),
+                }
+              })
+            }}
+          >
             <SelectTrigger><SelectValue placeholder="Не выбран" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="__none__">Не выбран</SelectItem>
@@ -1049,7 +1082,27 @@ function ClassroomFormFields({
         </div>
         <div className="space-y-2">
           <Label>Этаж</Label>
-          <Input type="number" value={form.floor} onChange={(e) => setForm((f) => ({ ...f, floor: Number.parseInt(e.target.value, 10) || 0 }))} />
+          <Input
+            type="number"
+            min={maxFloor != null ? 1 : undefined}
+            max={maxFloor}
+            value={form.floor}
+            onChange={(e) => {
+              const raw = Number.parseInt(e.target.value, 10)
+              setForm((f) => {
+                const b = f.buildingId ? buildings.find((x) => x.id === f.buildingId) : undefined
+                const mx = b && b.floors >= 1 ? b.floors : undefined
+                if (mx != null) {
+                  const n = Number.isNaN(raw) ? 1 : raw
+                  return { ...f, floor: Math.min(Math.max(n, 1), mx) }
+                }
+                return { ...f, floor: Number.isNaN(raw) ? 0 : raw }
+              })
+            }}
+          />
+          {maxFloor != null && (
+            <p className="text-xs text-muted-foreground">Не выше {maxFloor} (этажей в корпусе)</p>
+          )}
         </div>
       </div>
       <div className="grid grid-cols-2 gap-4">

@@ -36,7 +36,7 @@ export class WorkstationService {
         classroomId,
         isActive: true,
       },
-      orderBy: { number: "asc" },
+      orderBy: { code: "asc" },
       include: {
         classroom: true,
         equipment: {
@@ -67,19 +67,27 @@ export class WorkstationService {
   /**
    * Создать несколько рабочих мест для кабинета
    */
-  static async createMany(classroomId: string, count: number, startNumber: number = 1) {
-    const workstations = Array.from({ length: count }, (_, i) => ({
-      classroomId,
-      number: startNumber + i,
-    }))
+  static async createMany(classroomId: string, count: number, classroomNumber: string, startIndex: number = 1) {
+    const classroom = await db.classroom.findUnique({
+      where: { id: classroomId },
+      select: { number: true },
+    })
+    const num = classroom?.number ?? classroomNumber
+    const rows = Array.from({ length: count }, (_, i) => {
+      const suffix = String(startIndex + i).padStart(2, "0")
+      return {
+        classroomId,
+        code: `RM-${num}-${suffix}`,
+      }
+    })
 
     await db.workstation.createMany({
-      data: workstations,
+      data: rows,
     })
 
     return db.workstation.findMany({
       where: { classroomId },
-      orderBy: { number: "asc" },
+      orderBy: { code: "asc" },
     })
   }
 

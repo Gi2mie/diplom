@@ -11,6 +11,7 @@ import {
   EntityType,
   CustomFieldType,
   ClassroomListingStatus,
+  WorkstationStatus,
 } from "@prisma/client"
 import { ALLOWED_CLASSROOM_TYPE_COLORS } from "@/lib/classroom-colors"
 
@@ -40,15 +41,21 @@ export const loginSchema = z.object({
 // КАБИНЕТЫ
 // ==========================================
 
+/** Пустая строка, плейсхолдер селекта и null → null; иначе строка id из БД (Prisma cuid и др.). */
+const optionalRelationId = z.preprocess((v) => {
+  if (v === "" || v === "__none__" || v === null || v === undefined) return null
+  return v
+}, z.union([z.null(), z.string().min(1, "Некорректный идентификатор").max(128)]))
+
 export const createClassroomSchema = z.object({
   number: z.string().min(1, "Номер кабинета обязателен"),
   name: z.string().optional().nullable(),
-  buildingId: z.string().cuid().optional().nullable(),
-  classroomTypeId: z.string().cuid().optional().nullable(),
-  floor: z.number().int().optional().nullable(),
-  capacity: z.number().int().min(0).optional().nullable(),
+  buildingId: optionalRelationId,
+  classroomTypeId: optionalRelationId,
+  floor: z.coerce.number().int().optional().nullable(),
+  capacity: z.coerce.number().int().min(0).optional().nullable(),
   description: z.string().optional().nullable(),
-  responsibleId: z.string().cuid().optional().nullable(),
+  responsibleId: optionalRelationId,
   listingStatus: z.nativeEnum(ClassroomListingStatus).optional(),
 })
 
@@ -97,17 +104,40 @@ export const updateClassroomTypeSchema = z.object({
 // РАБОЧИЕ МЕСТА
 // ==========================================
 
-export const createWorkstationSchema = z.object({
-  number: z.number().int().positive("Номер должен быть положительным"),
+const workstationBaseSchema = z.object({
+  code: z.string().min(1, "Номер рабочего места обязателен"),
   classroomId: z.string().cuid("Некорректный ID кабинета"),
-  name: z.string().optional(),
-  description: z.string().optional(),
+  name: z.string().optional().nullable(),
+  description: z.string().optional().nullable(),
+  pcName: z.string().optional().nullable(),
+  status: z.nativeEnum(WorkstationStatus).optional(),
+  hasMonitor: z.boolean().optional(),
+  hasKeyboard: z.boolean().optional(),
+  hasMouse: z.boolean().optional(),
+  hasHeadphones: z.boolean().optional(),
+  hasOtherEquipment: z.boolean().optional(),
+  otherEquipmentNote: z.string().optional().nullable(),
+  lastMaintenance: z.string().optional().nullable(),
 })
 
-export const updateWorkstationSchema = createWorkstationSchema
-  .omit({ classroomId: true })
+export const createWorkstationSchema = workstationBaseSchema
+  .extend({
+    status: z.nativeEnum(WorkstationStatus).default(WorkstationStatus.ACTIVE),
+  })
+  .superRefine((data, ctx) => {
+    if (data.hasOtherEquipment && !String(data.otherEquipmentNote ?? "").trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Укажите примечание для комплектации «Другое»",
+        path: ["otherEquipmentNote"],
+      })
+    }
+  })
+
+export const updateWorkstationSchema = workstationBaseSchema
   .partial()
   .extend({
+    classroomId: z.string().cuid().optional(),
     isActive: z.boolean().optional(),
   })
 

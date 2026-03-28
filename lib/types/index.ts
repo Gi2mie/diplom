@@ -59,6 +59,7 @@ export {
   EntityType,
   ActionType,
   CustomFieldType,
+  WorkstationStatus,
 } from "@prisma/client"
 
 // ==========================================
@@ -158,13 +159,23 @@ export type UpdateClassroomDTO = Partial<CreateClassroomDTO> & {
 }
 
 export type CreateWorkstationDTO = {
-  number: number
+  code: string
   classroomId: string
-  name?: string
-  description?: string
+  name?: string | null
+  description?: string | null
+  pcName?: string | null
+  status?: import("@prisma/client").WorkstationStatus
+  hasMonitor?: boolean
+  hasKeyboard?: boolean
+  hasMouse?: boolean
+  hasHeadphones?: boolean
+  hasOtherEquipment?: boolean
+  otherEquipmentNote?: string | null
+  lastMaintenance?: Date | null
 }
 
-export type UpdateWorkstationDTO = Partial<Omit<CreateWorkstationDTO, "classroomId">> & {
+export type UpdateWorkstationDTO = Partial<CreateWorkstationDTO> & {
+  classroomId?: string
   isActive?: boolean
 }
 

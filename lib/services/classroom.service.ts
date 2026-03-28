@@ -58,7 +58,7 @@ export class ClassroomService {
         responsible: true,
         workstations: {
           where: { isActive: true },
-          orderBy: { number: "asc" },
+          orderBy: { code: "asc" },
           include: {
             equipment: {
               where: { isActive: true },

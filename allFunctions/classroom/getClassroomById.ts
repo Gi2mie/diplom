@@ -25,7 +25,7 @@ export async function getClassroomById(id: string): Promise<GetClassroomByIdResu
               },
             },
           },
-          orderBy: { number: "asc" },
+          orderBy: { code: "asc" },
         },
       },
     })

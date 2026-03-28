@@ -123,21 +123,36 @@ model Classroom {
 // РАБОЧИЕ МЕСТА
 // ==========================================
 
+enum WorkstationStatus {
+  ACTIVE
+  MAINTENANCE
+  FAULTY
+}
+
 model Workstation {
-  id            String    @id @default(cuid())
-  number        Int       // Номер рабочего места в кабинете
-  classroomId   String    @map("classroom_id")
-  name          String?   // Название (например, "Рабочее место преподавателя")
-  description   String?   // Описание
-  isActive      Boolean   @default(true) @map("is_active")
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
+  id                  String            @id @default(cuid())
+  code                String            // Полный номер, напр. RM-301-01
+  classroomId         String            @map("classroom_id")
+  name                String?
+  description         String?           @db.Text
+  pcName              String?           @map("pc_name")
+  status              WorkstationStatus @default(ACTIVE)
+  hasMonitor          Boolean           @default(false) @map("has_monitor")
+  hasKeyboard         Boolean           @default(false) @map("has_keyboard")
+  hasMouse            Boolean           @default(false) @map("has_mouse")
+  hasHeadphones       Boolean           @default(false) @map("has_headphones")
+  hasOtherEquipment   Boolean           @default(false) @map("has_other_equipment")
+  otherEquipmentNote  String?           @map("other_equipment_note") @db.Text
+  lastMaintenance     DateTime?         @map("last_maintenance")
+  isActive            Boolean           @default(true) @map("is_active")
+  createdAt           DateTime          @default(now()) @map("created_at")
+  updatedAt           DateTime          @updatedAt @map("updated_at")
 
   // Связи
   classroom   Classroom   @relation(fields: [classroomId], references: [id], onDelete: Cascade)
-  equipment   Equipment[] // Оборудование на рабочем месте
+  equipment   Equipment[]
 
-  @@unique([classroomId, number]) // Уникальность номера в рамках кабинета
+  @@unique([classroomId, code])
   @@map("workstations")
 }
 

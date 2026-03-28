@@ -1,8 +1,10 @@
 "use server"
 
+import { WorkstationStatus } from "@prisma/client"
 import { prisma } from "@/lib/db"
 import { createWorkstationSchema, type CreateWorkstationInput } from "@/lib/validators"
 import type { Workstation } from "@/lib/types"
+import { workstationCodeMatchesClassroom } from "@/lib/workstation-code"
 
 export type AddWorkstationResult = {
   success: boolean
@@ -10,9 +12,14 @@ export type AddWorkstationResult = {
   error?: string
 }
 
+function parseLastMaintenance(v: string | null | undefined): Date | null {
+  if (v == null || v === "") return null
+  const d = new Date(v)
+  return Number.isNaN(d.getTime()) ? null : d
+}
+
 export async function addWorkstation(input: CreateWorkstationInput): Promise<AddWorkstationResult> {
   try {
-    // Валидация входных данных
     const validationResult = createWorkstationSchema.safeParse(input)
     if (!validationResult.success) {
       return {
@@ -23,54 +30,60 @@ export async function addWorkstation(input: CreateWorkstationInput): Promise<Add
 
     const data = validationResult.data
 
-    // Проверка существования кабинета
     const classroom = await prisma.classroom.findUnique({
       where: { id: data.classroomId },
+      select: { id: true, number: true, capacity: true },
     })
 
     if (!classroom) {
-      return {
-        success: false,
-        error: "Кабинет не найден",
+      return { success: false, error: "Кабинет не найден" }
+    }
+
+    if (!workstationCodeMatchesClassroom(data.code, classroom.number)) {
+      return { success: false, error: `Номер должен начинаться с RM-${classroom.number}-` }
+    }
+
+    if (classroom.capacity != null) {
+      const cnt = await prisma.workstation.count({ where: { classroomId: data.classroomId } })
+      if (cnt >= classroom.capacity) {
+        return {
+          success: false,
+          error: `В аудитории ${classroom.number} уже создано максимальное число рабочих мест (${classroom.capacity}). Добавить ещё одно нельзя.`,
+        }
       }
     }
 
-    // Проверка уникальности номера рабочего места в кабинете
     const existing = await prisma.workstation.findUnique({
-      where: {
-        classroomId_number: {
-          classroomId: data.classroomId,
-          number: data.number,
-        },
-      },
+      where: { classroomId_code: { classroomId: data.classroomId, code: data.code } },
     })
 
     if (existing) {
-      return {
-        success: false,
-        error: `Рабочее место №${data.number} уже существует в этом кабинете`,
-      }
+      return { success: false, error: "Рабочее место с таким номером уже есть в этой аудитории" }
     }
 
-    // Создание рабочего места
     const workstation = await prisma.workstation.create({
       data: {
-        number: data.number,
+        code: data.code,
         classroomId: data.classroomId,
-        name: data.name,
-        description: data.description,
+        name: data.name?.trim() || null,
+        description: data.description?.trim() || null,
+        pcName: data.pcName?.trim() || null,
+        status: data.status ?? WorkstationStatus.ACTIVE,
+        hasMonitor: data.hasMonitor ?? false,
+        hasKeyboard: data.hasKeyboard ?? false,
+        hasMouse: data.hasMouse ?? false,
+        hasHeadphones: data.hasHeadphones ?? false,
+        hasOtherEquipment: data.hasOtherEquipment ?? false,
+        otherEquipmentNote: data.hasOtherEquipment
+          ? String(data.otherEquipmentNote ?? "").trim() || null
+          : null,
+        lastMaintenance: parseLastMaintenance(data.lastMaintenance ?? undefined),
       },
     })
 
-    return {
-      success: true,
-      data: workstation,
-    }
+    return { success: true, data: workstation }
   } catch (error) {
     console.error("addWorkstation error:", error)
-    return {
-      success: false,
-      error: "Ошибка при добавлении рабочего места",
-    }
+    return { success: false, error: "Ошибка при добавлении рабочего места" }
   }
 }
