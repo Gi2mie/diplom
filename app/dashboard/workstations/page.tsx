@@ -12,15 +12,11 @@ import {
   Eye,
   MonitorSmartphone,
   Monitor,
-  Keyboard,
-  Mouse,
-  Cpu,
   X,
   Download,
   School,
-  Package,
-  Box,
   Loader2,
+  Package,
 } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -70,7 +66,6 @@ import {
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Checkbox } from "@/components/ui/checkbox"
 import { fetchClassroomRegistry, type RegistryClassroom } from "@/lib/api/classroom-registry"
 import {
   fetchWorkstations,
@@ -80,28 +75,42 @@ import {
   type ApiWorkstation,
 } from "@/lib/api/workstations"
 import { workstationRmPrefix, pcNameFromRmCode, suffixFromRmCode } from "@/lib/workstation-code"
+import { cn } from "@/lib/utils"
 
 const statusConfig: Record<
   WorkstationStatus,
-  { label: string; variant: "default" | "secondary" | "destructive" | "outline" }
+  {
+    label: string
+    variant: "default" | "secondary" | "destructive" | "outline"
+    className?: string
+  }
 > = {
-  [WorkstationStatus.ACTIVE]: { label: "Активно", variant: "default" },
-  [WorkstationStatus.MAINTENANCE]: { label: "На обслуживании", variant: "outline" },
-  [WorkstationStatus.FAULTY]: { label: "Неисправно", variant: "destructive" },
+  [WorkstationStatus.ACTIVE]: { label: "Исправно", variant: "default" },
+  [WorkstationStatus.MAINTENANCE]: {
+    label: "На обслуживании",
+    variant: "outline",
+    className:
+      "border-amber-500/45 bg-amber-500/15 text-amber-950 dark:border-amber-400/45 dark:bg-amber-400/12 dark:text-amber-50",
+  },
+}
+
+/** Не-ACTIVE из API/БД (в т.ч. устаревший FAULTY без миграции) считаем «На обслуживании». */
+function normalizeWorkstationStatus(
+  status: WorkstationStatus | string | undefined | null
+): WorkstationStatus {
+  if (status === WorkstationStatus.ACTIVE) return WorkstationStatus.ACTIVE
+  return WorkstationStatus.MAINTENANCE
+}
+
+function workstationStatusBadgeConfig(status: WorkstationStatus | string | undefined | null) {
+  return statusConfig[normalizeWorkstationStatus(status)]
 }
 
 type WorkstationFormState = {
   name: string
   classroomId: string
   numberSuffix: string
-  status: WorkstationStatus
   pcName: string
-  hasMonitor: boolean
-  hasKeyboard: boolean
-  hasMouse: boolean
-  hasHeadphones: boolean
-  hasOtherEquipment: boolean
-  otherEquipmentNote: string
   description: string
   lastMaintenance: string
 }
@@ -110,27 +119,21 @@ const emptyForm = (): WorkstationFormState => ({
   name: "",
   classroomId: "",
   numberSuffix: "",
-  status: WorkstationStatus.ACTIVE,
   pcName: "",
-  hasMonitor: true,
-  hasKeyboard: true,
-  hasMouse: true,
-  hasHeadphones: false,
-  hasOtherEquipment: false,
-  otherEquipmentNote: "",
   description: "",
   lastMaintenance: "",
 })
 
 function equipmentCount(ws: ApiWorkstation): number {
-  return [
-    ws.hasMonitor,
-    ws.hasKeyboard,
-    ws.hasMouse,
-    ws.hasHeadphones,
-    Boolean(ws.pcName?.trim()),
-    ws.hasOtherEquipment,
-  ].filter(Boolean).length
+  return ws.equipmentItems.length
+}
+
+function formatSoftwareVersion(catalogVersion: string, installedVersion: string | null): string {
+  const cat = catalogVersion?.trim()
+  const inst = installedVersion?.trim()
+  if (inst) return inst
+  if (cat) return cat
+  return "—"
 }
 
 export default function WorkstationsPage() {
@@ -206,10 +209,13 @@ export default function WorkstationsPage() {
   const filteredWorkstations = useMemo(() => {
     return workstations.filter((ws) => {
       const q = searchQuery.toLowerCase()
-      const blob = `${ws.name} ${ws.code} ${ws.pcName} ${ws.description} ${ws.otherEquipmentNote}`.toLowerCase()
+      const inv = ws.equipmentItems.map((e) => e.inventoryNumber).join(" ")
+      const blob =
+        `${ws.name} ${ws.code} ${ws.pcName} ${ws.description} ${inv}`.toLowerCase()
       const matchesSearch = !q || blob.includes(q)
       const matchesClassroom = filterClassroom === "all" || ws.classroomId === filterClassroom
-      const matchesStatus = filterStatus === "all" || ws.status === filterStatus
+      const matchesStatus =
+        filterStatus === "all" || normalizeWorkstationStatus(ws.status) === filterStatus
       return matchesSearch && matchesClassroom && matchesStatus
     })
   }, [workstations, searchQuery, filterClassroom, filterStatus])
@@ -217,9 +223,11 @@ export default function WorkstationsPage() {
   const stats = useMemo(() => {
     return {
       total: workstations.length,
-      active: workstations.filter((w) => w.status === WorkstationStatus.ACTIVE).length,
-      faulty: workstations.filter((w) => w.status === WorkstationStatus.FAULTY).length,
-      maintenance: workstations.filter((w) => w.status === WorkstationStatus.MAINTENANCE).length,
+      ok: workstations.filter((w) => normalizeWorkstationStatus(w.status) === WorkstationStatus.ACTIVE)
+        .length,
+      maintenance: workstations.filter(
+        (w) => normalizeWorkstationStatus(w.status) === WorkstationStatus.MAINTENANCE
+      ).length,
     }
   }, [workstations])
 
@@ -273,14 +281,7 @@ export default function WorkstationsPage() {
       name: ws.name,
       classroomId: ws.classroomId,
       numberSuffix: c ? suffixFromRmCode(ws.code, num) : "",
-      status: ws.status,
       pcName: ws.pcName,
-      hasMonitor: ws.hasMonitor,
-      hasKeyboard: ws.hasKeyboard,
-      hasMouse: ws.hasMouse,
-      hasHeadphones: ws.hasHeadphones,
-      hasOtherEquipment: ws.hasOtherEquipment,
-      otherEquipmentNote: ws.otherEquipmentNote,
       description: ws.description,
       lastMaintenance: ws.lastMaintenance || "",
     })
@@ -300,23 +301,12 @@ export default function WorkstationsPage() {
       return null
     }
     const code = workstationRmPrefix(c.number) + suffix
-    if (form.hasOtherEquipment && !form.otherEquipmentNote.trim()) {
-      setFormError("Укажите примечание для комплектации «Другое»")
-      return null
-    }
     return {
       code,
       classroomId: form.classroomId,
       name: form.name.trim() || null,
       description: form.description.trim() || null,
       pcName: form.pcName.trim() || null,
-      status: form.status,
-      hasMonitor: form.hasMonitor,
-      hasKeyboard: form.hasKeyboard,
-      hasMouse: form.hasMouse,
-      hasHeadphones: form.hasHeadphones,
-      hasOtherEquipment: form.hasOtherEquipment,
-      otherEquipmentNote: form.hasOtherEquipment ? form.otherEquipmentNote.trim() : null,
       lastMaintenance: form.lastMaintenance || null,
     }
   }
@@ -400,57 +390,6 @@ export default function WorkstationsPage() {
     }
   }
 
-  const renderEquipmentCheckboxes = () => (
-    <div className="grid grid-cols-2 gap-2">
-      <label className="flex items-center gap-2 rounded-md border p-3 cursor-pointer hover:bg-muted/50">
-        <Checkbox
-          checked={form.hasMonitor}
-          onCheckedChange={(v) => setForm((f) => ({ ...f, hasMonitor: Boolean(v) }))}
-        />
-        <Monitor className="h-4 w-4 text-blue-600" />
-        <span className="text-sm">Монитор</span>
-      </label>
-      <label className="flex items-center gap-2 rounded-md border p-3 cursor-pointer hover:bg-muted/50">
-        <Checkbox
-          checked={form.hasKeyboard}
-          onCheckedChange={(v) => setForm((f) => ({ ...f, hasKeyboard: Boolean(v) }))}
-        />
-        <Keyboard className="h-4 w-4 text-green-600" />
-        <span className="text-sm">Клавиатура</span>
-      </label>
-      <label className="flex items-center gap-2 rounded-md border p-3 cursor-pointer hover:bg-muted/50">
-        <Checkbox
-          checked={form.hasMouse}
-          onCheckedChange={(v) => setForm((f) => ({ ...f, hasMouse: Boolean(v) }))}
-        />
-        <Mouse className="h-4 w-4 text-purple-600" />
-        <span className="text-sm">Мышь</span>
-      </label>
-      <label className="flex items-center gap-2 rounded-md border p-3 cursor-pointer hover:bg-muted/50">
-        <Checkbox
-          checked={form.hasHeadphones}
-          onCheckedChange={(v) => setForm((f) => ({ ...f, hasHeadphones: Boolean(v) }))}
-        />
-        <Package className="h-4 w-4 text-amber-600" />
-        <span className="text-sm">Наушники</span>
-      </label>
-      <label className="col-span-2 flex items-center gap-2 rounded-md border p-3 cursor-pointer hover:bg-muted/50">
-        <Checkbox
-          checked={form.hasOtherEquipment}
-          onCheckedChange={(v) =>
-            setForm((f) => ({
-              ...f,
-              hasOtherEquipment: Boolean(v),
-              otherEquipmentNote: v ? f.otherEquipmentNote : "",
-            }))
-          }
-        />
-        <Box className="h-4 w-4 text-slate-600" />
-        <span className="text-sm">Другое</span>
-      </label>
-    </div>
-  )
-
   const addCapacityWarning =
     form.classroomId && isClassroomAtCapacity(form.classroomId)
       ? capacityMessage(form.classroomId)
@@ -472,8 +411,8 @@ export default function WorkstationsPage() {
             <Skeleton className="h-5 w-80" />
           </div>
         </div>
-        <div className="grid gap-4 md:grid-cols-4">
-          {[1, 2, 3, 4].map((i) => (
+        <div className="grid gap-4 md:grid-cols-3">
+          {[1, 2, 3].map((i) => (
             <Card key={i}>
               <CardHeader className="pb-2">
                 <Skeleton className="h-4 w-20" />
@@ -528,7 +467,7 @@ export default function WorkstationsPage() {
         </p>
       )}
 
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-3">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Всего мест</CardTitle>
@@ -540,20 +479,11 @@ export default function WorkstationsPage() {
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Активных</CardTitle>
+            <CardTitle className="text-sm font-medium">Исправно</CardTitle>
             <Monitor className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">{stats.active}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Неисправных</CardTitle>
-            <Monitor className="h-4 w-4 text-red-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-red-600">{stats.faulty}</div>
+            <div className="text-2xl font-bold text-green-600">{stats.ok}</div>
           </CardContent>
         </Card>
         <Card>
@@ -572,17 +502,18 @@ export default function WorkstationsPage() {
           <CardTitle className="text-base">Фильтры</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-4 md:grid-cols-4">
-            <div className="relative">
+          <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-[repeat(5,minmax(0,1fr))]">
+            <div className="relative min-w-0 sm:col-span-2 lg:col-span-2">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder="Поиск по названию, номеру..."
+                placeholder="Название, код РМ, инв. номер комплектации…"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-9"
               />
             </div>
 
+            <div className="min-w-0">
             <Select value={filterClassroom} onValueChange={setFilterClassroom}>
               <SelectTrigger>
                 <SelectValue placeholder="Аудитория" />
@@ -597,24 +528,28 @@ export default function WorkstationsPage() {
                 ))}
               </SelectContent>
             </Select>
+            </div>
 
+            <div className="min-w-0">
             <Select value={filterStatus} onValueChange={setFilterStatus}>
               <SelectTrigger>
                 <SelectValue placeholder="Статус" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Все статусы</SelectItem>
-                <SelectItem value={WorkstationStatus.ACTIVE}>Активно</SelectItem>
+                <SelectItem value={WorkstationStatus.ACTIVE}>Исправно</SelectItem>
                 <SelectItem value={WorkstationStatus.MAINTENANCE}>На обслуживании</SelectItem>
-                <SelectItem value={WorkstationStatus.FAULTY}>Неисправно</SelectItem>
               </SelectContent>
             </Select>
+            </div>
 
             {hasActiveFilters && (
-              <Button variant="ghost" onClick={resetFilters} className="gap-2" type="button">
-                <X className="h-4 w-4" />
-                Сбросить
-              </Button>
+              <div className="flex min-w-0 items-end sm:col-span-2 lg:col-span-1">
+                <Button variant="ghost" onClick={resetFilters} className="gap-2 w-full lg:w-auto" type="button">
+                  <X className="h-4 w-4" />
+                  Сбросить
+                </Button>
+              </div>
             )}
           </div>
         </CardContent>
@@ -662,104 +597,76 @@ export default function WorkstationsPage() {
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredWorkstations.map((workstation) => (
-                  <TableRow key={workstation.id}>
-                    <TableCell className="font-mono text-sm">{workstation.code}</TableCell>
-                    <TableCell className="font-medium">{workstation.name}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="gap-1">
-                        <School className="h-3 w-3" />
-                        {getClassroomShort(workstation.classroomId)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      {workstation.pcName ? (
-                        <span className="font-mono text-sm">{workstation.pcName}</span>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap gap-1">
-                        {workstation.hasMonitor && (
-                          <span title="Монитор">
-                            <Monitor className="h-4 w-4 text-blue-600" />
-                          </span>
+                filteredWorkstations.map((workstation) => {
+                  const statusBadge = workstationStatusBadgeConfig(workstation.status)
+                  return (
+                    <TableRow key={workstation.id}>
+                      <TableCell className="font-mono text-sm">{workstation.code}</TableCell>
+                      <TableCell className="font-medium">{workstation.name}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="gap-1">
+                          <School className="h-3 w-3" />
+                          {getClassroomShort(workstation.classroomId)}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {workstation.pcName ? (
+                          <span className="font-mono text-sm">{workstation.pcName}</span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
                         )}
-                        {workstation.hasKeyboard && (
-                          <span title="Клавиатура">
-                            <Keyboard className="h-4 w-4 text-green-600" />
-                          </span>
-                        )}
-                        {workstation.hasMouse && (
-                          <span title="Мышь">
-                            <Mouse className="h-4 w-4 text-purple-600" />
-                          </span>
-                        )}
-                        {workstation.hasHeadphones && (
-                          <span title="Наушники">
-                            <Package className="h-4 w-4 text-amber-600" />
-                          </span>
-                        )}
-                        {workstation.pcName && (
-                          <span title="Системный блок">
-                            <Cpu className="h-4 w-4 text-orange-600" />
-                          </span>
-                        )}
-                        {workstation.hasOtherEquipment && (
-                          <span title="Другое">
-                            <Box className="h-4 w-4 text-slate-600" />
-                          </span>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={statusConfig[workstation.status].variant}>
-                        {statusConfig[workstation.status].label}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" type="button">
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuLabel>Действия</DropdownMenuLabel>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            onClick={() => {
-                              setSelectedWorkstation(workstation)
-                              setIsViewDialogOpen(true)
-                            }}
-                          >
-                            <Eye className="mr-2 h-4 w-4" />
-                            Просмотр
-                          </DropdownMenuItem>
-                          {isAdmin && (
-                            <DropdownMenuItem onClick={() => handleEdit(workstation)}>
-                              <Pencil className="mr-2 h-4 w-4" />
-                              Редактировать
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="secondary">{equipmentCount(workstation)}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={statusBadge.variant} className={statusBadge.className}>
+                          {statusBadge.label}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" type="button">
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuLabel>Действия</DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onClick={() => {
+                                setSelectedWorkstation(workstation)
+                                setIsViewDialogOpen(true)
+                              }}
+                            >
+                              <Eye className="mr-2 h-4 w-4" />
+                              Просмотр
                             </DropdownMenuItem>
-                          )}
-                          {isAdmin && (
-                            <>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem
-                                onClick={() => handleDelete(workstation)}
-                                className="text-destructive"
-                              >
-                                <Trash2 className="mr-2 h-4 w-4" />
-                                Удалить
+                            {isAdmin && (
+                              <DropdownMenuItem onClick={() => handleEdit(workstation)}>
+                                <Pencil className="mr-2 h-4 w-4" />
+                                Редактировать
                               </DropdownMenuItem>
-                            </>
-                          )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))
+                            )}
+                            {isAdmin && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  onClick={() => handleDelete(workstation)}
+                                  className="text-destructive"
+                                >
+                                  <Trash2 className="mr-2 h-4 w-4" />
+                                  Удалить
+                                </DropdownMenuItem>
+                              </>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })
               )}
             </TableBody>
           </Table>
@@ -801,47 +708,27 @@ export default function WorkstationsPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Аудитория</Label>
-                <Select
-                  value={form.classroomId || undefined}
-                  onValueChange={(value) => setForm((f) => ({ ...f, classroomId: value }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Выберите аудиторию" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {classrooms.map((classroom) => (
-                      <SelectItem key={classroom.id} value={classroom.id}>
-                        {classroom.number}
-                        {classroom.name ? ` — ${classroom.name}` : ""}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {addCapacityWarning && (
-                  <p className="text-sm text-destructive">{addCapacityWarning}</p>
-                )}
-              </div>
-              <div className="space-y-2">
-                <Label>Статус</Label>
-                <Select
-                  value={form.status}
-                  onValueChange={(value) =>
-                    setForm((f) => ({ ...f, status: value as WorkstationStatus }))
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={WorkstationStatus.ACTIVE}>Активно</SelectItem>
-                    <SelectItem value={WorkstationStatus.MAINTENANCE}>На обслуживании</SelectItem>
-                    <SelectItem value={WorkstationStatus.FAULTY}>Неисправно</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+            <div className="space-y-2">
+              <Label>Аудитория</Label>
+              <Select
+                value={form.classroomId || undefined}
+                onValueChange={(value) => setForm((f) => ({ ...f, classroomId: value }))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Выберите аудиторию" />
+                </SelectTrigger>
+                <SelectContent>
+                  {classrooms.map((classroom) => (
+                    <SelectItem key={classroom.id} value={classroom.id}>
+                      {classroom.number}
+                      {classroom.name ? ` — ${classroom.name}` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {addCapacityWarning && (
+                <p className="text-sm text-destructive">{addCapacityWarning}</p>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -854,23 +741,6 @@ export default function WorkstationsPage() {
                 readOnly
               />
             </div>
-
-            <div className="space-y-2">
-              <Label>Комплектация</Label>
-              {renderEquipmentCheckboxes()}
-            </div>
-
-            {form.hasOtherEquipment && (
-              <div className="space-y-2">
-                <Label htmlFor="other-note-add">Примечание к «Другое»</Label>
-                <Textarea
-                  id="other-note-add"
-                  value={form.otherEquipmentNote}
-                  onChange={(e) => setForm((f) => ({ ...f, otherEquipmentNote: e.target.value }))}
-                  rows={2}
-                />
-              </div>
-            )}
 
             <div className="space-y-2">
               <Label htmlFor="lastMaint">Последнее ТО</Label>
@@ -946,47 +816,27 @@ export default function WorkstationsPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Аудитория</Label>
-                <Select
-                  value={form.classroomId || undefined}
-                  onValueChange={(value) => setForm((f) => ({ ...f, classroomId: value }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Выберите аудиторию" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {classrooms.map((classroom) => (
-                      <SelectItem key={classroom.id} value={classroom.id}>
-                        {classroom.number}
-                        {classroom.name ? ` — ${classroom.name}` : ""}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {editCapacityWarning && (
-                  <p className="text-sm text-destructive">{editCapacityWarning}</p>
-                )}
-              </div>
-              <div className="space-y-2">
-                <Label>Статус</Label>
-                <Select
-                  value={form.status}
-                  onValueChange={(value) =>
-                    setForm((f) => ({ ...f, status: value as WorkstationStatus }))
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={WorkstationStatus.ACTIVE}>Активно</SelectItem>
-                    <SelectItem value={WorkstationStatus.MAINTENANCE}>На обслуживании</SelectItem>
-                    <SelectItem value={WorkstationStatus.FAULTY}>Неисправно</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+            <div className="space-y-2">
+              <Label>Аудитория</Label>
+              <Select
+                value={form.classroomId || undefined}
+                onValueChange={(value) => setForm((f) => ({ ...f, classroomId: value }))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Выберите аудиторию" />
+                </SelectTrigger>
+                <SelectContent>
+                  {classrooms.map((classroom) => (
+                    <SelectItem key={classroom.id} value={classroom.id}>
+                      {classroom.number}
+                      {classroom.name ? ` — ${classroom.name}` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {editCapacityWarning && (
+                <p className="text-sm text-destructive">{editCapacityWarning}</p>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -998,23 +848,6 @@ export default function WorkstationsPage() {
                 readOnly
               />
             </div>
-
-            <div className="space-y-2">
-              <Label>Комплектация</Label>
-              {renderEquipmentCheckboxes()}
-            </div>
-
-            {form.hasOtherEquipment && (
-              <div className="space-y-2">
-                <Label htmlFor="other-note-edit">Примечание к «Другое»</Label>
-                <Textarea
-                  id="other-note-edit"
-                  value={form.otherEquipmentNote}
-                  onChange={(e) => setForm((f) => ({ ...f, otherEquipmentNote: e.target.value }))}
-                  rows={2}
-                />
-              </div>
-            )}
 
             <div className="space-y-2">
               <Label htmlFor="edit-lastMaint">Последнее ТО</Label>
@@ -1059,7 +892,9 @@ export default function WorkstationsPage() {
               Детальная информация о рабочем месте {selectedWorkstation?.code}
             </DialogDescription>
           </DialogHeader>
-          {selectedWorkstation && (
+          {selectedWorkstation && (() => {
+            const viewStatusBadge = workstationStatusBadgeConfig(selectedWorkstation.status)
+            return (
             <div className="space-y-4 py-4">
               <div className="flex items-center gap-4">
                 <div className="flex h-16 w-16 items-center justify-center rounded-lg bg-primary/10">
@@ -1069,8 +904,11 @@ export default function WorkstationsPage() {
                   <h3 className="text-lg font-semibold">{selectedWorkstation.name}</h3>
                   <p className="text-sm text-muted-foreground font-mono">{selectedWorkstation.code}</p>
                 </div>
-                <Badge variant={statusConfig[selectedWorkstation.status].variant} className="ml-auto">
-                  {statusConfig[selectedWorkstation.status].label}
+                <Badge
+                  variant={viewStatusBadge.variant}
+                  className={cn("ml-auto", viewStatusBadge.className)}
+                >
+                  {viewStatusBadge.label}
                 </Badge>
               </div>
 
@@ -1095,47 +933,102 @@ export default function WorkstationsPage() {
 
               <div className="pt-4 border-t">
                 <p className="text-sm text-muted-foreground mb-2">Комплектация</p>
-                <div className="flex flex-wrap gap-2">
-                  {selectedWorkstation.hasMonitor && (
-                    <Badge variant="outline" className="gap-1">
-                      <Monitor className="h-3 w-3 text-blue-600" />
-                      Монитор
-                    </Badge>
-                  )}
-                  {selectedWorkstation.hasKeyboard && (
-                    <Badge variant="outline" className="gap-1">
-                      <Keyboard className="h-3 w-3 text-green-600" />
-                      Клавиатура
-                    </Badge>
-                  )}
-                  {selectedWorkstation.hasMouse && (
-                    <Badge variant="outline" className="gap-1">
-                      <Mouse className="h-3 w-3 text-purple-600" />
-                      Мышь
-                    </Badge>
-                  )}
-                  {selectedWorkstation.hasHeadphones && (
-                    <Badge variant="outline" className="gap-1">
-                      <Package className="h-3 w-3 text-amber-600" />
-                      Наушники
-                    </Badge>
-                  )}
-                  {selectedWorkstation.pcName && (
-                    <Badge variant="outline" className="gap-1">
-                      <Cpu className="h-3 w-3 text-orange-600" />
-                      Системный блок
-                    </Badge>
-                  )}
-                  {selectedWorkstation.hasOtherEquipment && (
-                    <Badge variant="outline" className="gap-1">
-                      <Box className="h-3 w-3 text-slate-600" />
-                      Другое
-                      {selectedWorkstation.otherEquipmentNote
-                        ? `: ${selectedWorkstation.otherEquipmentNote}`
-                        : ""}
-                    </Badge>
-                  )}
-                </div>
+                {selectedWorkstation.equipmentItems.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Оборудование не привязано</p>
+                ) : (
+                  <div className="space-y-2">
+                    {selectedWorkstation.equipmentItems.map((item) => (
+                      <div
+                        key={item.id}
+                        className={cn(
+                          "flex flex-wrap items-center justify-between gap-3 rounded-md border px-3 py-2",
+                          item.onService &&
+                            "border-red-200 bg-red-50 text-red-950 dark:border-red-800 dark:bg-red-950/55 dark:text-red-50"
+                        )}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium">{item.name}</p>
+                          <p
+                            className={cn(
+                              "text-xs",
+                              item.onService
+                                ? "text-red-800/90 dark:text-red-200/95"
+                                : "text-muted-foreground"
+                            )}
+                          >
+                            {item.kindName || item.typeEnum}
+                          </p>
+                        </div>
+                        <div className="flex shrink-0 flex-wrap items-center gap-2">
+                          {item.onService && (
+                            <Badge
+                              variant="outline"
+                              className="border-red-300 bg-red-100/90 text-red-900 dark:border-red-600 dark:bg-red-900/55 dark:text-red-50"
+                            >
+                              На обслуживании
+                            </Badge>
+                          )}
+                          <Badge
+                            variant="outline"
+                            className={cn(
+                              "font-mono",
+                              item.onService &&
+                                "border-red-300 text-red-900 dark:border-red-600 dark:bg-red-900/40 dark:text-red-100"
+                            )}
+                          >
+                            {item.inventoryNumber}
+                          </Badge>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="pt-4 border-t">
+                <p className="text-sm text-muted-foreground mb-2 flex items-center gap-2">
+                  <Package className="h-4 w-4 shrink-0" />
+                  Установленное ПО
+                </p>
+                {(() => {
+                  const rows = selectedWorkstation.equipmentItems.flatMap((item) =>
+                    (item.installedSoftware ?? []).map((sw) => ({
+                      key: sw.id,
+                      equipmentName: item.name,
+                      inventoryNumber: item.inventoryNumber,
+                      softwareName: sw.softwareName,
+                      versionLabel: formatSoftwareVersion(sw.catalogVersion, sw.installedVersion),
+                    }))
+                  )
+                  if (rows.length === 0) {
+                    return (
+                      <p className="text-sm text-muted-foreground">
+                        На привязанном оборудовании нет записей об установленном ПО
+                      </p>
+                    )
+                  }
+                  return (
+                    <div className="rounded-md border divide-y max-h-[min(40vh,20rem)] overflow-y-auto">
+                      {rows.map((r) => (
+                        <div
+                          key={r.key}
+                          className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-3 py-2 text-sm"
+                        >
+                          <div className="min-w-0">
+                            <p className="font-medium">{r.softwareName}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {r.equipmentName}
+                              <span className="font-mono"> · {r.inventoryNumber}</span>
+                            </p>
+                          </div>
+                          <Badge variant="secondary" className="shrink-0 font-mono text-xs">
+                            {r.versionLabel}
+                          </Badge>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                })()}
               </div>
 
               {selectedWorkstation.description && (
@@ -1145,7 +1038,8 @@ export default function WorkstationsPage() {
                 </div>
               )}
             </div>
-          )}
+            )
+          })()}
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsViewDialogOpen(false)} type="button">
               Закрыть

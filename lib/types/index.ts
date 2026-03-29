@@ -166,7 +166,6 @@ export type CreateWorkstationDTO = {
   name?: string | null
   description?: string | null
   pcName?: string | null
-  status?: import("@prisma/client").WorkstationStatus
   hasMonitor?: boolean
   hasKeyboard?: boolean
   hasMouse?: boolean

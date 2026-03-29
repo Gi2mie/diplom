@@ -31,7 +31,8 @@ import {
   CheckCircle,
   XCircle,
   Clock,
-  Archive
+  Archive,
+  Search
 } from "lucide-react"
 import { getMockSession, getCurrentMockPermissions, type MockSession, type MockPermissions } from "@/lib/mock-auth"
 
@@ -74,6 +75,7 @@ interface RepairHistory {
   id: string
   date: string
   equipment: string
+  inventoryNumber: string
   classroom: string
   type: "breakdown" | "repair"
   description: string
@@ -155,16 +157,16 @@ const mockSoftwareByClassroom: SoftwareByClassroom[] = [
 ]
 
 const mockRepairHistory: RepairHistory[] = [
-  { id: "1", date: "2025-03-25", equipment: "Системный блок Dell OptiPlex #12", classroom: "Аудитория 301", type: "breakdown", description: "Не запускается, синий экран", status: "Новая" },
-  { id: "2", date: "2025-03-24", equipment: "Принтер HP LaserJet #3", classroom: "Компьютерный класс 105", type: "repair", description: "Замена картриджа и чистка", technician: "Сидоров А.В.", cost: 2500, status: "Завершён" },
-  { id: "3", date: "2025-03-23", equipment: "Монитор Samsung 24\" #7", classroom: "Аудитория 202", type: "breakdown", description: "Мерцание экрана", status: "В работе" },
-  { id: "4", date: "2025-03-22", equipment: "Проектор Epson EB-X51", classroom: "Лекционный зал 401", type: "repair", description: "Замена лампы", technician: "Иванов П.С.", cost: 8500, status: "Завершён" },
-  { id: "5", date: "2025-03-21", equipment: "Клавиатура Logitech K120 #15", classroom: "Компьютерный класс 105", type: "breakdown", description: "Залипают клавиши", status: "В работе" },
-  { id: "6", date: "2025-03-20", equipment: "Системный блок HP ProDesk #8", classroom: "Лаборатория 112", type: "repair", description: "Замена жёсткого диска", technician: "Петров И.И.", cost: 4200, status: "Завершён" },
-  { id: "7", date: "2025-03-19", equipment: "Мышь Logitech M185 #22", classroom: "Лаборатория 112", type: "breakdown", description: "Не работает колёсико прокрутки", status: "Закрыта" },
-  { id: "8", date: "2025-03-18", equipment: "Монитор LG 27\" #3", classroom: "Аудитория 405", type: "repair", description: "Ремонт блока питания", technician: "Сидоров А.В.", cost: 3100, status: "Завершён" },
-  { id: "9", date: "2025-03-15", equipment: "Системный блок Dell OptiPlex #5", classroom: "Компьютерный класс 105", type: "breakdown", description: "Перегрев процессора", status: "В работе" },
-  { id: "10", date: "2025-03-12", equipment: "Принтер Canon i-SENSYS", classroom: "Аудитория 301", type: "repair", description: "Профилактическое обслуживание", technician: "Иванов П.С.", cost: 1500, status: "Завершён" },
+  { id: "1", date: "2025-03-25", equipment: "Системный блок Dell OptiPlex #12", inventoryNumber: "INV-10012", classroom: "Аудитория 301", type: "breakdown", description: "Не запускается, синий экран", status: "Новая" },
+  { id: "2", date: "2025-03-24", equipment: "Принтер HP LaserJet #3", inventoryNumber: "INV-20003", classroom: "Компьютерный класс 105", type: "repair", description: "Замена картриджа и чистка", technician: "Сидоров А.В.", cost: 2500, status: "Завершён" },
+  { id: "3", date: "2025-03-23", equipment: "Монитор Samsung 24\" #7", inventoryNumber: "INV-30007", classroom: "Аудитория 202", type: "breakdown", description: "Мерцание экрана", status: "В работе" },
+  { id: "4", date: "2025-03-22", equipment: "Проектор Epson EB-X51", inventoryNumber: "INV-40051", classroom: "Лекционный зал 401", type: "repair", description: "Замена лампы", technician: "Иванов П.С.", cost: 8500, status: "Завершён" },
+  { id: "5", date: "2025-03-21", equipment: "Клавиатура Logitech K120 #15", inventoryNumber: "INV-50015", classroom: "Компьютерный класс 105", type: "breakdown", description: "Залипают клавиши", status: "В работе" },
+  { id: "6", date: "2025-03-20", equipment: "Системный блок HP ProDesk #8", inventoryNumber: "INV-60008", classroom: "Лаборатория 112", type: "repair", description: "Замена жёсткого диска", technician: "Петров И.И.", cost: 4200, status: "Завершён" },
+  { id: "7", date: "2025-03-19", equipment: "Мышь Logitech M185 #22", inventoryNumber: "INV-70022", classroom: "Лаборатория 112", type: "breakdown", description: "Не работает колёсико прокрутки", status: "Закрыта" },
+  { id: "8", date: "2025-03-18", equipment: "Монитор LG 27\" #3", inventoryNumber: "INV-80003", classroom: "Аудитория 405", type: "repair", description: "Ремонт блока питания", technician: "Сидоров А.В.", cost: 3100, status: "Завершён" },
+  { id: "9", date: "2025-03-15", equipment: "Системный блок Dell OptiPlex #5", inventoryNumber: "INV-10005", classroom: "Компьютерный класс 105", type: "breakdown", description: "Перегрев процессора", status: "В работе" },
+  { id: "10", date: "2025-03-12", equipment: "Принтер Canon i-SENSYS", inventoryNumber: "INV-21012", classroom: "Аудитория 301", type: "repair", description: "Профилактическое обслуживание", technician: "Иванов П.С.", cost: 1500, status: "Завершён" },
 ]
 
 const mockInRepairEquipment = [
@@ -180,6 +182,7 @@ export default function ReportsPage() {
   const [activeTab, setActiveTab] = useState("overview")
   const [dateFrom, setDateFrom] = useState("2025-03-01")
   const [dateTo, setDateTo] = useState("2025-03-25")
+  const [historySearch, setHistorySearch] = useState("")
   const [selectedBuilding, setSelectedBuilding] = useState("all")
   const [selectedClassroom, setSelectedClassroom] = useState("all")
   
@@ -194,15 +197,29 @@ export default function ReportsPage() {
   const totalInRepair = mockEquipmentByStatus.find(s => s.status === "repair")?.count || 0
   const totalWorking = mockEquipmentByStatus.find(s => s.status === "working")?.count || 0
   
-  // Фильтрация истории по дате
+  // Фильтрация истории по дате и тексту (в т.ч. инвентарный номер)
   const filteredHistory = useMemo(() => {
-    return mockRepairHistory.filter(item => {
+    const q = historySearch.trim().toLowerCase()
+    return mockRepairHistory.filter((item) => {
       const itemDate = new Date(item.date)
       const from = new Date(dateFrom)
       const to = new Date(dateTo)
-      return itemDate >= from && itemDate <= to
+      if (itemDate < from || itemDate > to) return false
+      if (!q) return true
+      const blob = [
+        item.equipment,
+        item.inventoryNumber,
+        item.classroom,
+        item.description,
+        item.technician ?? "",
+        item.status,
+        item.type,
+      ]
+        .join(" ")
+        .toLowerCase()
+      return blob.includes(q)
     })
-  }, [dateFrom, dateTo])
+  }, [dateFrom, dateTo, historySearch])
   
   // Статистика по истории
   const historyStats = useMemo(() => {
@@ -729,28 +746,38 @@ export default function ReportsPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="flex flex-wrap items-end gap-4">
-                <div className="grid gap-2">
+              <div className="flex min-w-0 flex-wrap items-end gap-4">
+                <div className="relative min-w-[min(100%,16rem)] flex-1 basis-64">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    className="pl-9"
+                    placeholder="Поиск по инв. №, оборудованию, кабинету, описанию…"
+                    value={historySearch}
+                    onChange={(e) => setHistorySearch(e.target.value)}
+                    aria-label="Поиск в истории ремонтов"
+                  />
+                </div>
+                <div className="relative min-w-0 grid gap-2">
                   <Label htmlFor="dateFrom">Дата с</Label>
                   <Input
                     id="dateFrom"
                     type="date"
                     value={dateFrom}
                     onChange={(e) => setDateFrom(e.target.value)}
-                    className="w-40"
+                    className="w-40 max-w-full"
                   />
                 </div>
-                <div className="grid gap-2">
+                <div className="relative min-w-0 grid gap-2">
                   <Label htmlFor="dateTo">Дата по</Label>
                   <Input
                     id="dateTo"
                     type="date"
                     value={dateTo}
                     onChange={(e) => setDateTo(e.target.value)}
-                    className="w-40"
+                    className="w-40 max-w-full"
                   />
                 </div>
-                <div className="flex gap-2">
+                <div className="flex min-w-0 flex-wrap gap-2">
                   <Button variant="outline" size="sm" onClick={() => {
                     const today = new Date()
                     const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000)
@@ -828,6 +855,7 @@ export default function ReportsPage() {
                   <TableRow>
                     <TableHead>Дата</TableHead>
                     <TableHead>Тип</TableHead>
+                    <TableHead>Инв. №</TableHead>
                     <TableHead>Оборудование</TableHead>
                     <TableHead>Кабинет</TableHead>
                     <TableHead>Описание</TableHead>
@@ -839,7 +867,7 @@ export default function ReportsPage() {
                 <TableBody>
                   {filteredHistory.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
+                      <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
                         Нет записей за выбранный период
                       </TableCell>
                     </TableRow>
@@ -859,6 +887,9 @@ export default function ReportsPage() {
                               Ремонт
                             </Badge>
                           )}
+                        </TableCell>
+                        <TableCell className="max-w-[9rem] truncate font-mono text-xs" title={item.inventoryNumber}>
+                          {item.inventoryNumber}
                         </TableCell>
                         <TableCell className="font-medium">{item.equipment}</TableCell>
                         <TableCell>{item.classroom}</TableCell>

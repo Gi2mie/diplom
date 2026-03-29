@@ -1,4 +1,4 @@
-import { WorkstationStatus } from "@prisma/client"
+import { EquipmentStatus, WorkstationStatus } from "@prisma/client"
 
 export type ApiWorkstation = {
   id: string
@@ -18,6 +18,21 @@ export type ApiWorkstation = {
   classroomNumber: string
   classroomName: string | null
   buildingName: string | null
+  equipmentItems: {
+    id: string
+    name: string
+    inventoryNumber: string
+    typeEnum: string
+    kindName: string | null
+    equipmentStatus: EquipmentStatus
+    onService: boolean
+    installedSoftware: {
+      id: string
+      softwareName: string
+      catalogVersion: string
+      installedVersion: string | null
+    }[]
+  }[]
 }
 
 async function parseJson<T>(response: Response): Promise<T> {
@@ -40,12 +55,11 @@ export type SaveWorkstationBody = {
   name?: string | null
   description?: string | null
   pcName?: string | null
-  status: WorkstationStatus
-  hasMonitor: boolean
-  hasKeyboard: boolean
-  hasMouse: boolean
-  hasHeadphones: boolean
-  hasOtherEquipment: boolean
+  hasMonitor?: boolean
+  hasKeyboard?: boolean
+  hasMouse?: boolean
+  hasHeadphones?: boolean
+  hasOtherEquipment?: boolean
   otherEquipmentNote?: string | null
   lastMaintenance?: string | null
 }

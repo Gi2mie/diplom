@@ -10,6 +10,8 @@ export type MyRequestListItem = {
   priority: IssuePriority
   classroomLabel: string
   workstationLabel: string | null
+  /** Инв. номера привязанного оборудования — для поиска в фильтре */
+  inventoryNumbers: string[]
   createdAt: string
   updatedAt: string
   adminComment: string | null

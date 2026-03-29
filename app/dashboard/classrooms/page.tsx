@@ -479,46 +479,52 @@ export default function ClassroomsPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="grid gap-4 md:grid-cols-5">
-                <div className="relative md:col-span-2">
+              <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-[repeat(5,minmax(0,1fr))]">
+                <div className="relative min-w-0 sm:col-span-2 lg:col-span-2">
                   <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
-                    placeholder="Поиск..."
+                    placeholder="Номер, название аудитории…"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="pl-10"
                   />
                 </div>
-                <Select value={selectedBuildingFilter} onValueChange={setSelectedBuildingFilter}>
-                  <SelectTrigger>
-                    <Building2 className="mr-2 h-4 w-4" />
-                    <SelectValue placeholder="Корпус" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Все корпуса</SelectItem>
-                    {buildings.map((b) => (
-                      <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select value={selectedTypeFilter} onValueChange={setSelectedTypeFilter}>
-                  <SelectTrigger><SelectValue placeholder="Тип" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Все типы</SelectItem>
-                    {types.map((t) => (
-                      <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select value={selectedStatusFilter} onValueChange={(v) => setSelectedStatusFilter(v as UiStatus | "all")}>
-                  <SelectTrigger><SelectValue placeholder="Статус" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Все статусы</SelectItem>
-                    <SelectItem value="active">Активна</SelectItem>
-                    <SelectItem value="inactive">Неактивна</SelectItem>
-                    <SelectItem value="maintenance">На обслуживании</SelectItem>
-                  </SelectContent>
-                </Select>
+                <div className="min-w-0">
+                  <Select value={selectedBuildingFilter} onValueChange={setSelectedBuildingFilter}>
+                    <SelectTrigger>
+                      <Building2 className="mr-2 h-4 w-4 shrink-0" />
+                      <SelectValue placeholder="Корпус" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Все корпуса</SelectItem>
+                      {buildings.map((b) => (
+                        <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="min-w-0">
+                  <Select value={selectedTypeFilter} onValueChange={setSelectedTypeFilter}>
+                    <SelectTrigger><SelectValue placeholder="Тип" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Все типы</SelectItem>
+                      {types.map((t) => (
+                        <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="min-w-0 sm:col-span-2 lg:col-span-1">
+                  <Select value={selectedStatusFilter} onValueChange={(v) => setSelectedStatusFilter(v as UiStatus | "all")}>
+                    <SelectTrigger><SelectValue placeholder="Статус" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Все статусы</SelectItem>
+                      <SelectItem value="active">Активна</SelectItem>
+                      <SelectItem value="inactive">Неактивна</SelectItem>
+                      <SelectItem value="maintenance">На обслуживании</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
               {hasActiveFilters && (
                 <div className="mt-4 flex items-center gap-2">

@@ -8,13 +8,13 @@ import {
 } from "@prisma/client"
 import { z } from "zod"
 import { db } from "@/lib/db"
+import { recomputeEquipmentStatus } from "@/lib/equipment-status-sync"
 import { mapComputerEquipment, type ComputerEquipmentWithRelations } from "@/lib/pc-config-map"
 
 export const pcConfigSaveSchema = z.object({
   workstationId: z.string().min(1),
   name: z.string(),
   inventoryNumber: z.string(),
-  status: z.enum(["active", "repair", "decommissioned"]),
   notes: z.string(),
   purchaseDate: z.string(),
   warrantyEnd: z.string(),
@@ -61,19 +61,6 @@ export function pcNameFromWorkstationCode(code: string): string {
   if (/^RM-/i.test(c)) return c.replace(/^RM-/i, "PC-")
   if (/^PC-/i.test(c)) return c
   return `PC-${c}`
-}
-
-export function uiStatusToEquipment(
-  status: PcConfigSavePayload["status"]
-): { status: EquipmentStatus; isActive: boolean } {
-  switch (status) {
-    case "active":
-      return { status: EquipmentStatus.OPERATIONAL, isActive: true }
-    case "repair":
-      return { status: EquipmentStatus.IN_REPAIR, isActive: false }
-    case "decommissioned":
-      return { status: EquipmentStatus.DECOMMISSIONED, isActive: false }
-  }
 }
 
 function diskComponentType(storageType: string): ComponentType {
@@ -249,7 +236,6 @@ export async function createComputerConfig(
   if (dupWs) return { ok: false, error: "На этом рабочем месте уже есть компьютер", status: 409 }
 
   const displayName = p.name.trim() || pcNameFromWorkstationCode(ws.code)
-  const { status, isActive } = uiStatusToEquipment(p.status)
 
   try {
     const id = await db.$transaction(async (tx) => {
@@ -269,8 +255,8 @@ export async function createComputerConfig(
           inventoryNumber: inv,
           name: displayName,
           type: EquipmentType.COMPUTER,
-          status,
-          isActive,
+          status: EquipmentStatus.OPERATIONAL,
+          isActive: true,
           workstationId: ws.id,
           equipmentKindId: computerKind?.id ?? null,
           purchaseDate: parseDate(p.purchaseDate),
@@ -283,6 +269,7 @@ export async function createComputerConfig(
       const comps = buildComponents(equipment.id, p)
       await tx.component.createMany({ data: comps })
       await syncOsSoftware(tx, equipment.id, p.osName, p.osVersion)
+      await recomputeEquipmentStatus(tx, equipment.id)
 
       return equipment.id
     })
@@ -329,7 +316,6 @@ export async function updateComputerConfig(
   if (dupWs) return { ok: false, error: "На этом рабочем месте уже есть другой компьютер", status: 409 }
 
   const displayName = p.name.trim() || pcNameFromWorkstationCode(ws.code)
-  const { status, isActive } = uiStatusToEquipment(p.status)
 
   const prevWsId = existing.workstationId
 
@@ -352,8 +338,6 @@ export async function updateComputerConfig(
         data: {
           inventoryNumber: inv,
           name: displayName,
-          status,
-          isActive,
           workstationId: ws.id,
           purchaseDate: parseDate(p.purchaseDate),
           warrantyUntil: parseDate(p.warrantyEnd),
@@ -368,6 +352,7 @@ export async function updateComputerConfig(
       const comps = buildComponents(equipmentId, p)
       await tx.component.createMany({ data: comps })
       await syncOsSoftware(tx, equipmentId, p.osName, p.osVersion)
+      await recomputeEquipmentStatus(tx, equipmentId)
     })
 
     const computer = await loadMappedRow(equipmentId)

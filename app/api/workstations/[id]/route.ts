@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server"
-import { WorkstationStatus } from "@prisma/client"
 import { auth, isAdminSession } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { updateWorkstationSchema } from "@/lib/validators"
 import { workstationCodeMatchesClassroom } from "@/lib/workstation-code"
+import { syncWorkstationStatusFromEquipment } from "@/lib/workstation-status-sync"
 
 function parseLastMaintenance(v: string | null | undefined): Date | null | undefined {
   if (v === undefined) return undefined
@@ -54,16 +54,6 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
 
   const data = parsed.data
 
-  const mergedHasOther = data.hasOtherEquipment ?? existing.hasOtherEquipment
-  const mergedNote =
-    data.otherEquipmentNote !== undefined ? data.otherEquipmentNote : existing.otherEquipmentNote
-  if (mergedHasOther && !String(mergedNote ?? "").trim()) {
-    return NextResponse.json(
-      { error: "Укажите примечание для комплектации «Другое»" },
-      { status: 400 }
-    )
-  }
-
   const targetClassroomId = data.classroomId ?? existing.classroomId
   const classroom = await db.classroom.findUnique({
     where: { id: targetClassroomId },
@@ -100,30 +90,20 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
   const lastMaintenance =
     data.lastMaintenance !== undefined ? parseLastMaintenance(data.lastMaintenance) : undefined
 
-  await db.workstation.update({
-    where: { id },
-    data: {
-      ...(data.code !== undefined ? { code: data.code } : {}),
-      ...(data.classroomId !== undefined ? { classroomId: data.classroomId } : {}),
-      ...(data.name !== undefined ? { name: data.name?.trim() || null } : {}),
-      ...(data.description !== undefined ? { description: data.description?.trim() || null } : {}),
-      ...(data.pcName !== undefined ? { pcName: data.pcName?.trim() || null } : {}),
-      ...(data.status !== undefined ? { status: data.status as WorkstationStatus } : {}),
-      ...(data.hasMonitor !== undefined ? { hasMonitor: data.hasMonitor } : {}),
-      ...(data.hasKeyboard !== undefined ? { hasKeyboard: data.hasKeyboard } : {}),
-      ...(data.hasMouse !== undefined ? { hasMouse: data.hasMouse } : {}),
-      ...(data.hasHeadphones !== undefined ? { hasHeadphones: data.hasHeadphones } : {}),
-      ...(data.hasOtherEquipment !== undefined ? { hasOtherEquipment: data.hasOtherEquipment } : {}),
-      ...(data.otherEquipmentNote !== undefined || data.hasOtherEquipment !== undefined
-        ? {
-            otherEquipmentNote: mergedHasOther
-              ? String(data.otherEquipmentNote ?? existing.otherEquipmentNote ?? "").trim() || null
-              : null,
-          }
-        : {}),
-      ...(lastMaintenance !== undefined ? { lastMaintenance } : {}),
-      ...(data.isActive !== undefined ? { isActive: data.isActive } : {}),
-    },
+  await db.$transaction(async (tx) => {
+    await tx.workstation.update({
+      where: { id },
+      data: {
+        ...(data.code !== undefined ? { code: data.code } : {}),
+        ...(data.classroomId !== undefined ? { classroomId: data.classroomId } : {}),
+        ...(data.name !== undefined ? { name: data.name?.trim() || null } : {}),
+        ...(data.description !== undefined ? { description: data.description?.trim() || null } : {}),
+        ...(data.pcName !== undefined ? { pcName: data.pcName?.trim() || null } : {}),
+        ...(lastMaintenance !== undefined ? { lastMaintenance } : {}),
+        ...(data.isActive !== undefined ? { isActive: data.isActive } : {}),
+      },
+    })
+    await syncWorkstationStatusFromEquipment(tx, id)
   })
 
   return NextResponse.json({ ok: true })

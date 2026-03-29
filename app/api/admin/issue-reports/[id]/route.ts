@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { IssueStatus, RepairStatus, UserRole } from "@prisma/client"
 import { auth } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { recomputeEquipmentStatus } from "@/lib/equipment-status-sync"
 import { adminUpdateIssueReportSchema } from "@/lib/validators"
 
 const listInclude = {
@@ -74,16 +75,32 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     }
   }
 
-  const row = await db.issueReport.update({
-    where: { id },
-    data: {
-      ...(u.title !== undefined ? { title: u.title } : {}),
-      ...(u.description !== undefined ? { description: u.description } : {}),
-      ...(u.status !== undefined ? { status: u.status } : {}),
-      ...(u.priority !== undefined ? { priority: u.priority } : {}),
-      ...(u.resolution !== undefined ? { resolution: u.resolution } : {}),
-    },
-    include: listInclude,
+  const row = await db.$transaction(async (tx) => {
+    await tx.issueReport.update({
+      where: { id },
+      data: {
+        ...(u.title !== undefined ? { title: u.title } : {}),
+        ...(u.description !== undefined ? { description: u.description } : {}),
+        ...(u.status !== undefined ? { status: u.status } : {}),
+        ...(u.priority !== undefined ? { priority: u.priority } : {}),
+        ...(u.resolution !== undefined ? { resolution: u.resolution } : {}),
+      },
+    })
+    const linkedRepairs = await tx.repair.findMany({
+      where: { issueReportId: id },
+      select: { equipmentId: true },
+    })
+    const toSync = new Set<string>([existing.equipmentId])
+    for (const r of linkedRepairs) {
+      toSync.add(r.equipmentId)
+    }
+    for (const equipmentId of toSync) {
+      await recomputeEquipmentStatus(tx, equipmentId)
+    }
+    return tx.issueReport.findUnique({
+      where: { id },
+      include: listInclude,
+    })
   })
 
   return NextResponse.json({ issue: row })

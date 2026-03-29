@@ -606,17 +606,17 @@ export default function SoftwarePage() {
           <CardTitle>Фильтры</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
-          <div className="relative">
+          <div className="relative min-w-0">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               className="pl-9"
-              placeholder="Поиск по названию, издателю, версии…"
+              placeholder="Поиск по названию, издателю, версии, инв. №…"
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
             />
           </div>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-            <div className="grid gap-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-[repeat(5,minmax(0,1fr))]">
+            <div className="relative min-w-0 flex flex-col gap-2">
               <Label>Тип ПО</Label>
               <Select
                 value={filterCategory}
@@ -635,7 +635,7 @@ export default function SoftwarePage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid gap-2">
+            <div className="relative min-w-0 flex flex-col gap-2">
               <Label>Тип лицензии</Label>
               <Select
                 value={filterLicense}
@@ -654,7 +654,7 @@ export default function SoftwarePage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid gap-2">
+            <div className="relative min-w-0 flex flex-col gap-2">
               <Label>Корпус</Label>
               <Select value={filterBuildingId} onValueChange={setFilterBuildingId}>
                 <SelectTrigger>
@@ -670,7 +670,7 @@ export default function SoftwarePage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid gap-2">
+            <div className="relative min-w-0 flex flex-col gap-2">
               <Label>Аудитория</Label>
               <Select
                 value={filterClassroomId}
@@ -691,7 +691,7 @@ export default function SoftwarePage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid gap-2">
+            <div className="relative min-w-0 flex flex-col gap-2">
               <Label>Рабочее место</Label>
               <Select
                 value={filterWorkstationId}

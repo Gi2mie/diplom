@@ -217,27 +217,10 @@ export function PcConfigFormFields({
               placeholder="Например: INV-2024-0001"
             />
           </div>
-          <div className="space-y-2 sm:col-span-2">
-            <Label>Статус</Label>
-            <Select
-              value={form.status}
-              onValueChange={(v) =>
-                setForm((f) => ({
-                  ...f,
-                  status: v as PcConfigSavePayload["status"],
-                }))
-              }
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Выберите статус" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="active">Активен</SelectItem>
-                <SelectItem value="repair">На ремонте</SelectItem>
-                <SelectItem value="decommissioned">Списан</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+          <p className="text-xs text-muted-foreground sm:col-span-2">
+            Статус оборудования задаётся автоматически по неисправностям и ремонтам (как на вкладке
+            «Оборудование»).
+          </p>
         </div>
       </div>
 

@@ -125,6 +125,7 @@ const adminNavigation: NavigationGroup[] = [
     title: "Отчётность и аналитика",
     items: [
       { title: "Отчёты", href: "/dashboard/reports", icon: FileText },
+      { title: "Журнал перемещения", href: "/dashboard/movement-journal", icon: ClipboardList },
     ]
   },
 ]

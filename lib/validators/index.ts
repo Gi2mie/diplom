@@ -11,7 +11,6 @@ import {
   EntityType,
   CustomFieldType,
   ClassroomListingStatus,
-  WorkstationStatus,
 } from "@prisma/client"
 import { ALLOWED_CLASSROOM_TYPE_COLORS } from "@/lib/classroom-colors"
 
@@ -110,7 +109,6 @@ const workstationBaseSchema = z.object({
   name: z.string().optional().nullable(),
   description: z.string().optional().nullable(),
   pcName: z.string().optional().nullable(),
-  status: z.nativeEnum(WorkstationStatus).optional(),
   hasMonitor: z.boolean().optional(),
   hasKeyboard: z.boolean().optional(),
   hasMouse: z.boolean().optional(),
@@ -120,19 +118,15 @@ const workstationBaseSchema = z.object({
   lastMaintenance: z.string().optional().nullable(),
 })
 
-export const createWorkstationSchema = workstationBaseSchema
-  .extend({
-    status: z.nativeEnum(WorkstationStatus).default(WorkstationStatus.ACTIVE),
-  })
-  .superRefine((data, ctx) => {
-    if (data.hasOtherEquipment && !String(data.otherEquipmentNote ?? "").trim()) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Укажите примечание для комплектации «Другое»",
-        path: ["otherEquipmentNote"],
-      })
-    }
-  })
+export const createWorkstationSchema = workstationBaseSchema.superRefine((data, ctx) => {
+  if (data.hasOtherEquipment && !String(data.otherEquipmentNote ?? "").trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Укажите примечание для комплектации «Другое»",
+      path: ["otherEquipmentNote"],
+    })
+  }
+})
 
 export const updateWorkstationSchema = workstationBaseSchema
   .partial()
@@ -164,16 +158,17 @@ export const updateEquipmentKindSchema = createEquipmentKindSchema.partial()
 export const createEquipmentSchema = z.object({
   inventoryNumber: z.string().min(1, "Инвентарный номер обязателен"),
   name: z.string().min(1, "Наименование обязательно"),
-  categoryId: z.string().cuid("Выберите категорию"),
+  // Категории из seed используют произвольные id (например seed-ecat-monitors), не только cuid
+  categoryId: z.string().min(1, "Выберите категорию"),
   equipmentKindId: z.string().cuid("Выберите тип оборудования"),
   status: z.nativeEnum(EquipmentStatus).optional(),
   workstationId: z.string().cuid().optional().nullable(),
-  manufacturer: z.string().optional(),
-  model: z.string().optional(),
-  serialNumber: z.string().optional(),
-  purchaseDate: z.coerce.date().optional(),
-  warrantyUntil: z.coerce.date().optional(),
-  description: z.string().optional(),
+  manufacturer: z.string().nullable().optional(),
+  model: z.string().nullable().optional(),
+  serialNumber: z.string().nullable().optional(),
+  purchaseDate: z.coerce.date().optional().nullable(),
+  warrantyUntil: z.coerce.date().optional().nullable(),
+  description: z.string().nullable().optional(),
 })
 
 export const updateEquipmentSchema = createEquipmentSchema.partial().extend({

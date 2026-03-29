@@ -3,6 +3,13 @@ export type UsersListMeta = {
   blockedTotal: number
 }
 
+export type ResponsibleClassroomItem = {
+  id: string
+  number: string
+  name: string | null
+  building: string | null
+}
+
 export type UserListItem = {
   id: string
   firstName: string
@@ -14,6 +21,7 @@ export type UserListItem = {
   status: "ACTIVE" | "INACTIVE" | "BLOCKED"
   position: string | null
   department: string | null
+  responsibleClassrooms: ResponsibleClassroomItem[]
   createdAt: string
   lastLoginAt: string | null
 }

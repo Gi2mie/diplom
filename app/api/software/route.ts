@@ -30,6 +30,15 @@ export async function GET(request: Request) {
       { name: { contains: search, mode: "insensitive" } },
       { vendor: { contains: search, mode: "insensitive" } },
       { version: { contains: search, mode: "insensitive" } },
+      {
+        installations: {
+          some: {
+            equipment: {
+              inventoryNumber: { contains: search, mode: "insensitive" },
+            },
+          },
+        },
+      },
     ]
   }
 

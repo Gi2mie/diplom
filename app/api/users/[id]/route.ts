@@ -8,27 +8,7 @@ import {
   normalizeNhtkEmail,
   validateUserPhoneOrThrow,
 } from "@/lib/user-validation"
-
-function toPublicUser(user: {
-  id: string
-  firstName: string
-  lastName: string
-  middleName: string | null
-  email: string
-  phone: string | null
-  role: UserRole
-  status: UserStatus
-  position: string | null
-  department: string | null
-  createdAt: Date
-  lastLoginAt: Date | null
-}) {
-  return {
-    ...user,
-    createdAt: user.createdAt.toISOString(),
-    lastLoginAt: user.lastLoginAt?.toISOString() ?? null,
-  }
-}
+import { toPublicUserJson, userResponsibleRoomsSelect } from "@/lib/user-serialize"
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth()
@@ -52,6 +32,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
       department: true,
       createdAt: true,
       lastLoginAt: true,
+      responsibleRooms: userResponsibleRoomsSelect,
     },
   })
 
@@ -63,7 +44,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
-  return NextResponse.json({ user: toPublicUser(user) })
+  return NextResponse.json({ user: toPublicUserJson(user) })
 }
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -178,9 +159,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       department: true,
       createdAt: true,
       lastLoginAt: true,
+      responsibleRooms: userResponsibleRoomsSelect,
     },
   })
 
-  return NextResponse.json({ user: toPublicUser(user) })
+  return NextResponse.json({ user: toPublicUserJson(user) })
 }
-

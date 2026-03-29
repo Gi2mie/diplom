@@ -99,6 +99,20 @@ function workstationLabel(w: ApiWorkstation): string {
   return w.code || w.id
 }
 
+function inventoryNumbersForSoftwareRequest(
+  req: SoftwareRequestListRow,
+  workstations: ApiWorkstation[]
+): string[] {
+  if (req.wholeClassroom) {
+    return workstations
+      .filter((w) => w.classroomId === req.classroomId)
+      .flatMap((w) => w.equipmentItems.map((e) => e.inventoryNumber))
+  }
+  if (!req.workstationId) return []
+  const ws = workstations.find((w) => w.id === req.workstationId)
+  return ws ? ws.equipmentItems.map((e) => e.inventoryNumber) : []
+}
+
 function requesterLabel(r: SoftwareRequestListRow["requester"]): string {
   const m = r.middleName ? ` ${r.middleName}` : ""
   return `${r.lastName} ${r.firstName}${m}`.trim()
@@ -233,11 +247,15 @@ export default function SoftwareRequestsPage() {
   const filteredRequests = useMemo(() => {
     return requests.filter((req) => {
       const q = searchQuery.toLowerCase()
+      const invs = inventoryNumbersForSoftwareRequest(req, workstations)
       const matchesSearch =
         !q ||
         req.softwareName.toLowerCase().includes(q) ||
         req.description.toLowerCase().includes(q) ||
-        requesterLabel(req.requester).toLowerCase().includes(q)
+        requesterLabel(req.requester).toLowerCase().includes(q) ||
+        req.classroom.number.toLowerCase().includes(q) ||
+        (req.workstation?.code && req.workstation.code.toLowerCase().includes(q)) ||
+        invs.some((inv) => inv.toLowerCase().includes(q))
 
       const matchesClassroom =
         selectedClassroomId === "all" || req.classroomId === selectedClassroomId
@@ -256,7 +274,15 @@ export default function SoftwareRequestsPage() {
         matchesKind
       )
     })
-  }, [requests, searchQuery, selectedClassroomId, selectedWorkstationId, selectedStatus, selectedKind])
+  }, [
+    requests,
+    workstations,
+    searchQuery,
+    selectedClassroomId,
+    selectedWorkstationId,
+    selectedStatus,
+    selectedKind,
+  ])
 
   const stats = useMemo(
     () => ({
@@ -505,88 +531,94 @@ export default function SoftwareRequestsPage() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-4 md:grid-cols-5">
-            <div className="relative md:col-span-2">
+          <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-[repeat(6,minmax(0,1fr))]">
+            <div className="relative min-w-0 sm:col-span-2 xl:col-span-2">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder="Поиск по ПО, описанию, заявителю…"
+                placeholder="ПО, описание, заявитель, инв. номер, код РМ, аудитория…"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-10"
               />
             </div>
 
-            <Select
-              value={selectedClassroomId}
-              onValueChange={(value) => {
-                setSelectedClassroomId(value)
-                setSelectedWorkstationId("all")
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Аудитория" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Все аудитории</SelectItem>
-                {classrooms.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {classroomLabel(c)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="min-w-0">
+              <Select
+                value={selectedClassroomId}
+                onValueChange={(value) => {
+                  setSelectedClassroomId(value)
+                  setSelectedWorkstationId("all")
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Аудитория" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Все аудитории</SelectItem>
+                  {classrooms.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {classroomLabel(c)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-            <Select
-              value={selectedWorkstationId}
-              onValueChange={setSelectedWorkstationId}
-              disabled={selectedClassroomId === "all"}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Рабочее место" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Все</SelectItem>
-                <SelectItem value="__whole__">Только «вся аудитория»</SelectItem>
-                {filterWorkstationOptions.map((w) => (
-                  <SelectItem key={w.id} value={w.id}>
-                    {workstationLabel(w)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="min-w-0">
+              <Select
+                value={selectedWorkstationId}
+                onValueChange={setSelectedWorkstationId}
+                disabled={selectedClassroomId === "all"}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Рабочее место" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Все</SelectItem>
+                  <SelectItem value="__whole__">Только «вся аудитория»</SelectItem>
+                  {filterWorkstationOptions.map((w) => (
+                    <SelectItem key={w.id} value={w.id}>
+                      {workstationLabel(w)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-            <Select
-              value={selectedStatus}
-              onValueChange={(v) => setSelectedStatus(v as SoftwareRequestStatus | "all")}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Статус" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Все статусы</SelectItem>
-                <SelectItem value={SoftwareRequestStatus.PENDING}>Не начато</SelectItem>
-                <SelectItem value={SoftwareRequestStatus.IN_PROGRESS}>В работе</SelectItem>
-                <SelectItem value={SoftwareRequestStatus.COMPLETED}>Выполнено</SelectItem>
-                <SelectItem value={SoftwareRequestStatus.REJECTED}>Отклонено</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+            <div className="min-w-0">
+              <Select
+                value={selectedStatus}
+                onValueChange={(v) => setSelectedStatus(v as SoftwareRequestStatus | "all")}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Статус" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Все статусы</SelectItem>
+                  <SelectItem value={SoftwareRequestStatus.PENDING}>Не начато</SelectItem>
+                  <SelectItem value={SoftwareRequestStatus.IN_PROGRESS}>В работе</SelectItem>
+                  <SelectItem value={SoftwareRequestStatus.COMPLETED}>Выполнено</SelectItem>
+                  <SelectItem value={SoftwareRequestStatus.REJECTED}>Отклонено</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
 
-          <div className="mt-4">
-            <Select
-              value={selectedKind}
-              onValueChange={(v) => setSelectedKind(v as SoftwareRequestKind | "all")}
-            >
-              <SelectTrigger className="w-full md:w-56">
-                <SelectValue placeholder="Тип заявки" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Все типы</SelectItem>
-                <SelectItem value={SoftwareRequestKind.INSTALL}>Установка</SelectItem>
-                <SelectItem value={SoftwareRequestKind.UPDATE}>Обновление</SelectItem>
-                <SelectItem value={SoftwareRequestKind.UNINSTALL}>Удаление</SelectItem>
-              </SelectContent>
-            </Select>
+            <div className="min-w-0 sm:col-span-2 xl:col-span-1">
+              <Select
+                value={selectedKind}
+                onValueChange={(v) => setSelectedKind(v as SoftwareRequestKind | "all")}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Тип заявки" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Все типы</SelectItem>
+                  <SelectItem value={SoftwareRequestKind.INSTALL}>Установка</SelectItem>
+                  <SelectItem value={SoftwareRequestKind.UPDATE}>Обновление</SelectItem>
+                  <SelectItem value={SoftwareRequestKind.UNINSTALL}>Удаление</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </CardContent>
       </Card>

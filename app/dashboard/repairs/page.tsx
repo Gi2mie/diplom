@@ -187,11 +187,13 @@ export default function RepairsPage() {
       const assignee = row.assignedTo ? personLabel(row.assignedTo).toLowerCase() : ""
       const creator = personLabel(row.createdBy).toLowerCase()
       const issueTitle = row.issueReport?.title?.toLowerCase() ?? ""
+      const wsCode = row.equipment.workstation?.code?.toLowerCase() ?? ""
       const matchesQ =
         !q ||
         row.description.toLowerCase().includes(q) ||
         row.equipment.name.toLowerCase().includes(q) ||
         row.equipment.inventoryNumber.toLowerCase().includes(q) ||
+        (wsCode && wsCode.includes(q)) ||
         assignee.includes(q) ||
         creator.includes(q) ||
         issueTitle.includes(q)
@@ -319,69 +321,75 @@ export default function RepairsPage() {
           <CardDescription>Поиск и отбор по аудитории и статусу</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-4 md:grid-cols-5">
-            <div className="relative md:col-span-2">
+          <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-[repeat(6,minmax(0,1fr))]">
+            <div className="relative min-w-0 sm:col-span-2 xl:col-span-2">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder="Оборудование, инв. номер, обращение, ФИО…"
+                placeholder="Оборудование, инв. номер, код РМ, обращение, ФИО…"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-9"
               />
             </div>
-            <Select
-              value={filterClassroomId}
-              onValueChange={(v) => {
-                setFilterClassroomId(v)
-                setFilterWorkstationId("all")
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Аудитория" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Все аудитории</SelectItem>
-                {classroomOptions.map(([id, label]) => (
-                  <SelectItem key={id} value={id}>
-                    {label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select
-              value={filterWorkstationId}
-              onValueChange={setFilterWorkstationId}
-              disabled={filterClassroomId === "all"}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Рабочее место" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Все РМ</SelectItem>
-                {workstationFilterOptions.map(([id, label]) => (
-                  <SelectItem key={id} value={id}>
-                    {label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select
-              value={filterStatus}
-              onValueChange={(v) => setFilterStatus(v === "all" ? "all" : (v as RepairStatus))}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Статус" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Все статусы</SelectItem>
-                {(Object.keys(statusMeta) as RepairStatus[]).map((s) => (
-                  <SelectItem key={s} value={s}>
-                    {statusMeta[s].label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <div className="flex items-end">
+            <div className="min-w-0">
+              <Select
+                value={filterClassroomId}
+                onValueChange={(v) => {
+                  setFilterClassroomId(v)
+                  setFilterWorkstationId("all")
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Аудитория" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Все аудитории</SelectItem>
+                  {classroomOptions.map(([id, label]) => (
+                    <SelectItem key={id} value={id}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="min-w-0">
+              <Select
+                value={filterWorkstationId}
+                onValueChange={setFilterWorkstationId}
+                disabled={filterClassroomId === "all"}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Рабочее место" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Все РМ</SelectItem>
+                  {workstationFilterOptions.map(([id, label]) => (
+                    <SelectItem key={id} value={id}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="min-w-0">
+              <Select
+                value={filterStatus}
+                onValueChange={(v) => setFilterStatus(v === "all" ? "all" : (v as RepairStatus))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Статус" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Все статусы</SelectItem>
+                  {(Object.keys(statusMeta) as RepairStatus[]).map((s) => (
+                    <SelectItem key={s} value={s}>
+                      {statusMeta[s].label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex min-w-0 items-end sm:col-span-2 xl:col-span-1">
               <Button type="button" variant="outline" className="w-full" disabled={!hasFilters} onClick={resetFilters}>
                 Сбросить
               </Button>

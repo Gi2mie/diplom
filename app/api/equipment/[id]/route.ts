@@ -3,6 +3,8 @@ import { UserRole } from "@prisma/client"
 import { auth, isAdminSession } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { updateEquipmentSchema } from "@/lib/validators"
+import { syncWorkstationKitFromEquipment } from "@/lib/workstation-kit-sync"
+import { syncWorkstationStatusFromEquipment } from "@/lib/workstation-status-sync"
 
 export async function GET(
   _request: Request,
@@ -127,25 +129,38 @@ export async function PATCH(
     mapsToEnum = kind.mapsToEnum
   }
 
-  await db.equipment.update({
-    where: { id },
-    data: {
-      ...(d.inventoryNumber !== undefined ? { inventoryNumber: d.inventoryNumber.trim() } : {}),
-      ...(d.name !== undefined ? { name: d.name.trim() } : {}),
-      ...(d.status !== undefined ? { status: d.status } : {}),
-      ...(d.categoryId !== undefined ? { categoryId: d.categoryId } : {}),
-      ...(d.equipmentKindId !== undefined
-        ? { equipmentKindId: d.equipmentKindId, type: mapsToEnum }
-        : {}),
-      ...(d.workstationId !== undefined ? { workstationId: d.workstationId } : {}),
-      ...(d.manufacturer !== undefined ? { manufacturer: d.manufacturer?.trim() || null } : {}),
-      ...(d.model !== undefined ? { model: d.model?.trim() || null } : {}),
-      ...(d.serialNumber !== undefined ? { serialNumber: d.serialNumber?.trim() || null } : {}),
-      ...(d.purchaseDate !== undefined ? { purchaseDate: d.purchaseDate ?? null } : {}),
-      ...(d.warrantyUntil !== undefined ? { warrantyUntil: d.warrantyUntil ?? null } : {}),
-      ...(d.description !== undefined ? { description: d.description?.trim() || null } : {}),
-      ...(d.isActive !== undefined ? { isActive: d.isActive } : {}),
-    },
+  const prevWorkstationId = existing.workstationId
+  const nextWorkstationId = d.workstationId !== undefined ? d.workstationId : existing.workstationId
+
+  await db.$transaction(async (tx) => {
+    await tx.equipment.update({
+      where: { id },
+      data: {
+        ...(d.inventoryNumber !== undefined ? { inventoryNumber: d.inventoryNumber.trim() } : {}),
+        ...(d.name !== undefined ? { name: d.name.trim() } : {}),
+        ...(d.categoryId !== undefined ? { categoryId: d.categoryId } : {}),
+        ...(d.equipmentKindId !== undefined
+          ? { equipmentKindId: d.equipmentKindId, type: mapsToEnum }
+          : {}),
+        ...(d.workstationId !== undefined ? { workstationId: d.workstationId } : {}),
+        ...(d.manufacturer !== undefined ? { manufacturer: d.manufacturer?.trim() || null } : {}),
+        ...(d.model !== undefined ? { model: d.model?.trim() || null } : {}),
+        ...(d.serialNumber !== undefined ? { serialNumber: d.serialNumber?.trim() || null } : {}),
+        ...(d.purchaseDate !== undefined ? { purchaseDate: d.purchaseDate ?? null } : {}),
+        ...(d.warrantyUntil !== undefined ? { warrantyUntil: d.warrantyUntil ?? null } : {}),
+        ...(d.description !== undefined ? { description: d.description?.trim() || null } : {}),
+        ...(d.isActive !== undefined ? { isActive: d.isActive } : {}),
+      },
+    })
+
+    if (prevWorkstationId && prevWorkstationId !== nextWorkstationId) {
+      await syncWorkstationKitFromEquipment(tx, prevWorkstationId)
+      await syncWorkstationStatusFromEquipment(tx, prevWorkstationId)
+    }
+    if (nextWorkstationId) {
+      await syncWorkstationKitFromEquipment(tx, nextWorkstationId)
+      await syncWorkstationStatusFromEquipment(tx, nextWorkstationId)
+    }
   })
 
   return NextResponse.json({ ok: true })
@@ -161,11 +176,20 @@ export async function DELETE(
   }
 
   const { id } = await params
-  const existing = await db.equipment.findUnique({ where: { id }, select: { id: true } })
+  const existing = await db.equipment.findUnique({
+    where: { id },
+    select: { id: true, workstationId: true },
+  })
   if (!existing) {
     return NextResponse.json({ error: "Не найдено" }, { status: 404 })
   }
 
-  await db.equipment.delete({ where: { id } })
+  await db.$transaction(async (tx) => {
+    await tx.equipment.delete({ where: { id } })
+    if (existing.workstationId) {
+      await syncWorkstationKitFromEquipment(tx, existing.workstationId)
+      await syncWorkstationStatusFromEquipment(tx, existing.workstationId)
+    }
+  })
   return NextResponse.json({ ok: true })
 }

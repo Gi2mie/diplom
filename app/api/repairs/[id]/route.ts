@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server"
 import type { Prisma } from "@prisma/client"
-import { EquipmentStatus, RepairStatus, UserRole } from "@prisma/client"
+import { RepairStatus, UserRole } from "@prisma/client"
 import { auth } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { recomputeEquipmentStatus } from "@/lib/equipment-status-sync"
 import { patchRepairStatusSchema } from "@/lib/validators"
 
 const repairInclude = {
@@ -25,20 +26,6 @@ const repairInclude = {
     select: { id: true, firstName: true, lastName: true, middleName: true },
   },
 } as const
-
-function equipmentStatusForRepair(status: RepairStatus): EquipmentStatus {
-  switch (status) {
-    case RepairStatus.PLANNED:
-    case RepairStatus.IN_PROGRESS:
-      return EquipmentStatus.IN_REPAIR
-    case RepairStatus.COMPLETED:
-      return EquipmentStatus.OPERATIONAL
-    case RepairStatus.CANCELLED:
-      return EquipmentStatus.NEEDS_CHECK
-    default:
-      return EquipmentStatus.IN_REPAIR
-  }
-}
 
 /** Смена статуса ремонта (администратор). Синхронизирует статус оборудования. */
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
@@ -85,16 +72,13 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   }
 
   const updated = await db.$transaction(async (tx) => {
-    await tx.equipment.update({
-      where: { id: repair.equipmentId },
-      data: { status: equipmentStatusForRepair(nextStatus) },
-    })
-
-    return tx.repair.update({
+    const updatedRepair = await tx.repair.update({
       where: { id },
       data,
       include: repairInclude,
     })
+    await recomputeEquipmentStatus(tx, repair.equipmentId)
+    return updatedRepair
   })
 
   return NextResponse.json({ repair: updated })

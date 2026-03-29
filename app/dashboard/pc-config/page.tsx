@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from "react"
 import { useSession } from "next-auth/react"
+import { EquipmentStatus } from "@prisma/client"
 import {
   Search,
   MoreHorizontal,
@@ -13,8 +14,15 @@ import {
   CircuitBoard,
   Download,
   Laptop,
-  Server,
+  CheckCircle2,
+  AlertTriangle,
+  Wrench,
 } from "lucide-react"
+import {
+  EQUIPMENT_STATUS_FILTER_OPTIONS,
+  equipmentStatusBadgeVariant,
+  equipmentStatusLabel,
+} from "@/lib/equipment-labels"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -69,20 +77,7 @@ import { fetchWorkstations, type ApiWorkstation } from "@/lib/api/workstations"
 import type { PcConfigSavePayload } from "@/lib/pc-config-persist"
 import { PcConfigFormFields } from "./pc-config-form-fields"
 
-type PCStatus = PcConfigRow["status"]
 type PCConfig = PcConfigRow
-
-const statusLabels: Record<PCStatus, string> = {
-  active: "Активен",
-  repair: "На ремонте",
-  decommissioned: "Списан",
-}
-
-const statusColors: Record<PCStatus, string> = {
-  active: "bg-green-100 text-green-800 border-green-200",
-  repair: "bg-yellow-100 text-yellow-800 border-yellow-200",
-  decommissioned: "bg-red-100 text-red-800 border-red-200",
-}
 
 export default function PCConfigPage() {
   const { status: sessionStatus } = useSession()
@@ -94,7 +89,7 @@ export default function PCConfigPage() {
 
   const [searchQuery, setSearchQuery] = useState("")
   const [classroomFilter, setClassroomFilter] = useState("all")
-  const [statusFilter, setStatusFilter] = useState("all")
+  const [statusFilter, setStatusFilter] = useState<EquipmentStatus | "all">("all")
 
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false)
   const [selectedPC, setSelectedPC] = useState<PCConfig | null>(null)
@@ -142,7 +137,7 @@ export default function PCConfigPage() {
         pc.ipAddress.includes(searchQuery)
 
       const matchesClassroom = classroomFilter === "all" || pc.classroomId === classroomFilter
-      const matchesStatus = statusFilter === "all" || pc.status === statusFilter
+      const matchesStatus = statusFilter === "all" || pc.equipmentStatus === statusFilter
 
       return matchesSearch && matchesClassroom && matchesStatus
     })
@@ -151,9 +146,9 @@ export default function PCConfigPage() {
   const stats = useMemo(() => {
     return {
       total: pcConfigs.length,
-      active: pcConfigs.filter((pc) => pc.status === "active").length,
-      repair: pcConfigs.filter((pc) => pc.status === "repair").length,
-      decommissioned: pcConfigs.filter((pc) => pc.status === "decommissioned").length,
+      operational: pcConfigs.filter((pc) => pc.equipmentStatus === EquipmentStatus.OPERATIONAL).length,
+      needsCheck: pcConfigs.filter((pc) => pc.equipmentStatus === EquipmentStatus.NEEDS_CHECK).length,
+      inRepair: pcConfigs.filter((pc) => pc.equipmentStatus === EquipmentStatus.IN_REPAIR).length,
     }
   }, [pcConfigs])
 
@@ -314,29 +309,29 @@ export default function PCConfigPage() {
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Активных</CardTitle>
-            <Server className="h-4 w-4 text-green-600" />
+            <CardTitle className="text-sm font-medium">Исправно</CardTitle>
+            <CheckCircle2 className="h-4 w-4 text-green-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">{stats.active}</div>
+            <div className="text-2xl font-bold text-green-600">{stats.operational}</div>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">На ремонте</CardTitle>
-            <Server className="h-4 w-4 text-yellow-600" />
+            <CardTitle className="text-sm font-medium">Требует проверки</CardTitle>
+            <AlertTriangle className="h-4 w-4 text-amber-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-yellow-600">{stats.repair}</div>
+            <div className="text-2xl font-bold text-amber-600">{stats.needsCheck}</div>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Списано</CardTitle>
-            <Server className="h-4 w-4 text-red-600" />
+            <CardTitle className="text-sm font-medium">В ремонте</CardTitle>
+            <Wrench className="h-4 w-4 text-blue-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-red-600">{stats.decommissioned}</div>
+            <div className="text-2xl font-bold text-blue-600">{stats.inRepair}</div>
           </CardContent>
         </Card>
       </div>
@@ -347,42 +342,50 @@ export default function PCConfigPage() {
           <CardTitle className="text-base">Фильтры</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-4 md:grid-cols-3">
-            <div className="relative">
+          <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-[repeat(3,minmax(0,1fr))]">
+            <div className="relative min-w-0 sm:col-span-2 lg:col-span-1">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder="Поиск по номеру рабочего места, IP..."
+                placeholder="Имя ПК, код РМ, инв. номер, IP, процессор…"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-10"
               />
             </div>
-            <Select value={classroomFilter} onValueChange={setClassroomFilter}>
-              <SelectTrigger>
-                <SelectValue placeholder="Все аудитории" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Все аудитории</SelectItem>
-                {classrooms.map((classroom) => (
-                  <SelectItem key={classroom.id} value={classroom.id}>
-                    {classroom.name?.trim()
-                      ? `${classroom.name.trim()} (${classroom.number})`
-                      : classroom.number || "—"}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger>
-                <SelectValue placeholder="Все статусы" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Все статусы</SelectItem>
-                <SelectItem value="active">Активен</SelectItem>
-                <SelectItem value="repair">На ремонте</SelectItem>
-                <SelectItem value="decommissioned">Списан</SelectItem>
-              </SelectContent>
-            </Select>
+            <div className="min-w-0">
+              <Select value={classroomFilter} onValueChange={setClassroomFilter}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Все аудитории" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Все аудитории</SelectItem>
+                  {classrooms.map((classroom) => (
+                    <SelectItem key={classroom.id} value={classroom.id}>
+                      {classroom.name?.trim()
+                        ? `${classroom.name.trim()} (${classroom.number})`
+                        : classroom.number || "—"}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="min-w-0 sm:col-span-2 lg:col-span-1">
+              <Select
+                value={statusFilter}
+                onValueChange={(v) => setStatusFilter(v as EquipmentStatus | "all")}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Все статусы" />
+                </SelectTrigger>
+                <SelectContent>
+                  {EQUIPMENT_STATUS_FILTER_OPTIONS.map((o, i) => (
+                    <SelectItem key={`pc-status-${i}-${String(o.value)}`} value={String(o.value)}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -451,8 +454,8 @@ export default function PCConfigPage() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Badge className={statusColors[pc.status]} variant="outline">
-                        {statusLabels[pc.status]}
+                      <Badge variant={equipmentStatusBadgeVariant(pc.equipmentStatus)}>
+                        {equipmentStatusLabel(pc.equipmentStatus)}
                       </Badge>
                     </TableCell>
                     <TableCell>
@@ -503,8 +506,8 @@ export default function PCConfigPage() {
               {/* Статус */}
               <div className="flex items-center gap-2">
                 <span className="text-sm text-muted-foreground">Статус:</span>
-                <Badge className={statusColors[selectedPC.status]} variant="outline">
-                  {statusLabels[selectedPC.status]}
+                <Badge variant={equipmentStatusBadgeVariant(selectedPC.equipmentStatus)}>
+                  {equipmentStatusLabel(selectedPC.equipmentStatus)}
                 </Badge>
               </div>
               
@@ -689,7 +692,8 @@ export default function PCConfigPage() {
           <DialogHeader>
             <DialogTitle>Добавить конфигурацию ПК</DialogTitle>
             <DialogDescription>
-              Данные сохраняются в базу: оборудование, компоненты и привязка к рабочему месту.
+              Данные сохраняются в базу: оборудование, компоненты и привязка к рабочему месту. Статус
+              ПК не задаётся вручную.
             </DialogDescription>
           </DialogHeader>
           {formError && (
@@ -736,7 +740,8 @@ export default function PCConfigPage() {
           <DialogHeader>
             <DialogTitle>Редактировать конфигурацию ПК</DialogTitle>
             <DialogDescription>
-              Изменения перезаписывают компоненты и запись оборудования в базе.
+              Изменения перезаписывают компоненты и запись оборудования в базе. Поле статуса не
+              меняется здесь — оно пересчитывается по заявкам и ремонтам.
             </DialogDescription>
           </DialogHeader>
           {formError && (

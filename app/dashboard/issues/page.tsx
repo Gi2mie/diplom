@@ -284,6 +284,9 @@ export default function IssuesPage() {
         row.title.toLowerCase().includes(q) ||
         row.description.toLowerCase().includes(q) ||
         row.equipment.name.toLowerCase().includes(q) ||
+        row.equipment.inventoryNumber.toLowerCase().includes(q) ||
+        (row.equipment.workstation?.code &&
+          row.equipment.workstation.code.toLowerCase().includes(q)) ||
         personLabel(row.reporter).toLowerCase().includes(q)
       const matchesC = filterClassroomId === "all" || roomId === filterClassroomId
       const matchesW = filterWorkstationId === "all" || wsId === filterWorkstationId
@@ -504,69 +507,86 @@ export default function IssuesPage() {
             Сбросить
           </Button>
         </CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-5">
-          <div className="relative md:col-span-2">
+        <CardContent className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-[repeat(6,minmax(0,1fr))]">
+          <div className="relative min-w-0 sm:col-span-2 xl:col-span-2">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input className="pl-9" placeholder="Поиск…" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
+            <Input
+              className="pl-9"
+              placeholder="Текст, оборудование, инв. номер, код РМ, заявитель…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
           </div>
-          <Select
-            value={filterClassroomId}
-            onValueChange={(v) => {
-              setFilterClassroomId(v)
-              setFilterWorkstationId("all")
-            }}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="Аудитория" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Все аудитории</SelectItem>
-              {classrooms.map((c) => (
-                <SelectItem key={c.id} value={c.id}>
-                  {c.name?.trim() || `№${c.number}`}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={filterWorkstationId} onValueChange={setFilterWorkstationId} disabled={filterClassroomId === "all"}>
-            <SelectTrigger>
-              <SelectValue placeholder="Рабочее место" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Все РМ</SelectItem>
-              {filterWsOptions.map((w) => (
-                <SelectItem key={w.id} value={w.id}>
-                  {w.code}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={filterStatus} onValueChange={(v) => setFilterStatus(v as IssueStatus | "all")}>
-            <SelectTrigger>
-              <SelectValue placeholder="Статус" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Все статусы</SelectItem>
-              {issueStatusFilterOptions.map((s) => (
-                <SelectItem key={s} value={s}>
-                  {statusMeta[s].label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={filterPriority} onValueChange={(v) => setFilterPriority(v as IssuePriority | "all")}>
-            <SelectTrigger>
-              <SelectValue placeholder="Приоритет" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Все</SelectItem>
-              {priorityOptions.map((o) => (
-                <SelectItem key={o.value} value={o.value}>
-                  {o.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="min-w-0">
+            <Select
+              value={filterClassroomId}
+              onValueChange={(v) => {
+                setFilterClassroomId(v)
+                setFilterWorkstationId("all")
+              }}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Аудитория" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Все аудитории</SelectItem>
+                {classrooms.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.name?.trim() || `№${c.number}`}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="min-w-0">
+            <Select
+              value={filterWorkstationId}
+              onValueChange={setFilterWorkstationId}
+              disabled={filterClassroomId === "all"}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Рабочее место" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Все РМ</SelectItem>
+                {filterWsOptions.map((w) => (
+                  <SelectItem key={w.id} value={w.id}>
+                    {w.code}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="min-w-0">
+            <Select value={filterStatus} onValueChange={(v) => setFilterStatus(v as IssueStatus | "all")}>
+              <SelectTrigger>
+                <SelectValue placeholder="Статус" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Все статусы</SelectItem>
+                {issueStatusFilterOptions.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {statusMeta[s].label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="min-w-0 sm:col-span-2 xl:col-span-1">
+            <Select value={filterPriority} onValueChange={(v) => setFilterPriority(v as IssuePriority | "all")}>
+              <SelectTrigger>
+                <SelectValue placeholder="Приоритет" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Все</SelectItem>
+                {priorityOptions.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>
+                    {o.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </CardContent>
       </Card>
 

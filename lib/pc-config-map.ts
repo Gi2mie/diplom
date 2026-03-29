@@ -16,7 +16,7 @@ export type PcConfigRow = {
   classroomDisplayName: string
   buildingName: string | null
   workstationCode: string
-  status: "active" | "repair" | "decommissioned"
+  /** Как у записи оборудования: пересчитывается из неисправностей и ремонтов */
   equipmentStatus: EquipmentStatus
   isActiveEquipment: boolean
   cpuModel: string
@@ -43,15 +43,6 @@ export type PcConfigRow = {
   warrantyEnd: string
   lastUpdate: string
   notes: string
-}
-
-export function mapEquipmentStatusToPc(
-  status: EquipmentStatus,
-  _isActive: boolean
-): PcConfigRow["status"] {
-  if (status === EquipmentStatus.DECOMMISSIONED) return "decommissioned"
-  if (status === EquipmentStatus.IN_REPAIR) return "repair"
-  return "active"
 }
 
 function diskLabel(c: Component): string {
@@ -151,7 +142,6 @@ export function mapComputerEquipment(e: ComputerEquipmentWithRelations): PcConfi
     classroomDisplayName: classroomDisplay,
     buildingName: classroom?.building?.name ?? null,
     workstationCode: ws?.code ?? "—",
-    status: mapEquipmentStatusToPc(e.status, e.isActive),
     equipmentStatus: e.status,
     isActiveEquipment: e.isActive,
     cpuModel: cpu?.name || e.model || "—",

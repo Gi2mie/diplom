@@ -39,7 +39,6 @@ import {
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -406,39 +405,45 @@ export default function UsersPage() {
           {/* Фильтры */}
           <Card>
             <CardContent className="pt-4 pb-4">
-              <div className="grid gap-3 md:grid-cols-5">
-                <div className="relative md:col-span-2">
+              <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-[repeat(5,minmax(0,1fr))]">
+                <div className="relative min-w-0 sm:col-span-2 lg:col-span-2">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
-                    placeholder="Поиск по ФИО, email, должности..."
+                    placeholder="ФИО, email, должность, кафедра…"
                     value={searchQuery}
                     onChange={e => setSearchQuery(e.target.value)}
                     className="pl-9"
                   />
                 </div>
-                <Select value={selectedRole} onValueChange={v => setSelectedRole(v as UserRole | "all")}>
-                  <SelectTrigger><SelectValue placeholder="Роль" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Все роли</SelectItem>
-                    <SelectItem value="ADMIN">Администраторы</SelectItem>
-                    <SelectItem value="TEACHER">Преподаватели</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select value={selectedStatus} onValueChange={v => setSelectedStatus(v as UserStatus | "all")}>
-                  <SelectTrigger><SelectValue placeholder="Статус" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Все статусы</SelectItem>
-                    <SelectItem value="ACTIVE">Активен</SelectItem>
-                    <SelectItem value="BLOCKED">Заблокирован</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select value={selectedDept} onValueChange={setSelectedDept}>
-                  <SelectTrigger><SelectValue placeholder="Кафедра" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Все кафедры</SelectItem>
-                    {departments.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+                <div className="min-w-0">
+                  <Select value={selectedRole} onValueChange={v => setSelectedRole(v as UserRole | "all")}>
+                    <SelectTrigger><SelectValue placeholder="Роль" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Все роли</SelectItem>
+                      <SelectItem value="ADMIN">Администраторы</SelectItem>
+                      <SelectItem value="TEACHER">Преподаватели</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="min-w-0">
+                  <Select value={selectedStatus} onValueChange={v => setSelectedStatus(v as UserStatus | "all")}>
+                    <SelectTrigger><SelectValue placeholder="Статус" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Все статусы</SelectItem>
+                      <SelectItem value="ACTIVE">Активен</SelectItem>
+                      <SelectItem value="BLOCKED">Заблокирован</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="min-w-0 sm:col-span-2 lg:col-span-1">
+                  <Select value={selectedDept} onValueChange={setSelectedDept}>
+                    <SelectTrigger><SelectValue placeholder="Кафедра" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Все кафедры</SelectItem>
+                      {departments.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
               {hasUserFilters && (
                 <Button variant="ghost" size="sm" className="mt-3 h-8 text-muted-foreground"
@@ -462,17 +467,17 @@ export default function UsersPage() {
                 <CardTitle className="text-base">Найдено: {filteredUsers.length} из {users.length}</CardTitle>
               </div>
             </CardHeader>
-            <CardContent className="p-0">
-              <Table>
+            <CardContent className="min-w-0 p-0">
+              <Table className="w-full min-w-[980px] [&_td]:px-3.5 [&_td]:py-2.5 [&_th]:px-3.5 [&_th]:py-3">
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Пользователь</TableHead>
-                    <TableHead>Роль</TableHead>
-                    <TableHead>Должность / Кафедра</TableHead>
-                    <TableHead>Кабинеты</TableHead>
-                    <TableHead>Статус</TableHead>
-                    <TableHead>Последний вход</TableHead>
-                    <TableHead className="text-right">Действия</TableHead>
+                    <TableHead className="min-w-[200px] whitespace-normal">Пользователь</TableHead>
+                    <TableHead className="min-w-[158px] whitespace-nowrap">Роль</TableHead>
+                    <TableHead className="min-w-[220px] whitespace-normal">Должность / Кафедра</TableHead>
+                    <TableHead className="min-w-[132px] whitespace-normal">Аудитории</TableHead>
+                    <TableHead className="min-w-[108px] whitespace-nowrap">Статус</TableHead>
+                    <TableHead className="min-w-[136px] whitespace-normal">Последний вход</TableHead>
+                    <TableHead className="w-[76px] min-w-[76px] text-right whitespace-normal">Действия</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -487,36 +492,50 @@ export default function UsersPage() {
                     const statusInfo = getStatusInfo(user.status)
                     return (
                       <TableRow key={user.id}>
-                        <TableCell>
-                          <div className="flex items-center gap-3">
-                            <Avatar className="h-9 w-9">
+                        <TableCell className="min-w-[200px] align-top whitespace-normal">
+                          <div className="flex items-start gap-2 sm:gap-3">
+                            <Avatar className="h-9 w-9 shrink-0">
                               <AvatarFallback className={`text-sm font-medium ${user.role === "ADMIN" ? "bg-blue-100 text-blue-800" : "bg-green-100 text-green-800"}`}>
                                 {getInitials(user)}
                               </AvatarFallback>
                             </Avatar>
-                            <div>
-                              <div className="font-medium">{getFullName(user)}</div>
-                              <div className="text-sm text-muted-foreground">{user.email}</div>
+                            <div className="min-w-0">
+                              <div className="text-balance font-medium leading-snug break-words">{getFullName(user)}</div>
+                              <div className="mt-0.5 text-sm leading-snug text-muted-foreground break-all">{user.email}</div>
                             </div>
                           </div>
                         </TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className={roleInfo.bg}>
+                        <TableCell className="min-w-[158px] align-top whitespace-nowrap">
+                          <Badge variant="outline" className={`shrink-0 ${roleInfo.bg}`}>
                             {roleInfo.label}
                           </Badge>
                         </TableCell>
-                        <TableCell>
-                          <div className="text-sm font-medium">{user.position}</div>
-                          <div className="text-xs text-muted-foreground">{user.department || "—"}</div>
+                        <TableCell className="min-w-[220px] align-top whitespace-normal">
+                          <div className="text-sm font-medium leading-snug break-words">{user.position}</div>
+                          <div className="mt-0.5 text-xs leading-snug text-muted-foreground break-words">{user.department || "—"}</div>
                         </TableCell>
-                        <TableCell><span className="text-xs text-muted-foreground">—</span></TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className={statusInfo.bg}>
+                        <TableCell className="min-w-[132px] align-top whitespace-normal">
+                          {user.responsibleClassrooms.length === 0 ? (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          ) : (
+                            <div className="flex flex-wrap gap-1.5">
+                              {user.responsibleClassrooms.map((c) => (
+                                <Badge key={c.id} variant="secondary" className="shrink-0 font-normal text-xs">
+                                  {c.number}
+                                </Badge>
+                              ))}
+                            </div>
+                          )}
+                        </TableCell>
+                        <TableCell className="min-w-[108px] align-top whitespace-nowrap">
+                          <Badge variant="outline" className={`shrink-0 ${statusInfo.bg}`}>
                             {statusInfo.label}
                           </Badge>
                         </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">{formatDateTime(user.lastLoginAt)}</TableCell>
-                        <TableCell className="text-right">
+                        <TableCell className="min-w-[136px] align-top text-sm leading-snug text-muted-foreground whitespace-normal break-words">
+                          {formatDateTime(user.lastLoginAt)}
+                        </TableCell>
+                        <TableCell className="w-[76px] min-w-[76px] text-right align-top whitespace-nowrap">
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                               <Button variant="ghost" size="icon" className="h-8 w-8">
@@ -624,8 +643,8 @@ export default function UsersPage() {
           )}
 
           <Dialog open={respEditOpen} onOpenChange={(open) => { if (!open) setRespEditOpen(false) }}>
-            <DialogContent className="max-w-lg max-h-[90vh] flex flex-col">
-              <DialogHeader>
+            <DialogContent className="max-w-lg max-h-[min(90vh,100dvh)] flex flex-col gap-0 overflow-hidden p-0">
+              <DialogHeader className="shrink-0 space-y-2 px-6 pt-6 pb-4 pr-12">
                 <DialogTitle>Аудитории преподавателя</DialogTitle>
                 <DialogDescription>
                   {respEditTeacher
@@ -635,7 +654,7 @@ export default function UsersPage() {
               </DialogHeader>
               {respEditTeacher && (
                 <>
-                  <ScrollArea className="flex-1 min-h-0 max-h-[50vh] pr-3 -mr-1">
+                  <div className="min-h-0 max-h-[min(50vh,calc(90dvh-11rem))] flex-1 overflow-y-auto overscroll-contain px-6 [scrollbar-gutter:stable]">
                     <div className="space-y-2 pb-2">
                       {respClassrooms.map((c) => {
                         const checked = respSelectedIds.has(c.id)
@@ -673,32 +692,34 @@ export default function UsersPage() {
                         )
                       })}
                     </div>
-                  </ScrollArea>
-                  {respSubmitError && <p className="text-sm text-red-600">{respSubmitError}</p>}
-                  <DialogFooter>
-                    <Button variant="outline" onClick={() => setRespEditOpen(false)} disabled={respSaving}>
-                      Отмена
-                    </Button>
-                    <Button
-                      onClick={async () => {
-                        try {
-                          setRespSaving(true)
-                          setRespSubmitError(null)
-                          await updateResponsibleClassrooms(respEditTeacher.id, [...respSelectedIds])
-                          await loadClassroomResponsibilities()
-                          setRespEditOpen(false)
-                        } catch (e) {
-                          setRespSubmitError(e instanceof Error ? e.message : "Не удалось сохранить")
-                        } finally {
-                          setRespSaving(false)
-                        }
-                      }}
-                      disabled={respSaving}
-                    >
-                      {respSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                      Сохранить
-                    </Button>
-                  </DialogFooter>
+                  </div>
+                  <div className="shrink-0 space-y-3 border-t bg-background px-6 py-4">
+                    {respSubmitError && <p className="text-sm text-red-600">{respSubmitError}</p>}
+                    <DialogFooter className="gap-2 sm:gap-2">
+                      <Button variant="outline" onClick={() => setRespEditOpen(false)} disabled={respSaving}>
+                        Отмена
+                      </Button>
+                      <Button
+                        onClick={async () => {
+                          try {
+                            setRespSaving(true)
+                            setRespSubmitError(null)
+                            await updateResponsibleClassrooms(respEditTeacher.id, [...respSelectedIds])
+                            await loadClassroomResponsibilities()
+                            setRespEditOpen(false)
+                          } catch (e) {
+                            setRespSubmitError(e instanceof Error ? e.message : "Не удалось сохранить")
+                          } finally {
+                            setRespSaving(false)
+                          }
+                        }}
+                        disabled={respSaving}
+                      >
+                        {respSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                        Сохранить
+                      </Button>
+                    </DialogFooter>
+                  </div>
                 </>
               )}
             </DialogContent>
@@ -744,6 +765,21 @@ export default function UsersPage() {
                   <div className="flex items-center gap-2 text-muted-foreground">
                     <Building2 className="h-4 w-4 shrink-0" />{selectedUser.department || "—"}
                   </div>
+                </div>
+                <Separator />
+                <div className="space-y-2 text-sm">
+                  <div className="text-xs font-medium text-muted-foreground">Аудитории (ответственный)</div>
+                  {selectedUser.responsibleClassrooms.length === 0 ? (
+                    <p className="text-muted-foreground">—</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-1.5">
+                      {selectedUser.responsibleClassrooms.map((c) => (
+                        <Badge key={c.id} variant="secondary" className="font-normal">
+                          {classroomLabel(c)}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <Separator />
                 <div className="grid grid-cols-2 gap-3 text-sm">

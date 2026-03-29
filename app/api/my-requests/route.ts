@@ -75,6 +75,7 @@ export async function GET() {
           select: {
             name: true,
             type: true,
+            inventoryNumber: true,
             workstation: {
               select: {
                 code: true,
@@ -103,7 +104,13 @@ export async function GET() {
             building: { select: { name: true } },
           },
         },
-        workstation: { select: { code: true, name: true } },
+        workstation: {
+          select: {
+            code: true,
+            name: true,
+            equipment: { select: { inventoryNumber: true } },
+          },
+        },
       },
     }),
   ])
@@ -137,6 +144,7 @@ export async function GET() {
       priority: ir.priority,
       classroomLabel,
       workstationLabel,
+      inventoryNumbers: [ir.equipment.inventoryNumber].filter(Boolean),
       createdAt: ir.createdAt.toISOString(),
       updatedAt: ir.updatedAt.toISOString(),
       adminComment,
@@ -161,6 +169,9 @@ export async function GET() {
 
     const title = `${softwareKindRu(sr.kind)}: ${sr.softwareName}`
 
+    const invFromWs =
+      sr.workstation?.equipment.map((e) => e.inventoryNumber).filter(Boolean) ?? []
+
     return {
       key: `software:${sr.id}`,
       source: "software" as const,
@@ -171,6 +182,7 @@ export async function GET() {
       priority: sr.priority,
       classroomLabel,
       workstationLabel,
+      inventoryNumbers: invFromWs,
       createdAt: sr.createdAt.toISOString(),
       updatedAt: sr.updatedAt.toISOString(),
       adminComment: sr.adminComment?.trim() || null,

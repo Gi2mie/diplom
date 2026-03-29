@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useSession } from "next-auth/react"
 import { EquipmentStatus, EquipmentType } from "@prisma/client"
 import {
@@ -49,7 +49,6 @@ import {
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -68,7 +67,12 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Separator } from "@/components/ui/separator"
-import { equipmentStatusLabel, equipmentTypeEnumLabel } from "@/lib/equipment-labels"
+import {
+  EQUIPMENT_STATUS_FILTER_OPTIONS,
+  equipmentStatusBadgeVariant,
+  equipmentStatusLabel,
+  equipmentTypeEnumLabel,
+} from "@/lib/equipment-labels"
 import { fetchClassroomRegistry, type ClassroomRegistryPayload } from "@/lib/api/classroom-registry"
 import { fetchEquipmentRegistry, type EquipmentRegistryPayload } from "@/lib/api/equipment-registry"
 import {
@@ -88,19 +92,15 @@ type WorkstationRow = {
   buildingName: string | null
 }
 
-function statusBadgeVariant(s: EquipmentStatus): "default" | "secondary" | "destructive" | "outline" {
-  switch (s) {
-    case EquipmentStatus.OPERATIONAL:
-      return "default"
-    case EquipmentStatus.IN_REPAIR:
-      return "secondary"
-    case EquipmentStatus.NEEDS_CHECK:
-      return "destructive"
-    case EquipmentStatus.DECOMMISSIONED:
-      return "outline"
-    case EquipmentStatus.NOT_IN_USE:
-      return "outline"
-  }
+function deriveNameFromWorkstationCode(code: string): string {
+  // RM-101-01 → -101-01 (убираем префикс RM, остальное можно править вручную)
+  const trimmed = code.trim()
+  return trimmed.replace(/^RM/i, "")
+}
+
+function deriveInventoryFromWorkstationCode(code: string): string {
+  // RM-101-01 -> INV-101-01
+  return `INV-${code.replace(/^RM-/i, "")}`
 }
 
 function classroomLine(row: DashboardEquipmentRow): string {
@@ -112,22 +112,12 @@ function classroomLine(row: DashboardEquipmentRow): string {
   return bits.length ? bits.join(" · ") : "—"
 }
 
-const STATUS_FILTER_OPTIONS: { value: EquipmentStatus | "all"; label: string }[] = [
-  { value: "all", label: "Все статусы" },
-  { value: EquipmentStatus.OPERATIONAL, label: equipmentStatusLabel(EquipmentStatus.OPERATIONAL) },
-  { value: EquipmentStatus.NEEDS_CHECK, label: equipmentStatusLabel(EquipmentStatus.NEEDS_CHECK) },
-  { value: EquipmentStatus.IN_REPAIR, label: equipmentStatusLabel(EquipmentStatus.IN_REPAIR) },
-  { value: EquipmentStatus.DECOMMISSIONED, label: equipmentStatusLabel(EquipmentStatus.DECOMMISSIONED) },
-  { value: EquipmentStatus.NOT_IN_USE, label: equipmentStatusLabel(EquipmentStatus.NOT_IN_USE) },
-]
-
 const emptyForm = () => ({
   name: "",
   categoryId: "",
   equipmentKindId: "",
   inventoryNumber: "",
   serialNumber: "",
-  status: EquipmentStatus.OPERATIONAL as EquipmentStatus,
   buildingId: "",
   classroomId: "",
   workstationId: "" as string, // "" = не выбрано; "__none__" = без привязки
@@ -158,6 +148,9 @@ export default function EquipmentPage() {
   const [form, setForm] = useState(emptyForm)
   const [formSaving, setFormSaving] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
+  /** Не перезаписывать подсказкой при смене РМ, если пользователь уже правил поле */
+  const nameEditedManuallyRef = useRef(false)
+  const inventoryEditedManuallyRef = useRef(false)
 
   const loadAll = useCallback(async () => {
     setLoading(true)
@@ -262,18 +255,21 @@ export default function EquipmentPage() {
   const openAdd = () => {
     setForm(emptyForm())
     setFormError(null)
+    nameEditedManuallyRef.current = false
+    inventoryEditedManuallyRef.current = false
     setAddOpen(true)
   }
 
   const openEdit = (row: DashboardEquipmentRow) => {
     setSelected(row)
+    nameEditedManuallyRef.current = false
+    inventoryEditedManuallyRef.current = false
     setForm({
       name: row.name,
       categoryId: row.categoryId ?? "",
       equipmentKindId: row.equipmentKindId ?? "",
       inventoryNumber: row.inventoryNumber,
       serialNumber: row.serialNumber ?? "",
-      status: row.status,
       buildingId: row.buildingId ?? "",
       classroomId: row.classroomId ?? "",
       workstationId: row.workstationId ?? "__none__",
@@ -304,7 +300,6 @@ export default function EquipmentPage() {
       inventoryNumber: form.inventoryNumber.trim(),
       categoryId: form.categoryId,
       equipmentKindId: form.equipmentKindId,
-      status: form.status,
       workstationId,
       serialNumber: form.serialNumber.trim() || null,
       description: form.description.trim() || null,
@@ -456,96 +451,106 @@ export default function EquipmentPage() {
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-            <div className="relative xl:col-span-2">
+          <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-[repeat(6,minmax(0,1fr))]">
+            <div className="relative min-w-0 sm:col-span-2 xl:col-span-2">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder="Поиск: название, инв. номер..."
+                placeholder="Название, инв. номер, серийный №…"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-10"
               />
             </div>
-            <Select
-              value={filterBuildingId}
-              onValueChange={(v) => {
-                setFilterBuildingId(v)
-                setFilterClassroomId("all")
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Корпус" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Все корпуса</SelectItem>
-                {classroomReg?.buildings.map((b) => (
-                  <SelectItem key={b.id} value={b.id}>
-                    {b.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={filterClassroomId} onValueChange={setFilterClassroomId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Аудитория" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Все аудитории</SelectItem>
-                {filteredClassroomsForFilter.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.number}
-                    {c.name ? ` · ${c.name}` : ""}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select
-              value={filterStatus}
-              onValueChange={(v) => setFilterStatus(v as EquipmentStatus | "all")}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Статус" />
-              </SelectTrigger>
-              <SelectContent>
-                {STATUS_FILTER_OPTIONS.map((o) => (
-                  <SelectItem key={o.value} value={o.value}>
-                    {o.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={filterCategoryId} onValueChange={setFilterCategoryId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Категория" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Все категории</SelectItem>
-                {registry?.categories.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    <span className="flex items-center gap-2">
-                      <span
-                        className="h-2.5 w-2.5 shrink-0 rounded-full"
-                        style={{ backgroundColor: c.color }}
-                      />
-                      {c.name}
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={filterKindId} onValueChange={setFilterKindId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Тип" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Все типы</SelectItem>
-                {registry?.kinds.map((k) => (
-                  <SelectItem key={k.id} value={k.id}>
-                    {k.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="min-w-0">
+              <Select
+                value={filterBuildingId}
+                onValueChange={(v) => {
+                  setFilterBuildingId(v)
+                  setFilterClassroomId("all")
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Корпус" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Все корпуса</SelectItem>
+                  {classroomReg?.buildings.map((b) => (
+                    <SelectItem key={b.id} value={b.id}>
+                      {b.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="min-w-0">
+              <Select value={filterClassroomId} onValueChange={setFilterClassroomId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Аудитория" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Все аудитории</SelectItem>
+                  {filteredClassroomsForFilter.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.number}
+                      {c.name ? ` · ${c.name}` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="min-w-0">
+              <Select
+                value={filterStatus}
+                onValueChange={(v) => setFilterStatus(v as EquipmentStatus | "all")}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Статус" />
+                </SelectTrigger>
+                <SelectContent>
+                  {EQUIPMENT_STATUS_FILTER_OPTIONS.map((o, i) => (
+                    <SelectItem key={`equipment-status-filter-${i}-${String(o.value)}`} value={String(o.value)}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="min-w-0">
+              <Select value={filterCategoryId} onValueChange={setFilterCategoryId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Категория" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Все категории</SelectItem>
+                  {registry?.categories.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      <span className="flex items-center gap-2">
+                        <span
+                          className="h-2.5 w-2.5 shrink-0 rounded-full"
+                          style={{ backgroundColor: c.color }}
+                        />
+                        {c.name}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="min-w-0 sm:col-span-2 xl:col-span-1">
+              <Select value={filterKindId} onValueChange={setFilterKindId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Тип" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Все типы</SelectItem>
+                  {registry?.kinds.map((k) => (
+                    <SelectItem key={k.id} value={k.id}>
+                      {k.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -613,7 +618,7 @@ export default function EquipmentPage() {
                       <TableCell className="font-mono text-sm">{item.inventoryNumber}</TableCell>
                       <TableCell className="max-w-[220px] text-sm">{classroomLine(item)}</TableCell>
                       <TableCell>
-                        <Badge variant={statusBadgeVariant(item.status)}>
+                        <Badge variant={equipmentStatusBadgeVariant(item.status)}>
                           {equipmentStatusLabel(item.status)}
                         </Badge>
                       </TableCell>
@@ -713,7 +718,7 @@ export default function EquipmentPage() {
                 <div>
                   <Label className="text-muted-foreground">Статус</Label>
                   <div className="mt-1">
-                    <Badge variant={statusBadgeVariant(selected.status)}>
+                    <Badge variant={equipmentStatusBadgeVariant(selected.status)}>
                       {equipmentStatusLabel(selected.status)}
                     </Badge>
                   </div>
@@ -746,30 +751,32 @@ export default function EquipmentPage() {
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>{addOpen ? "Добавить оборудование" : "Редактировать оборудование"}</DialogTitle>
-            <DialogDescription>
-              Категория и тип берутся из справочников («Категории и типы»). Рабочее место можно не
-              указывать.
-            </DialogDescription>
           </DialogHeader>
           <div className="grid gap-3 py-2">
             <div className="grid gap-2">
               <Label>Название</Label>
               <Input
                 value={form.name}
-                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                onChange={(e) => {
+                  nameEditedManuallyRef.current = true
+                  setForm((f) => ({ ...f, name: e.target.value }))
+                }}
                 placeholder="Наименование"
               />
             </div>
             <div className="grid gap-2">
               <Label>Категория</Label>
               <Select
-                value={form.categoryId || undefined}
-                onValueChange={(v) => setForm((f) => ({ ...f, categoryId: v }))}
+                value={form.categoryId || "__pick__"}
+                onValueChange={(v) =>
+                  setForm((f) => ({ ...f, categoryId: v === "__pick__" ? "" : v }))
+                }
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Выберите категорию" />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="__pick__">Выберите категорию</SelectItem>
                   {registry?.categories.map((c) => (
                     <SelectItem key={c.id} value={c.id}>
                       {c.name}
@@ -781,13 +788,16 @@ export default function EquipmentPage() {
             <div className="grid gap-2">
               <Label>Тип оборудования</Label>
               <Select
-                value={form.equipmentKindId || undefined}
-                onValueChange={(v) => setForm((f) => ({ ...f, equipmentKindId: v }))}
+                value={form.equipmentKindId || "__pick__"}
+                onValueChange={(v) =>
+                  setForm((f) => ({ ...f, equipmentKindId: v === "__pick__" ? "" : v }))
+                }
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Выберите тип" />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="__pick__">Выберите тип</SelectItem>
                   {registry?.kinds.map((k) => (
                     <SelectItem key={k.id} value={k.id}>
                       {k.name}
@@ -800,7 +810,11 @@ export default function EquipmentPage() {
               <Label>Инвентарный номер</Label>
               <Input
                 value={form.inventoryNumber}
-                onChange={(e) => setForm((f) => ({ ...f, inventoryNumber: e.target.value }))}
+                onChange={(e) => {
+                  inventoryEditedManuallyRef.current = true
+                  setForm((f) => ({ ...f, inventoryNumber: e.target.value }))
+                }}
+                placeholder="Например: INV-101-01"
               />
             </div>
             <div className="grid gap-2">
@@ -858,7 +872,23 @@ export default function EquipmentPage() {
               <Label>Рабочее место</Label>
               <Select
                 value={form.workstationId || "__none__"}
-                onValueChange={(v) => setForm((f) => ({ ...f, workstationId: v }))}
+                onValueChange={(v) => {
+                  setForm((f) => {
+                    const next = { ...f, workstationId: v }
+                    if (v && v !== "__none__") {
+                      const w = workstations.find((x) => x.id === v)
+                      if (w) {
+                        if (!nameEditedManuallyRef.current) {
+                          next.name = deriveNameFromWorkstationCode(w.code)
+                        }
+                        if (!inventoryEditedManuallyRef.current) {
+                          next.inventoryNumber = deriveInventoryFromWorkstationCode(w.code)
+                        }
+                      }
+                    }
+                    return next
+                  })
+                }}
                 disabled={!form.classroomId}
               >
                 <SelectTrigger>
@@ -872,24 +902,6 @@ export default function EquipmentPage() {
                     <SelectItem key={w.id} value={w.id}>
                       {w.code}
                       {w.name ? ` · ${w.name}` : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid gap-2">
-              <Label>Статус</Label>
-              <Select
-                value={form.status}
-                onValueChange={(v) => setForm((f) => ({ ...f, status: v as EquipmentStatus }))}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {STATUS_FILTER_OPTIONS.filter((o) => o.value !== "all").map((o) => (
-                    <SelectItem key={o.value} value={o.value}>
-                      {o.label}
                     </SelectItem>
                   ))}
                 </SelectContent>

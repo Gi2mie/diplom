@@ -3,6 +3,8 @@ import { EquipmentStatus, UserRole } from "@prisma/client"
 import { auth, isAdminSession } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { createEquipmentSchema } from "@/lib/validators"
+import { syncWorkstationKitFromEquipment } from "@/lib/workstation-kit-sync"
+import { syncWorkstationStatusFromEquipment } from "@/lib/workstation-status-sync"
 import type { Prisma } from "@prisma/client"
 
 export async function GET(request: Request) {
@@ -158,22 +160,31 @@ export async function POST(request: Request) {
     }
   }
 
-  const row = await db.equipment.create({
-    data: {
-      inventoryNumber: d.inventoryNumber.trim(),
-      name: d.name.trim(),
-      type: kind.mapsToEnum,
-      status: d.status ?? EquipmentStatus.OPERATIONAL,
-      categoryId: d.categoryId,
-      equipmentKindId: d.equipmentKindId,
-      workstationId: d.workstationId ?? null,
-      manufacturer: d.manufacturer?.trim() || null,
-      model: d.model?.trim() || null,
-      serialNumber: d.serialNumber?.trim() || null,
-      purchaseDate: d.purchaseDate ?? null,
-      warrantyUntil: d.warrantyUntil ?? null,
-      description: d.description?.trim() || null,
-    },
+  const row = await db.$transaction(async (tx) => {
+    const created = await tx.equipment.create({
+      data: {
+        inventoryNumber: d.inventoryNumber.trim(),
+        name: d.name.trim(),
+        type: kind.mapsToEnum,
+        status: EquipmentStatus.OPERATIONAL,
+        categoryId: d.categoryId,
+        equipmentKindId: d.equipmentKindId,
+        workstationId: d.workstationId ?? null,
+        manufacturer: d.manufacturer?.trim() || null,
+        model: d.model?.trim() || null,
+        serialNumber: d.serialNumber?.trim() || null,
+        purchaseDate: d.purchaseDate ?? null,
+        warrantyUntil: d.warrantyUntil ?? null,
+        description: d.description?.trim() || null,
+      },
+    })
+
+    if (created.workstationId) {
+      await syncWorkstationKitFromEquipment(tx, created.workstationId)
+      await syncWorkstationStatusFromEquipment(tx, created.workstationId)
+    }
+
+    return created
   })
 
   return NextResponse.json({ ok: true, id: row.id }, { status: 201 })

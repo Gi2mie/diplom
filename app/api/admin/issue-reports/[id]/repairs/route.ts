@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server"
 import {
-  EquipmentStatus,
   IssueStatus,
   RepairStatus,
   UserRole,
 } from "@prisma/client"
 import { auth } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { recomputeEquipmentStatus } from "@/lib/equipment-status-sync"
 import { batchRepairsFromIssueSchema } from "@/lib/validators"
 
 function appendAdminRepairNotice(existing: string | null | undefined, lines: string[]): string {
@@ -130,14 +130,10 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
           issueReportId: issueId,
           createdById: session.user.id,
           description: `Ремонт по обращению: ${issue.title}`,
-          status: RepairStatus.IN_PROGRESS,
-          startedAt: new Date(),
+          status: RepairStatus.PLANNED,
         },
       })
-      await tx.equipment.update({
-        where: { id: eq.id },
-        data: { status: EquipmentStatus.IN_REPAIR },
-      })
+      await recomputeEquipmentStatus(tx, eq.id)
     }
     await tx.issueReport.update({
       where: { id: issueId },

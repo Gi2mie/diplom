@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server"
-import { EquipmentStatus, IssuePriority, UserRole } from "@prisma/client"
+import { IssuePriority, UserRole } from "@prisma/client"
 import { auth } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { resolveEquipmentIdsForTeacherIssue } from "@/lib/issue-report-teacher"
+import { recomputeEquipmentStatus } from "@/lib/equipment-status-sync"
 import { createTeacherIssueReportSchema } from "@/lib/validators"
 
 const KIND_LABEL: Record<string, string> = {
@@ -95,10 +96,7 @@ export async function POST(request: Request) {
           priority,
         },
       })
-      await tx.equipment.update({
-        where: { id: equipmentId },
-        data: { status: EquipmentStatus.NEEDS_CHECK },
-      })
+      await recomputeEquipmentStatus(tx, equipmentId)
     }
   })
 

@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db"
 import { createWorkstationSchema, type CreateWorkstationInput } from "@/lib/validators"
 import type { Workstation } from "@/lib/types"
 import { workstationCodeMatchesClassroom } from "@/lib/workstation-code"
+import { syncWorkstationStatusFromEquipment } from "@/lib/workstation-status-sync"
 
 export type AddWorkstationResult = {
   success: boolean
@@ -61,24 +62,28 @@ export async function addWorkstation(input: CreateWorkstationInput): Promise<Add
       return { success: false, error: "Рабочее место с таким номером уже есть в этой аудитории" }
     }
 
-    const workstation = await prisma.workstation.create({
-      data: {
-        code: data.code,
-        classroomId: data.classroomId,
-        name: data.name?.trim() || null,
-        description: data.description?.trim() || null,
-        pcName: data.pcName?.trim() || null,
-        status: data.status ?? WorkstationStatus.ACTIVE,
-        hasMonitor: data.hasMonitor ?? false,
-        hasKeyboard: data.hasKeyboard ?? false,
-        hasMouse: data.hasMouse ?? false,
-        hasHeadphones: data.hasHeadphones ?? false,
-        hasOtherEquipment: data.hasOtherEquipment ?? false,
-        otherEquipmentNote: data.hasOtherEquipment
-          ? String(data.otherEquipmentNote ?? "").trim() || null
-          : null,
-        lastMaintenance: parseLastMaintenance(data.lastMaintenance ?? undefined),
-      },
+    const workstation = await prisma.$transaction(async (tx) => {
+      const w = await tx.workstation.create({
+        data: {
+          code: data.code,
+          classroomId: data.classroomId,
+          name: data.name?.trim() || null,
+          description: data.description?.trim() || null,
+          pcName: data.pcName?.trim() || null,
+          status: WorkstationStatus.ACTIVE,
+          hasMonitor: data.hasMonitor ?? false,
+          hasKeyboard: data.hasKeyboard ?? false,
+          hasMouse: data.hasMouse ?? false,
+          hasHeadphones: data.hasHeadphones ?? false,
+          hasOtherEquipment: data.hasOtherEquipment ?? false,
+          otherEquipmentNote: data.hasOtherEquipment
+            ? String(data.otherEquipmentNote ?? "").trim() || null
+            : null,
+          lastMaintenance: parseLastMaintenance(data.lastMaintenance ?? undefined),
+        },
+      })
+      await syncWorkstationStatusFromEquipment(tx, w.id)
+      return w
     })
 
     return { success: true, data: workstation }

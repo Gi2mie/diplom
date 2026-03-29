@@ -126,7 +126,9 @@ export default function MyRequestsPage() {
         !q ||
         request.title.toLowerCase().includes(q) ||
         request.description.toLowerCase().includes(q) ||
-        request.classroomLabel.toLowerCase().includes(q)
+        request.classroomLabel.toLowerCase().includes(q) ||
+        (request.workstationLabel && request.workstationLabel.toLowerCase().includes(q)) ||
+        request.inventoryNumbers.some((inv) => inv.toLowerCase().includes(q))
 
       const matchesStatus = selectedStatus === "all" || request.status === selectedStatus
       const matchesType = selectedType === "all" || request.source === selectedType
@@ -274,44 +276,48 @@ export default function MyRequestsPage() {
           <CardTitle className="text-base">Фильтры</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex flex-col gap-4 md:flex-row md:items-center">
-            <div className="relative flex-1">
+          <div className="flex flex-col gap-4 md:flex-row md:flex-wrap md:items-center">
+            <div className="relative min-w-0 flex-1 basis-full md:basis-[min(100%,20rem)]">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder="Поиск по заявкам..."
+                placeholder="Текст заявки, аудитория, РМ, инв. номер…"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-9"
               />
             </div>
-            <Select
-              value={selectedStatus}
-              onValueChange={(value) => setSelectedStatus(value as UiStatus | "all")}
-            >
-              <SelectTrigger className="w-full md:w-40">
-                <SelectValue placeholder="Статус" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Все статусы</SelectItem>
-                <SelectItem value="pending">Ожидает</SelectItem>
-                <SelectItem value="in_progress">В работе</SelectItem>
-                <SelectItem value="completed">Выполнено</SelectItem>
-                <SelectItem value="rejected">Отклонено</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select
-              value={selectedType}
-              onValueChange={(value) => setSelectedType(value as "repair" | "software" | "all")}
-            >
-              <SelectTrigger className="w-full md:w-40">
-                <SelectValue placeholder="Тип" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Все типы</SelectItem>
-                <SelectItem value="repair">Ремонт / неисправность</SelectItem>
-                <SelectItem value="software">ПО</SelectItem>
-              </SelectContent>
-            </Select>
+            <div className="min-w-0 w-full md:w-44 md:shrink-0">
+              <Select
+                value={selectedStatus}
+                onValueChange={(value) => setSelectedStatus(value as UiStatus | "all")}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Статус" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Все статусы</SelectItem>
+                  <SelectItem value="pending">Ожидает</SelectItem>
+                  <SelectItem value="in_progress">В работе</SelectItem>
+                  <SelectItem value="completed">Выполнено</SelectItem>
+                  <SelectItem value="rejected">Отклонено</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="min-w-0 w-full md:w-44 md:shrink-0">
+              <Select
+                value={selectedType}
+                onValueChange={(value) => setSelectedType(value as "repair" | "software" | "all")}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Тип" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Все типы</SelectItem>
+                  <SelectItem value="repair">Ремонт / неисправность</SelectItem>
+                  <SelectItem value="software">ПО</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </CardContent>
       </Card>

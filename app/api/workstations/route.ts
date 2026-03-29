@@ -1,9 +1,14 @@
 import { NextResponse } from "next/server"
-import { UserRole, WorkstationStatus } from "@prisma/client"
+import { IssueStatus, RepairStatus, UserRole, WorkstationStatus } from "@prisma/client"
 import { auth, isAdminSession } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { createWorkstationSchema } from "@/lib/validators"
 import { workstationCodeMatchesClassroom } from "@/lib/workstation-code"
+import {
+  isEquipmentOnService,
+  syncWorkstationStatusFromEquipment,
+  workstationStatusFromOnServiceFlags,
+} from "@/lib/workstation-status-sync"
 
 function parseLastMaintenance(v: string | null | undefined): Date | null {
   if (v == null || v === "") return null
@@ -49,29 +54,82 @@ export async function GET() {
           building: { select: { name: true } },
         },
       },
+      equipment: {
+        orderBy: [{ name: "asc" }],
+        select: {
+          id: true,
+          name: true,
+          inventoryNumber: true,
+          type: true,
+          status: true,
+          equipmentKind: { select: { name: true } },
+          issueReports: {
+            where: { status: { in: [IssueStatus.NEW, IssueStatus.IN_PROGRESS] } },
+            take: 1,
+            select: { id: true },
+          },
+          repairs: {
+            where: { status: { in: [RepairStatus.PLANNED, RepairStatus.IN_PROGRESS] } },
+            take: 1,
+            select: { id: true },
+          },
+          software: {
+            orderBy: { software: { name: "asc" } },
+            select: {
+              id: true,
+              version: true,
+              software: { select: { name: true, version: true } },
+            },
+          },
+        },
+      },
     },
   })
 
   return NextResponse.json({
-    workstations: rows.map((w) => ({
-      id: w.id,
-      code: w.code,
-      classroomId: w.classroomId,
-      name: w.name ?? "",
-      description: w.description ?? "",
-      pcName: w.pcName ?? "",
-      status: w.status,
-      hasMonitor: w.hasMonitor,
-      hasKeyboard: w.hasKeyboard,
-      hasMouse: w.hasMouse,
-      hasHeadphones: w.hasHeadphones,
-      hasOtherEquipment: w.hasOtherEquipment,
-      otherEquipmentNote: w.otherEquipmentNote ?? "",
-      lastMaintenance: w.lastMaintenance ? w.lastMaintenance.toISOString().slice(0, 10) : "",
-      classroomNumber: w.classroom.number,
-      classroomName: w.classroom.name,
-      buildingName: w.classroom.building?.name ?? null,
-    })),
+    workstations: rows.map((w) => {
+      const equipmentItems = w.equipment.map((e) => ({
+        id: e.id,
+        name: e.name,
+        inventoryNumber: e.inventoryNumber,
+        typeEnum: e.type,
+        kindName: e.equipmentKind?.name ?? null,
+        equipmentStatus: e.status,
+        onService: isEquipmentOnService({
+          status: e.status,
+          hasOpenIssue: e.issueReports.length > 0,
+          hasActiveRepair: e.repairs.length > 0,
+        }),
+        installedSoftware: e.software.map((row) => ({
+          id: row.id,
+          softwareName: row.software.name,
+          catalogVersion: row.software.version,
+          installedVersion: row.version,
+        })),
+      }))
+      const status = workstationStatusFromOnServiceFlags(equipmentItems)
+
+      return {
+        id: w.id,
+        code: w.code,
+        classroomId: w.classroomId,
+        name: w.name ?? "",
+        description: w.description ?? "",
+        pcName: w.pcName ?? "",
+        status,
+        hasMonitor: w.hasMonitor,
+        hasKeyboard: w.hasKeyboard,
+        hasMouse: w.hasMouse,
+        hasHeadphones: w.hasHeadphones,
+        hasOtherEquipment: w.hasOtherEquipment,
+        otherEquipmentNote: w.otherEquipmentNote ?? "",
+        lastMaintenance: w.lastMaintenance ? w.lastMaintenance.toISOString().slice(0, 10) : "",
+        classroomNumber: w.classroom.number,
+        classroomName: w.classroom.name,
+        buildingName: w.classroom.building?.name ?? null,
+        equipmentItems,
+      }
+    }),
   })
 }
 
@@ -120,24 +178,25 @@ export async function POST(request: Request) {
 
   const lastMaintenance = parseLastMaintenance(data.lastMaintenance ?? undefined)
 
-  await db.workstation.create({
-    data: {
-      code: data.code,
-      classroomId: data.classroomId,
-      name: data.name?.trim() || null,
-      description: data.description?.trim() || null,
-      pcName: data.pcName?.trim() || null,
-      status: data.status ?? WorkstationStatus.ACTIVE,
-      hasMonitor: data.hasMonitor ?? false,
-      hasKeyboard: data.hasKeyboard ?? false,
-      hasMouse: data.hasMouse ?? false,
-      hasHeadphones: data.hasHeadphones ?? false,
-      hasOtherEquipment: data.hasOtherEquipment ?? false,
-      otherEquipmentNote: data.hasOtherEquipment
-        ? String(data.otherEquipmentNote ?? "").trim() || null
-        : null,
-      lastMaintenance,
-    },
+  await db.$transaction(async (tx) => {
+    const created = await tx.workstation.create({
+      data: {
+        code: data.code,
+        classroomId: data.classroomId,
+        name: data.name?.trim() || null,
+        description: data.description?.trim() || null,
+        pcName: data.pcName?.trim() || null,
+        status: WorkstationStatus.ACTIVE,
+        hasMonitor: false,
+        hasKeyboard: false,
+        hasMouse: false,
+        hasHeadphones: false,
+        hasOtherEquipment: false,
+        otherEquipmentNote: null,
+        lastMaintenance,
+      },
+    })
+    await syncWorkstationStatusFromEquipment(tx, created.id)
   })
 
   return NextResponse.json({ ok: true }, { status: 201 })

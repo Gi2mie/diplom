@@ -8,27 +8,7 @@ import {
   normalizeNhtkEmail,
   validateUserPhoneOrThrow,
 } from "@/lib/user-validation"
-
-function toPublicUser(user: {
-  id: string
-  firstName: string
-  lastName: string
-  middleName: string | null
-  email: string
-  phone: string | null
-  role: UserRole
-  status: UserStatus
-  position: string | null
-  department: string | null
-  createdAt: Date
-  lastLoginAt: Date | null
-}) {
-  return {
-    ...user,
-    createdAt: user.createdAt.toISOString(),
-    lastLoginAt: user.lastLoginAt?.toISOString() ?? null,
-  }
-}
+import { toPublicUserJson, userResponsibleRoomsSelect } from "@/lib/user-serialize"
 
 export async function GET() {
   const session = await auth()
@@ -55,6 +35,7 @@ export async function GET() {
         department: true,
         createdAt: true,
         lastLoginAt: true,
+        responsibleRooms: userResponsibleRoomsSelect,
       },
     }),
     db.user.count({ where: { role: UserRole.ADMIN } }),
@@ -62,7 +43,7 @@ export async function GET() {
   ])
 
   return NextResponse.json({
-    users: users.map(toPublicUser),
+    users: users.map((u) => toPublicUserJson(u)),
     meta: { adminsTotal, blockedTotal },
   })
 }
@@ -163,9 +144,10 @@ export async function POST(request: Request) {
       department: true,
       createdAt: true,
       lastLoginAt: true,
+      responsibleRooms: userResponsibleRoomsSelect,
     },
   })
 
-  return NextResponse.json({ user: toPublicUser(user) }, { status: 201 })
+  return NextResponse.json({ user: toPublicUserJson(user) }, { status: 201 })
 }
 

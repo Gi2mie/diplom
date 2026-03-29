@@ -1,10 +1,10 @@
 "use server"
 
-import { WorkstationStatus } from "@prisma/client"
 import { prisma } from "@/lib/db"
 import { updateWorkstationSchema, type UpdateWorkstationInput } from "@/lib/validators"
 import type { Workstation } from "@/lib/types"
 import { workstationCodeMatchesClassroom } from "@/lib/workstation-code"
+import { syncWorkstationStatusFromEquipment } from "@/lib/workstation-status-sync"
 
 export type UpdateWorkstationResult = {
   success: boolean
@@ -82,30 +82,33 @@ export async function updateWorkstation(id: string, input: UpdateWorkstationInpu
     const lastMaintenance =
       data.lastMaintenance !== undefined ? parseLastMaintenance(data.lastMaintenance) : undefined
 
-    const workstation = await prisma.workstation.update({
-      where: { id },
-      data: {
-        ...(data.code !== undefined ? { code: data.code } : {}),
-        ...(data.classroomId !== undefined ? { classroomId: data.classroomId } : {}),
-        ...(data.name !== undefined ? { name: data.name?.trim() || null } : {}),
-        ...(data.description !== undefined ? { description: data.description?.trim() || null } : {}),
-        ...(data.pcName !== undefined ? { pcName: data.pcName?.trim() || null } : {}),
-        ...(data.status !== undefined ? { status: data.status as WorkstationStatus } : {}),
-        ...(data.hasMonitor !== undefined ? { hasMonitor: data.hasMonitor } : {}),
-        ...(data.hasKeyboard !== undefined ? { hasKeyboard: data.hasKeyboard } : {}),
-        ...(data.hasMouse !== undefined ? { hasMouse: data.hasMouse } : {}),
-        ...(data.hasHeadphones !== undefined ? { hasHeadphones: data.hasHeadphones } : {}),
-        ...(data.hasOtherEquipment !== undefined ? { hasOtherEquipment: data.hasOtherEquipment } : {}),
-        ...(data.otherEquipmentNote !== undefined || data.hasOtherEquipment !== undefined
-          ? {
-              otherEquipmentNote: mergedHasOther
-                ? String(data.otherEquipmentNote ?? existing.otherEquipmentNote ?? "").trim() || null
-                : null,
-            }
-          : {}),
-        ...(lastMaintenance !== undefined ? { lastMaintenance } : {}),
-        ...(data.isActive !== undefined ? { isActive: data.isActive } : {}),
-      },
+    const workstation = await prisma.$transaction(async (tx) => {
+      const w = await tx.workstation.update({
+        where: { id },
+        data: {
+          ...(data.code !== undefined ? { code: data.code } : {}),
+          ...(data.classroomId !== undefined ? { classroomId: data.classroomId } : {}),
+          ...(data.name !== undefined ? { name: data.name?.trim() || null } : {}),
+          ...(data.description !== undefined ? { description: data.description?.trim() || null } : {}),
+          ...(data.pcName !== undefined ? { pcName: data.pcName?.trim() || null } : {}),
+          ...(data.hasMonitor !== undefined ? { hasMonitor: data.hasMonitor } : {}),
+          ...(data.hasKeyboard !== undefined ? { hasKeyboard: data.hasKeyboard } : {}),
+          ...(data.hasMouse !== undefined ? { hasMouse: data.hasMouse } : {}),
+          ...(data.hasHeadphones !== undefined ? { hasHeadphones: data.hasHeadphones } : {}),
+          ...(data.hasOtherEquipment !== undefined ? { hasOtherEquipment: data.hasOtherEquipment } : {}),
+          ...(data.otherEquipmentNote !== undefined || data.hasOtherEquipment !== undefined
+            ? {
+                otherEquipmentNote: mergedHasOther
+                  ? String(data.otherEquipmentNote ?? existing.otherEquipmentNote ?? "").trim() || null
+                  : null,
+              }
+            : {}),
+          ...(lastMaintenance !== undefined ? { lastMaintenance } : {}),
+          ...(data.isActive !== undefined ? { isActive: data.isActive } : {}),
+        },
+      })
+      await syncWorkstationStatusFromEquipment(tx, id)
+      return w
     })
 
     return { success: true, data: workstation }

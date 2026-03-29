@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server"
 import {
-  EquipmentStatus,
   IssuePriority,
   IssueStatus,
   RepairStatus,
@@ -8,6 +7,7 @@ import {
 } from "@prisma/client"
 import { auth } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { recomputeEquipmentStatus } from "@/lib/equipment-status-sync"
 import { adminCreateIssueReportSchema } from "@/lib/validators"
 
 const listInclude = {
@@ -89,10 +89,7 @@ export async function POST(request: Request) {
       },
       include: listInclude,
     })
-    await tx.equipment.update({
-      where: { id: d.equipmentId },
-      data: { status: EquipmentStatus.NEEDS_CHECK },
-    })
+    await recomputeEquipmentStatus(tx, d.equipmentId)
     return issue
   })
 
