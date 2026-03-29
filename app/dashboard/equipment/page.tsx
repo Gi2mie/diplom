@@ -616,7 +616,9 @@ export default function EquipmentPage() {
                         )}
                       </TableCell>
                       <TableCell className="font-mono text-sm">{item.inventoryNumber}</TableCell>
-                      <TableCell className="max-w-[220px] text-sm">{classroomLine(item)}</TableCell>
+                      <TableCell className="text-sm tabular-nums">
+                        {item.classroomNumber?.trim() || "—"}
+                      </TableCell>
                       <TableCell>
                         <Badge variant={equipmentStatusBadgeVariant(item.status)}>
                           {equipmentStatusLabel(item.status)}

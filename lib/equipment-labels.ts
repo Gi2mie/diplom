@@ -1,47 +1,53 @@
 import { EquipmentStatus, EquipmentType } from "@prisma/client"
 
+/** Соответствует enum EquipmentStatus в schema.prisma */
+const EQUIPMENT_STATUS_LABELS: Record<string, string> = {
+  OPERATIONAL: "Исправно",
+  NEEDS_CHECK: "В работе",
+  IN_REPAIR: "В очереди",
+  DECOMMISSIONED: "Списано",
+  NOT_IN_USE: "Не используется",
+}
+
 export function equipmentStatusLabel(s: EquipmentStatus): string {
-  switch (s) {
-    case EquipmentStatus.OPERATIONAL:
-      return "Исправно"
-    case EquipmentStatus.NEEDS_CHECK:
-      return "В работе"
-    case EquipmentStatus.IN_REPAIR:
-      return "В очереди"
-    case EquipmentStatus.DECOMMISSIONED:
-      return "Списано"
-    case EquipmentStatus.NOT_IN_USE:
-      return "Не используется"
-  }
+  const label = EQUIPMENT_STATUS_LABELS[s as string]
+  return label !== undefined ? label : String(s)
+}
+
+const EQUIPMENT_STATUS_BADGE_VARIANTS: Record<
+  string,
+  "default" | "secondary" | "destructive" | "outline"
+> = {
+  OPERATIONAL: "default",
+  NEEDS_CHECK: "destructive",
+  IN_REPAIR: "secondary",
+  DECOMMISSIONED: "outline",
+  NOT_IN_USE: "outline",
 }
 
 export function equipmentStatusBadgeVariant(
   s: EquipmentStatus
 ): "default" | "secondary" | "destructive" | "outline" {
-  switch (s) {
-    case EquipmentStatus.OPERATIONAL:
-      return "default"
-    case EquipmentStatus.IN_REPAIR:
-      return "secondary"
-    case EquipmentStatus.NEEDS_CHECK:
-      return "destructive"
-    case EquipmentStatus.DECOMMISSIONED:
-      return "outline"
-    case EquipmentStatus.NOT_IN_USE:
-      return "outline"
-  }
+  return EQUIPMENT_STATUS_BADGE_VARIANTS[s as string] ?? "outline"
 }
+
+const EQUIPMENT_STATUS_FILTER_ORDER = [
+  "OPERATIONAL",
+  "NEEDS_CHECK",
+  "IN_REPAIR",
+  "DECOMMISSIONED",
+  "NOT_IN_USE",
+] as const
 
 export const EQUIPMENT_STATUS_FILTER_OPTIONS: {
   value: EquipmentStatus | "all"
   label: string
 }[] = [
   { value: "all", label: "Все статусы" },
-  { value: EquipmentStatus.OPERATIONAL, label: equipmentStatusLabel(EquipmentStatus.OPERATIONAL) },
-  { value: EquipmentStatus.NEEDS_CHECK, label: equipmentStatusLabel(EquipmentStatus.NEEDS_CHECK) },
-  { value: EquipmentStatus.IN_REPAIR, label: equipmentStatusLabel(EquipmentStatus.IN_REPAIR) },
-  { value: EquipmentStatus.DECOMMISSIONED, label: equipmentStatusLabel(EquipmentStatus.DECOMMISSIONED) },
-  { value: EquipmentStatus.NOT_IN_USE, label: equipmentStatusLabel(EquipmentStatus.NOT_IN_USE) },
+  ...EQUIPMENT_STATUS_FILTER_ORDER.map((value) => ({
+    value: value as EquipmentStatus,
+    label: equipmentStatusLabel(value as EquipmentStatus),
+  })),
 ]
 
 export function equipmentTypeEnumLabel(t: EquipmentType): string {
@@ -64,6 +70,10 @@ export function equipmentTypeEnumLabel(t: EquipmentType): string {
       return "Периферия"
     case EquipmentType.OTHER:
       return "Прочее"
+    default: {
+      const _u: never = t
+      return String(_u)
+    }
   }
 }
 
