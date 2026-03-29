@@ -7,7 +7,8 @@ import type {
   RepairWithRelations,
   RepairFilters,
 } from "@/lib/types"
-import { RepairStatus, EquipmentStatus, Prisma } from "@prisma/client"
+import { RepairStatus, Prisma } from "@prisma/client"
+import { recomputeEquipmentStatus } from "@/lib/equipment-status-sync"
 
 export class RepairService {
   /**
@@ -96,14 +97,7 @@ export class RepairService {
   static async create(data: CreateRepairDTO) {
     // Создаём ремонт в транзакции с обновлением статуса оборудования
     return db.$transaction(async (tx) => {
-      // Обновляем статус оборудования на "В ремонте"
-      await tx.equipment.update({
-        where: { id: data.equipmentId },
-        data: { status: EquipmentStatus.IN_REPAIR },
-      })
-
-      // Создаём запись о ремонте
-      return tx.repair.create({
+      const created = await tx.repair.create({
         data: {
           ...data,
           status: RepairStatus.IN_PROGRESS,
@@ -116,6 +110,8 @@ export class RepairService {
           createdBy: true,
         },
       })
+      await recomputeEquipmentStatus(tx, data.equipmentId)
+      return created
     })
   }
 
@@ -151,14 +147,8 @@ export class RepairService {
 
       if (!repair) throw new Error("Ремонт не найден")
 
-      // Обновляем статус оборудования на "Исправно"
-      await tx.equipment.update({
-        where: { id: repair.equipmentId },
-        data: { status: EquipmentStatus.OPERATIONAL },
-      })
-
       // Завершаем ремонт
-      return tx.repair.update({
+      const updated = await tx.repair.update({
         where: { id },
         data: {
           status: RepairStatus.COMPLETED,
@@ -173,6 +163,8 @@ export class RepairService {
           createdBy: true,
         },
       })
+      await recomputeEquipmentStatus(tx, repair.equipmentId)
+      return updated
     })
   }
 
@@ -187,16 +179,12 @@ export class RepairService {
 
       if (!repair) throw new Error("Ремонт не найден")
 
-      // Возвращаем статус оборудования на "Требует проверки"
-      await tx.equipment.update({
-        where: { id: repair.equipmentId },
-        data: { status: EquipmentStatus.NEEDS_CHECK },
-      })
-
-      return tx.repair.update({
+      const updated = await tx.repair.update({
         where: { id },
         data: { status: RepairStatus.CANCELLED },
       })
+      await recomputeEquipmentStatus(tx, repair.equipmentId)
+      return updated
     })
   }
 

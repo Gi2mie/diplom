@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { EquipmentStatus, UserRole } from "@prisma/client"
 import { auth, isAdminSession } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { resolveStatusAfterWorkstationChange } from "@/lib/equipment-workstation-status"
 import { updateEquipmentSchema } from "@/lib/validators"
 import { syncWorkstationKitFromEquipment } from "@/lib/workstation-kit-sync"
 import { syncWorkstationStatusFromEquipment } from "@/lib/workstation-status-sync"
@@ -131,7 +132,13 @@ export async function PATCH(
 
   const prevWorkstationId = existing.workstationId
   const nextWorkstationId = d.workstationId !== undefined ? d.workstationId : existing.workstationId
-  const nextStatus = d.status !== undefined ? d.status : existing.status
+  const resolvedStatus = resolveStatusAfterWorkstationChange({
+    nextWorkstationId,
+    existingStatus: existing.status,
+    explicitStatus: d.status,
+  })
+  const nextStatus =
+    resolvedStatus !== undefined ? resolvedStatus : d.status !== undefined ? d.status : existing.status
 
   if (nextStatus === EquipmentStatus.DECOMMISSIONED && nextWorkstationId) {
     return NextResponse.json(
@@ -154,7 +161,7 @@ export async function PATCH(
           ? { equipmentKindId: d.equipmentKindId, type: mapsToEnum }
           : {}),
         ...(d.workstationId !== undefined ? { workstationId: d.workstationId } : {}),
-        ...(d.status !== undefined ? { status: d.status } : {}),
+        ...(resolvedStatus !== undefined ? { status: resolvedStatus } : {}),
         ...(d.manufacturer !== undefined ? { manufacturer: d.manufacturer?.trim() || null } : {}),
         ...(d.model !== undefined ? { model: d.model?.trim() || null } : {}),
         ...(d.serialNumber !== undefined ? { serialNumber: d.serialNumber?.trim() || null } : {}),

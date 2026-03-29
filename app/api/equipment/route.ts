@@ -3,6 +3,7 @@ import { EquipmentStatus, UserRole } from "@prisma/client"
 import { auth, isAdminSession } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { createEquipmentSchema } from "@/lib/validators"
+import { initialEquipmentStatusForCreate } from "@/lib/equipment-workstation-status"
 import { syncWorkstationKitFromEquipment } from "@/lib/workstation-kit-sync"
 import { syncWorkstationStatusFromEquipment } from "@/lib/workstation-status-sync"
 import type { Prisma } from "@prisma/client"
@@ -166,7 +167,7 @@ export async function POST(request: Request) {
         inventoryNumber: d.inventoryNumber.trim(),
         name: d.name.trim(),
         type: kind.mapsToEnum,
-        status: EquipmentStatus.OPERATIONAL,
+        status: initialEquipmentStatusForCreate(d.workstationId ?? null, d.status),
         categoryId: d.categoryId,
         equipmentKindId: d.equipmentKindId,
         workstationId: d.workstationId ?? null,

@@ -12,7 +12,6 @@ import {
   HardDrive,
   MemoryStick,
   CircuitBoard,
-  Download,
   Laptop,
   CheckCircle2,
   AlertTriangle,
@@ -282,10 +281,6 @@ export default function PCConfigPage() {
         <div className="flex items-center gap-2">
           <Button type="button" onClick={openAddDialog}>
             Добавить конфигурацию
-          </Button>
-          <Button variant="outline" size="sm" type="button">
-            <Download className="mr-2 h-4 w-4" />
-            Экспорт
           </Button>
         </div>
       </div>

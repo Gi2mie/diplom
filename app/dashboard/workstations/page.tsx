@@ -13,7 +13,6 @@ import {
   MonitorSmartphone,
   Monitor,
   X,
-  Download,
   School,
   Loader2,
   Package,
@@ -448,10 +447,6 @@ export default function WorkstationsPage() {
           <p className="text-muted-foreground">Управление рабочими местами в аудиториях</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" type="button" disabled>
-            <Download className="mr-2 h-4 w-4" />
-            Экспорт
-          </Button>
           {isAdmin && (
             <Button onClick={handleAdd} type="button">
               <Plus className="mr-2 h-4 w-4" />

@@ -1,4 +1,5 @@
 import { db } from "@/lib/db"
+import { resolveStatusAfterWorkstationChange } from "@/lib/equipment-workstation-status"
 import type {
   CreateEquipmentDTO,
   UpdateEquipmentDTO,
@@ -183,9 +184,24 @@ export class EquipmentService {
    * Переместить оборудование на другое рабочее место
    */
   static async moveToWorkstation(id: string, workstationId: string | null) {
+    const existing = await db.equipment.findUnique({
+      where: { id },
+      select: { status: true },
+    })
+    if (!existing) {
+      throw new Error("Оборудование не найдено")
+    }
+    const status = resolveStatusAfterWorkstationChange({
+      nextWorkstationId: workstationId,
+      existingStatus: existing.status,
+      explicitStatus: undefined,
+    })
     return db.equipment.update({
       where: { id },
-      data: { workstationId },
+      data: {
+        workstationId,
+        ...(status !== undefined ? { status } : {}),
+      },
       include: {
         workstation: {
           include: { classroom: true },

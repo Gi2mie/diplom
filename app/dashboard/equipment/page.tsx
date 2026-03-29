@@ -12,7 +12,6 @@ import {
   Eye,
   Package,
   Archive,
-  Download,
   SlidersHorizontal,
   X,
   CheckCircle2,
@@ -377,10 +376,6 @@ export default function EquipmentPage() {
         </div>
         {isAdmin && (
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" type="button" disabled>
-              <Download className="mr-2 h-4 w-4" />
-              Экспорт
-            </Button>
             <Button onClick={openAdd}>
               <Plus className="mr-2 h-4 w-4" />
               Добавить оборудование

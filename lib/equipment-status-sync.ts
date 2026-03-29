@@ -13,8 +13,19 @@ type Tx = Prisma.TransactionClient
 export async function recomputeEquipmentStatus(tx: Tx, equipmentId: string) {
   const wsRow = await tx.equipment.findUnique({
     where: { id: equipmentId },
-    select: { workstationId: true },
+    select: { workstationId: true, status: true },
   })
+
+  if (!wsRow?.workstationId) {
+    if (wsRow?.status === EquipmentStatus.DECOMMISSIONED) {
+      return
+    }
+    await tx.equipment.update({
+      where: { id: equipmentId },
+      data: { status: EquipmentStatus.NOT_IN_USE },
+    })
+    return
+  }
 
   const activeRepairs = await tx.repair.findMany({
     where: {
