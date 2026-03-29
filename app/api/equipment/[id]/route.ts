@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { UserRole } from "@prisma/client"
+import { EquipmentStatus, UserRole } from "@prisma/client"
 import { auth, isAdminSession } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { updateEquipmentSchema } from "@/lib/validators"
@@ -131,6 +131,17 @@ export async function PATCH(
 
   const prevWorkstationId = existing.workstationId
   const nextWorkstationId = d.workstationId !== undefined ? d.workstationId : existing.workstationId
+  const nextStatus = d.status !== undefined ? d.status : existing.status
+
+  if (nextStatus === EquipmentStatus.DECOMMISSIONED && nextWorkstationId) {
+    return NextResponse.json(
+      {
+        error:
+          "Нельзя списать оборудование, привязанное к рабочему месту. Сначала отвяжите его в карточке редактирования.",
+      },
+      { status: 409 }
+    )
+  }
 
   await db.$transaction(async (tx) => {
     await tx.equipment.update({
@@ -143,6 +154,7 @@ export async function PATCH(
           ? { equipmentKindId: d.equipmentKindId, type: mapsToEnum }
           : {}),
         ...(d.workstationId !== undefined ? { workstationId: d.workstationId } : {}),
+        ...(d.status !== undefined ? { status: d.status } : {}),
         ...(d.manufacturer !== undefined ? { manufacturer: d.manufacturer?.trim() || null } : {}),
         ...(d.model !== undefined ? { model: d.model?.trim() || null } : {}),
         ...(d.serialNumber !== undefined ? { serialNumber: d.serialNumber?.trim() || null } : {}),

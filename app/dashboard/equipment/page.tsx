@@ -11,6 +11,7 @@ import {
   Trash2,
   Eye,
   Package,
+  Archive,
   Download,
   SlidersHorizontal,
   X,
@@ -143,6 +144,7 @@ export default function EquipmentPage() {
   const [viewOpen, setViewOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [writeOffOpen, setWriteOffOpen] = useState(false)
   const [addOpen, setAddOpen] = useState(false)
   const [selected, setSelected] = useState<DashboardEquipmentRow | null>(null)
   const [form, setForm] = useState(emptyForm)
@@ -331,6 +333,19 @@ export default function EquipmentPage() {
       await loadAll()
     } catch (e) {
       setError(e instanceof Error ? e.message : "Не удалось удалить")
+    }
+  }
+
+  const confirmWriteOff = async () => {
+    if (!selected) return
+    setError(null)
+    try {
+      await updateEquipmentDashboardApi(selected.id, { status: EquipmentStatus.DECOMMISSIONED })
+      setWriteOffOpen(false)
+      setSelected(null)
+      await loadAll()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не удалось списать")
     }
   }
 
@@ -650,6 +665,26 @@ export default function EquipmentPage() {
                                   <Pencil className="mr-2 h-4 w-4" />
                                   Редактировать
                                 </DropdownMenuItem>
+                                {item.status !== EquipmentStatus.DECOMMISSIONED && (
+                                  <DropdownMenuItem
+                                    disabled={Boolean(item.workstationId)}
+                                    onClick={() => {
+                                      if (item.workstationId) return
+                                      setSelected(item)
+                                      setWriteOffOpen(true)
+                                    }}
+                                  >
+                                    <Archive className="mr-2 h-4 w-4" />
+                                    <span className="flex flex-col items-start gap-0.5">
+                                      <span>Списать</span>
+                                      {item.workstationId ? (
+                                        <span className="text-xs font-normal text-muted-foreground">
+                                          Сначала отвяжите от рабочего места
+                                        </span>
+                                      ) : null}
+                                    </span>
+                                  </DropdownMenuItem>
+                                )}
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem
                                   className="text-destructive focus:text-destructive"
@@ -963,6 +998,23 @@ export default function EquipmentPage() {
             <AlertDialogAction variant="destructive" onClick={() => void confirmDelete()}>
               Удалить
             </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={writeOffOpen} onOpenChange={setWriteOffOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Списать оборудование?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {selected
+                ? `Для «${selected.name}» будет установлен статус «${equipmentStatusLabel(EquipmentStatus.DECOMMISSIONED)}». Запись останется в системе.`
+                : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Отмена</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void confirmWriteOff()}>Списать</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
