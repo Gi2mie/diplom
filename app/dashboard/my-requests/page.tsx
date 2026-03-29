@@ -45,6 +45,9 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { fetchMyRequests, type MyRequestListItem } from "@/lib/api/my-requests"
+import { PageHeader } from "@/components/dashboard/page-header"
+import { SortableTableHead } from "@/components/ui/sortable-table-head"
+import { useTableSort } from "@/hooks/use-table-sort"
 
 type UiStatus = MyRequestListItem["status"]
 
@@ -148,6 +151,24 @@ export default function MyRequestsPage() {
     [requests]
   )
 
+  const requestSortGetters = useMemo(
+    () => ({
+      title: (r: MyRequestListItem) => r.title,
+      type: (r: MyRequestListItem) => (r.source === "software" ? "ПО" : "Ремонт"),
+      classroom: (r: MyRequestListItem) => r.classroomLabel,
+      priority: (r: MyRequestListItem) => r.priority,
+      status: (r: MyRequestListItem) => r.status,
+      created: (r: MyRequestListItem) => new Date(r.createdAt).getTime(),
+    }),
+    []
+  )
+
+  const { sortedItems: sortedRequests, sortKey, sortDir, toggleSort } = useTableSort(
+    filteredRequests,
+    requestSortGetters,
+    "created"
+  )
+
   const handleView = (request: MyRequestListItem) => {
     setSelectedRequest(request)
     setViewDialogOpen(true)
@@ -196,25 +217,23 @@ export default function MyRequestsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Мои заявки</h1>
-          <p className="text-muted-foreground">
-            Обращения о неисправностях и заявки на ПО, которые вы подавали
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button asChild variant="outline">
-            <Link href="/dashboard/software-requests">Заявка на ПО</Link>
-          </Button>
-          <Button asChild>
-            <Link href="/dashboard/requests/new">
-              <Plus className="mr-2 h-4 w-4" />
-              Сообщить о проблеме
-            </Link>
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="Мои заявки"
+        description="Обращения о неисправностях и заявки на ПО, которые вы подавали"
+        actions={
+          <>
+            <Button asChild variant="outline">
+              <Link href="/dashboard/software-requests">Заявка на ПО</Link>
+            </Button>
+            <Button asChild>
+              <Link href="/dashboard/requests/new">
+                <Plus className="mr-2 h-4 w-4" />
+                Сообщить о проблеме
+              </Link>
+            </Button>
+          </>
+        }
+      />
 
       <div className="grid gap-4 md:grid-cols-5">
         <Card>
@@ -325,10 +344,10 @@ export default function MyRequestsPage() {
       <Card>
         <CardHeader>
           <CardTitle>Заявки</CardTitle>
-          <CardDescription>Найдено: {filteredRequests.length}</CardDescription>
+          <CardDescription>Найдено: {sortedRequests.length}</CardDescription>
         </CardHeader>
         <CardContent>
-          {filteredRequests.length === 0 ? (
+          {sortedRequests.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-center">
               <AlertTriangle className="mb-4 h-12 w-12 text-muted-foreground" />
               <h3 className="text-lg font-medium">Заявки не найдены</h3>
@@ -355,16 +374,51 @@ export default function MyRequestsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Заявка</TableHead>
-                  <TableHead>Тип</TableHead>
-                  <TableHead>Аудитория</TableHead>
-                  <TableHead>Приоритет</TableHead>
-                  <TableHead>Статус</TableHead>
+                  <SortableTableHead
+                    columnKey="title"
+                    sortKey={sortKey}
+                    sortDir={sortDir}
+                    onSort={toggleSort}
+                  >
+                    Заявка
+                  </SortableTableHead>
+                  <SortableTableHead
+                    columnKey="type"
+                    sortKey={sortKey}
+                    sortDir={sortDir}
+                    onSort={toggleSort}
+                  >
+                    Тип
+                  </SortableTableHead>
+                  <SortableTableHead
+                    columnKey="classroom"
+                    sortKey={sortKey}
+                    sortDir={sortDir}
+                    onSort={toggleSort}
+                  >
+                    Аудитория
+                  </SortableTableHead>
+                  <SortableTableHead
+                    columnKey="priority"
+                    sortKey={sortKey}
+                    sortDir={sortDir}
+                    onSort={toggleSort}
+                  >
+                    Приоритет
+                  </SortableTableHead>
+                  <SortableTableHead
+                    columnKey="status"
+                    sortKey={sortKey}
+                    sortDir={sortDir}
+                    onSort={toggleSort}
+                  >
+                    Статус
+                  </SortableTableHead>
                   <TableHead className="text-right">Действия</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredRequests.map((request) => {
+                {sortedRequests.map((request) => {
                   const statusInfo = statusConfig[request.status]
                   const priorityInfo = priorityConfig[request.priority]
                   const RowIcon = requestRowIcon(request)

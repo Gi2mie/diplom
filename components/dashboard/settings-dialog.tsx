@@ -1,7 +1,7 @@
 "use client"
 
-import { useState } from "react"
 import { useTheme } from "@/components/providers/theme-provider"
+import { ThemePicker } from "@/components/theme-picker"
 import {
   Dialog,
   DialogContent,
@@ -9,8 +9,9 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog"
-import { Sun, Moon } from "lucide-react"
-import { cn } from "@/lib/utils"
+import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
+import { Sparkles } from "lucide-react"
 
 interface SettingsDialogProps {
   open: boolean
@@ -18,11 +19,11 @@ interface SettingsDialogProps {
 }
 
 export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
-  const { theme, setTheme } = useTheme()
+  const { animationsEnabled, setAnimationsEnabled } = useTheme()
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-sm">
+      <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>Настройки</DialogTitle>
           <DialogDescription>
@@ -31,50 +32,36 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
         </DialogHeader>
 
         <div className="space-y-4">
-          {/* Theme Selection */}
-          <div className="space-y-3">
-            <label className="text-sm font-medium leading-none">Тема интерфейса</label>
-            <div className="grid grid-cols-2 gap-3">
-              {/* Light Theme */}
-              <button
-                onClick={() => setTheme("light")}
-                className={cn(
-                  "relative flex flex-col items-center gap-2 rounded-lg border-2 p-3 transition-all hover:bg-accent cursor-pointer",
-                  theme === "light"
-                    ? "border-primary bg-accent"
-                    : "border-border"
-                )}
-              >
-                <div className="w-12 h-8 rounded border border-border bg-white flex items-center justify-center">
-                  <Sun className="h-4 w-4 text-amber-500" />
-                </div>
-                <span className="text-xs font-medium">Светлая</span>
-                {theme === "light" && (
-                  <div className="absolute top-2 right-2 h-3 w-3 rounded-full bg-primary" />
-                )}
-              </button>
+          <ThemePicker />
 
-              {/* Dark Theme */}
-              <button
-                onClick={() => setTheme("dark")}
-                className={cn(
-                  "relative flex flex-col items-center gap-2 rounded-lg border-2 p-3 transition-all hover:bg-accent cursor-pointer",
-                  theme === "dark"
-                    ? "border-primary bg-accent"
-                    : "border-border"
-                )}
-              >
-                <div className="w-12 h-8 rounded border border-slate-700 bg-slate-900 flex items-center justify-center">
-                  <Moon className="h-4 w-4 text-blue-400" />
-                </div>
-                <span className="text-xs font-medium">Тёмная</span>
-                {theme === "dark" && (
-                  <div className="absolute top-2 right-2 h-3 w-3 rounded-full bg-primary" />
-                )}
-              </button>
+          <div className="space-y-3 border-t border-border/80 pt-4">
+            <div className="flex items-start gap-3">
+              <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted">
+                <Sparkles className="h-4 w-4 text-primary" aria-hidden />
+              </div>
+              <div className="min-w-0 flex-1 space-y-1">
+                <Label htmlFor="settings-animations" className="text-sm font-medium">
+                  Анимации интерфейса
+                </Label>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Плавные переходы, появление страниц и отклик кнопок. При отключении интерфейс
+                  обновляется сразу — удобно на слабых устройствах или при чувствительности к
+                  движению.
+                </p>
+              </div>
+              <Switch
+                id="settings-animations"
+                checked={animationsEnabled}
+                onCheckedChange={setAnimationsEnabled}
+                className="mt-1 shrink-0"
+                aria-describedby="settings-animations-hint"
+              />
             </div>
-            <p className="text-xs text-muted-foreground">
-              Текущая тема: <span className="font-medium text-foreground">{theme === "light" ? "Светлая" : "Тёмная"}</span>
+            <p id="settings-animations-hint" className="text-xs text-muted-foreground pl-12">
+              Сейчас:{" "}
+              <span className="font-medium text-foreground">
+                {animationsEnabled ? "включены" : "выключены"}
+              </span>
             </p>
           </div>
         </div>

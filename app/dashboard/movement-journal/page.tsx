@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useSession } from "next-auth/react"
 import {
+  AlertCircle,
   ArrowRightLeft,
   Calendar,
   Download,
@@ -35,11 +36,16 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { toast } from "sonner"
 import {
   fetchRelocationLogs,
   revertRelocationApi,
   type RelocationJournalRow,
 } from "@/lib/api/relocations"
+import { PageHeader } from "@/components/dashboard/page-header"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { SortableTableHead } from "@/components/ui/sortable-table-head"
+import { useTableSort } from "@/hooks/use-table-sort"
 import { buildRelocationJournalExportTable } from "@/lib/relocation-journal-export"
 import { downloadReportsExcel, downloadReportsPdf } from "@/lib/reports-export-file"
 import { reportsTableToPrintHtml } from "@/lib/reports-export-table"
@@ -145,6 +151,31 @@ export default function MovementJournalPage() {
     })
   }, [logs, dateFrom, dateTo, searchQuery])
 
+  const journalSortGetters = useMemo(
+    () => ({
+      movedAt: (r: RelocationJournalRow) => new Date(r.movedAt).getTime(),
+      revertedAt: (r: RelocationJournalRow) =>
+        r.revertedAt ? new Date(r.revertedAt).getTime() : 0,
+      kind: (r: RelocationJournalRow) => r.kind,
+      equipment: (r: RelocationJournalRow) =>
+        r.kind === "WORKSTATION"
+          ? `рм-${r.movedEquipmentCount}`
+          : (r.equipmentName ?? r.inventoryNumber ?? ""),
+      route: (r: RelocationJournalRow) =>
+        `${r.fromClassroomNumber}->${r.toClassroomNumber}`,
+      workstation: (r: RelocationJournalRow) =>
+        `${r.fromWorkstationCode} ${r.toWorkstationCode}`,
+      initiator: (r: RelocationJournalRow) => r.initiator,
+    }),
+    []
+  )
+
+  const { sortedItems: sortedJournalRows, sortKey, sortDir, toggleSort } = useTableSort(
+    filteredRecords,
+    journalSortGetters,
+    "movedAt"
+  )
+
   const exportTable = useMemo(
     () =>
       buildRelocationJournalExportTable({
@@ -220,6 +251,7 @@ export default function MovementJournalPage() {
         await downloadReportsPdf(exportTable, `${base}.pdf`)
       }
       setExportDialogOpen(false)
+      toast.success("Файл сохранён")
     } finally {
       setExportBusy(false)
     }
@@ -234,51 +266,52 @@ export default function MovementJournalPage() {
   if (!isAdmin) {
     return (
       <div className="space-y-4">
-        <h1 className="text-2xl font-bold">Журнал перемещения</h1>
-        <p className="text-muted-foreground">Раздел доступен только администратору.</p>
+        <PageHeader
+          title="Журнал перемещения"
+          description="Раздел доступен только администратору."
+        />
       </div>
     )
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Журнал перемещения</h1>
-          <p className="text-muted-foreground">
-            Перемещения оборудования и целых рабочих мест между аудиториями. После возврата запись
-            сохраняется с датой отката.
-          </p>
-        </div>
-        <div className="flex shrink-0 flex-wrap gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => handleJournalPrint()}
-            disabled={loading}
-          >
-            <Printer className="mr-2 h-4 w-4" />
-            Печать
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => {
-              setExportFormat("excel")
-              setExportDialogOpen(true)
-            }}
-            disabled={loading}
-          >
-            <Download className="mr-2 h-4 w-4" />
-            Экспорт…
-          </Button>
-        </div>
-      </div>
+    <div className="space-y-6 md:space-y-8">
+      <PageHeader
+        title="Журнал перемещения"
+        description="Перемещения оборудования и целых рабочих мест между аудиториями. После возврата запись сохраняется с датой отката."
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => handleJournalPrint()}
+              disabled={loading}
+            >
+              <Printer className="mr-2 h-4 w-4" />
+              Печать
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setExportFormat("excel")
+                setExportDialogOpen(true)
+              }}
+              disabled={loading}
+            >
+              <Download className="mr-2 h-4 w-4" />
+              Экспорт…
+            </Button>
+          </div>
+        }
+      />
 
       {error && (
-        <p className="text-sm text-destructive" role="alert">
-          {error}
-        </p>
+        <Alert variant="destructive" className="border-destructive/40">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Ошибка</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       )}
 
       <Card>
@@ -365,7 +398,7 @@ export default function MovementJournalPage() {
             Записи
           </CardTitle>
           <CardDescription>
-            Период с {dateFrom} по {dateTo} — показано {filteredRecords.length} из {logs.length}{" "}
+            Период с {dateFrom} по {dateTo} — показано {sortedJournalRows.length} из {logs.length}{" "}
             всего
           </CardDescription>
         </CardHeader>
@@ -374,13 +407,62 @@ export default function MovementJournalPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Перемещено</TableHead>
-                  <TableHead>Возврат</TableHead>
-                  <TableHead>Тип</TableHead>
-                  <TableHead>Оборудование</TableHead>
-                  <TableHead>Маршрут ауд.</TableHead>
-                  <TableHead>РМ</TableHead>
-                  <TableHead>Инициатор</TableHead>
+                  <SortableTableHead
+                    columnKey="movedAt"
+                    sortKey={sortKey}
+                    sortDir={sortDir}
+                    onSort={toggleSort}
+                  >
+                    Перемещено
+                  </SortableTableHead>
+                  <SortableTableHead
+                    columnKey="revertedAt"
+                    sortKey={sortKey}
+                    sortDir={sortDir}
+                    onSort={toggleSort}
+                  >
+                    Возврат
+                  </SortableTableHead>
+                  <SortableTableHead
+                    columnKey="kind"
+                    sortKey={sortKey}
+                    sortDir={sortDir}
+                    onSort={toggleSort}
+                  >
+                    Тип
+                  </SortableTableHead>
+                  <SortableTableHead
+                    columnKey="equipment"
+                    sortKey={sortKey}
+                    sortDir={sortDir}
+                    onSort={toggleSort}
+                  >
+                    Оборудование
+                  </SortableTableHead>
+                  <SortableTableHead
+                    columnKey="route"
+                    sortKey={sortKey}
+                    sortDir={sortDir}
+                    onSort={toggleSort}
+                  >
+                    Маршрут ауд.
+                  </SortableTableHead>
+                  <SortableTableHead
+                    columnKey="workstation"
+                    sortKey={sortKey}
+                    sortDir={sortDir}
+                    onSort={toggleSort}
+                  >
+                    РМ
+                  </SortableTableHead>
+                  <SortableTableHead
+                    columnKey="initiator"
+                    sortKey={sortKey}
+                    sortDir={sortDir}
+                    onSort={toggleSort}
+                  >
+                    Инициатор
+                  </SortableTableHead>
                   <TableHead className="text-right">Действие</TableHead>
                 </TableRow>
               </TableHeader>
@@ -391,7 +473,7 @@ export default function MovementJournalPage() {
                       <Loader2 className="mx-auto h-8 w-8 animate-spin" />
                     </TableCell>
                   </TableRow>
-                ) : filteredRecords.length === 0 ? (
+                ) : sortedJournalRows.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
                       {logs.length === 0
@@ -400,7 +482,7 @@ export default function MovementJournalPage() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredRecords.map((item) => (
+                  sortedJournalRows.map((item) => (
                     <TableRow key={item.id}>
                       <TableCell className="whitespace-nowrap text-sm">
                         {formatDate(item.movedAt)}
@@ -454,7 +536,10 @@ export default function MovementJournalPage() {
                             onClick={() => {
                               setRevertingId(item.id)
                               void revertRelocationApi(item.id)
-                                .then(() => void load())
+                                .then(() => {
+                                  void load()
+                                  toast.success("Перемещение отменено")
+                                })
                                 .catch((e) => setError(e instanceof Error ? e.message : "Ошибка отката"))
                                 .finally(() => setRevertingId(null))
                             }}

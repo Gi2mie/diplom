@@ -41,6 +41,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Search, Eye, Wrench, Clock, CheckCircle, XCircle, ListOrdered, MoreHorizontal } from "lucide-react"
+import { toast } from "sonner"
+import { PageHeader } from "@/components/dashboard/page-header"
+import { SortableTableHead } from "@/components/ui/sortable-table-head"
+import { useTableSort } from "@/hooks/use-table-sort"
 import { fetchDashboardRepairs, patchRepairStatus, type DashboardRepairRow } from "@/lib/api/repairs-dashboard"
 
 type ClassroomBrief = {
@@ -150,6 +154,7 @@ export default function RepairsPage() {
           setSelected(updated)
         }
       }
+      toast.success("Статус ремонта обновлён")
     } catch (e) {
       setError(e instanceof Error ? e.message : "Не удалось сохранить статус")
     } finally {
@@ -224,6 +229,24 @@ export default function RepairsPage() {
     filterWorkstationId !== "all" ||
     filterStatus !== "all"
 
+  const repairSortGetters = useMemo(
+    () => ({
+      equipment: (r: DashboardRepairRow) => r.equipment.name,
+      inventory: (r: DashboardRepairRow) => r.equipment.inventoryNumber,
+      status: (r: DashboardRepairRow) => r.status,
+      issue: (r: DashboardRepairRow) => r.issueReport?.title ?? "",
+      started: (r: DashboardRepairRow) =>
+        r.startedAt ? new Date(r.startedAt).getTime() : 0,
+    }),
+    []
+  )
+
+  const { sortedItems: sortedRepairs, sortKey, sortDir, toggleSort } = useTableSort(
+    filtered,
+    repairSortGetters,
+    "equipment"
+  )
+
   if (sessionStatus === "loading") {
     return (
       <div className="space-y-6">
@@ -235,27 +258,26 @@ export default function RepairsPage() {
 
   if (!session?.user || session.user.role !== UserRole.ADMIN) {
     return (
-      <Card>
-        <CardContent className="py-10 text-center text-muted-foreground">
-          Раздел доступен только администратору.
-        </CardContent>
-      </Card>
+      <div className="space-y-4">
+        <PageHeader
+          title="Активные ремонты"
+          description="Раздел доступен только администратору."
+        />
+      </div>
     )
   }
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Активные ремонты</h1>
-          <p className="text-muted-foreground">
-            Оборудование в ремонте (запланировано и в работе). Записи создаются из обращений о неисправностях.
-          </p>
-        </div>
-        <Button type="button" variant="outline" asChild>
-          <Link href="/dashboard/issues">К неисправностям</Link>
-        </Button>
-      </div>
+      <PageHeader
+        title="Активные ремонты"
+        description="Оборудование в ремонте (запланировано и в работе). Записи создаются из обращений о неисправностях."
+        actions={
+          <Button type="button" variant="outline" asChild>
+            <Link href="/dashboard/issues">К неисправностям</Link>
+          </Button>
+        }
+      />
 
       {error ? (
         <Alert variant="destructive">
@@ -402,7 +424,7 @@ export default function RepairsPage() {
         <CardHeader>
           <CardTitle className="text-base">Список</CardTitle>
           <CardDescription>
-            Показано {filtered.length} из {repairs.length}
+            Показано {sortedRepairs.length} из {repairs.length}
           </CardDescription>
         </CardHeader>
         <CardContent className="p-0 sm:p-6 sm:pt-0">
@@ -412,22 +434,51 @@ export default function RepairsPage() {
               <Skeleton className="h-10 w-full" />
               <Skeleton className="h-10 w-full" />
             </div>
-          ) : filtered.length === 0 ? (
+          ) : sortedRepairs.length === 0 ? (
             <p className="p-6 text-sm text-muted-foreground">Нет записей по выбранным условиям.</p>
           ) : (
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Оборудование</TableHead>
-                    <TableHead className="min-w-[12rem]">Статус</TableHead>
-                    <TableHead>Обращение</TableHead>
-                    <TableHead>Начало</TableHead>
+                    <SortableTableHead
+                      columnKey="equipment"
+                      sortKey={sortKey}
+                      sortDir={sortDir}
+                      onSort={toggleSort}
+                    >
+                      Оборудование
+                    </SortableTableHead>
+                    <SortableTableHead
+                      columnKey="status"
+                      sortKey={sortKey}
+                      sortDir={sortDir}
+                      onSort={toggleSort}
+                      className="min-w-[12rem]"
+                    >
+                      Статус
+                    </SortableTableHead>
+                    <SortableTableHead
+                      columnKey="issue"
+                      sortKey={sortKey}
+                      sortDir={sortDir}
+                      onSort={toggleSort}
+                    >
+                      Обращение
+                    </SortableTableHead>
+                    <SortableTableHead
+                      columnKey="started"
+                      sortKey={sortKey}
+                      sortDir={sortDir}
+                      onSort={toggleSort}
+                    >
+                      Начало
+                    </SortableTableHead>
                     <TableHead className="w-[52px]" />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filtered.map((row) => {
+                  {sortedRepairs.map((row) => {
                     return (
                       <TableRow key={row.id}>
                         <TableCell>

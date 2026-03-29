@@ -1,16 +1,18 @@
 "use client"
 
-import { useState } from "react"
+import { Suspense, useState } from "react"
 import { signIn } from "next-auth/react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Monitor, AlertCircle, Cpu, Server, HardDrive, Eye, EyeOff } from "lucide-react"
 import { normalizeNhtkEmail } from "@/lib/user-validation"
+import { Skeleton } from "@/components/ui/skeleton"
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const error = searchParams.get("error")
@@ -129,14 +131,14 @@ export default function LoginPage() {
             <span className="text-xl font-semibold text-foreground tracking-tight">EduControl</span>
           </div>
 
-          <Card className="border border-border/60 shadow-xl shadow-primary/10 bg-card dark:border-border dark:shadow-black/20">
-            <CardContent className="p-8">
-              <div className="text-center mb-8">
-                <h2 className="text-2xl font-semibold text-card-foreground mb-2">
+          <Card className="border border-border/60 bg-card shadow-xl shadow-primary/5 transition-shadow duration-300 dark:border-border dark:shadow-black/25">
+            <CardContent className="p-6 sm:p-8">
+              <div className="mb-8 text-center">
+                <h2 className="mb-2 text-2xl font-semibold tracking-tight text-card-foreground">
                   Вход в систему
                 </h2>
-                <p className="text-muted-foreground text-sm">
-                  Введите учётные данные для входа
+                <p className="text-pretty text-sm text-muted-foreground">
+                  Корпоративный аккаунт преподавателя или администратора
                 </p>
               </div>
 
@@ -154,12 +156,9 @@ export default function LoginPage() {
               )}
 
               {/* Login Form */}
-              <form onSubmit={handleSubmit} className="space-y-4">
-                {/* Email Input */}
-                <div>
-                  <label htmlFor="email" className="block text-sm font-medium text-foreground mb-2">
-                    Email адрес
-                  </label>
+              <form onSubmit={handleSubmit} className="space-y-5">
+                <div className="space-y-2">
+                  <Label htmlFor="email">Email</Label>
                   <Input
                     id="email"
                     type="email"
@@ -169,30 +168,34 @@ export default function LoginPage() {
                     disabled={isLoading}
                     className="h-10"
                     autoComplete="email"
+                    aria-invalid={Boolean(fieldError) || Boolean(error)}
+                    aria-describedby="email-hint"
                   />
+                  <p id="email-hint" className="text-xs text-muted-foreground">
+                    Используйте адрес в домене учебного заведения
+                  </p>
                 </div>
 
-                {/* Password Input */}
-                <div>
-                  <label htmlFor="password" className="block text-sm font-medium text-foreground mb-2">
-                    Пароль
-                  </label>
+                <div className="space-y-2">
+                  <Label htmlFor="password">Пароль</Label>
                   <div className="relative">
                     <Input
                       id="password"
                       type={showPassword ? "text" : "password"}
-                      placeholder="********"
+                      placeholder="••••••••"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       disabled={isLoading}
                       className="h-10 pr-10"
                       autoComplete="current-password"
+                      aria-invalid={Boolean(fieldError) || Boolean(error)}
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                       disabled={isLoading}
+                      aria-label={showPassword ? "Скрыть пароль" : "Показать пароль"}
                     >
                       {showPassword ? (
                         <EyeOff className="h-4 w-4" />
@@ -228,5 +231,22 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-dvh items-center justify-center bg-background px-4">
+          <div className="w-full max-w-md space-y-4">
+            <Skeleton className="mx-auto h-11 w-11 rounded-xl" />
+            <Skeleton className="h-48 w-full rounded-xl" />
+          </div>
+        </div>
+      }
+    >
+      <LoginForm />
+    </Suspense>
   )
 }

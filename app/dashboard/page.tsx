@@ -31,6 +31,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { fetchClassroomRegistry } from "@/lib/api/classroom-registry"
 import { fetchMyRequests, type MyRequestListItem } from "@/lib/api/my-requests"
 import { fetchEquipmentDashboardList } from "@/lib/api/equipment-dashboard"
+import { PageHeader } from "@/components/dashboard/page-header"
 import {
   fetchAdminDashboardStats,
   type AdminDashboardRecentIssue,
@@ -202,44 +203,40 @@ export default function DashboardPage() {
   }
   
   return (
-    <div className="space-y-6">
-      {/* Welcome Section */}
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">
-            Добро пожаловать{firstName ? `, ${firstName}` : ""}!
-          </h1>
-          <p className="text-muted-foreground">
-            {isAdmin 
-              ? "Панель управления системой учёта оборудования" 
-              : "Просмотр оборудования и управление заявками"
-            }
-          </p>
-        </div>
-        {isAdmin ? (
-          <div className="flex gap-2">
+    <div className="space-y-6 md:space-y-8">
+      <PageHeader
+        title={`Добро пожаловать${firstName ? `, ${firstName}` : ""}!`}
+        description={
+          isAdmin
+            ? "Панель управления системой учёта оборудования и заявок."
+            : "Просмотр оборудования и управление заявками по вашим аудиториям."
+        }
+        actions={
+          isAdmin ? (
+            <div className="flex flex-wrap gap-2">
+              <Button asChild>
+                <Link href="/dashboard/reports">
+                  <FileText className="mr-2 h-4 w-4" />
+                  Создать отчёт
+                </Link>
+              </Button>
+              <Button variant="outline" asChild>
+                <Link href="/dashboard/equipment">
+                  <Plus className="mr-2 h-4 w-4" />
+                  Добавить оборудование
+                </Link>
+              </Button>
+            </div>
+          ) : (
             <Button asChild>
-              <Link href="/dashboard/reports">
-                <FileText className="mr-2 h-4 w-4" />
-                Создать отчёт
-              </Link>
-            </Button>
-            <Button variant="outline" asChild>
-              <Link href="/dashboard/equipment">
+              <Link href="/dashboard/requests/new">
                 <Plus className="mr-2 h-4 w-4" />
-                Добавить оборудование
+                Сообщить о проблеме
               </Link>
             </Button>
-          </div>
-        ) : (
-          <Button asChild>
-            <Link href="/dashboard/requests/new">
-              <Plus className="mr-2 h-4 w-4" />
-              Сообщить о проблеме
-            </Link>
-          </Button>
-        )}
-      </div>
+          )
+        }
+      />
 
       {/* Admin Dashboard */}
       {isAdmin && (

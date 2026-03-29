@@ -41,7 +41,12 @@ import {
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { SortableTableHead } from "@/components/ui/sortable-table-head"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { toast } from "sonner"
+import { PageHeader } from "@/components/dashboard/page-header"
+import { useTableSort } from "@/hooks/use-table-sort"
 import { CLASSROOM_TYPE_COLOR_OPTIONS } from "@/lib/classroom-colors"
 import {
   fetchClassroomRegistry,
@@ -226,6 +231,64 @@ export default function ClassroomsPage() {
   const getBuildingName = (buildingId: string | null) =>
     buildings.find((b) => b.id === buildingId)?.name ?? "—"
 
+  const classroomSortGetters = useMemo(
+    () => ({
+      number: (c: RegistryClassroom) => c.number,
+      name: (c: RegistryClassroom) => c.name ?? "",
+      type: (c: RegistryClassroom) =>
+        types.find((t) => t.id === c.classroomTypeId)?.name ?? "",
+      location: (c: RegistryClassroom) =>
+        `${getBuildingName(c.buildingId)} ${c.floor ?? 0}`.toLowerCase(),
+      capacity: (c: RegistryClassroom) => c.capacity ?? 0,
+      workstations: (c: RegistryClassroom) => c.workstationCount,
+      status: (c: RegistryClassroom) => getStatusInfo(toUiStatus(c.listingStatus)).label,
+    }),
+    [buildings, types]
+  )
+
+  const typeRowSortGetters = useMemo(
+    () => ({
+      name: (t: RegistryClassroomType) => t.name,
+      code: (t: RegistryClassroomType) => t.code,
+      color: (t: RegistryClassroomType) => t.color,
+      description: (t: RegistryClassroomType) => t.description,
+      count: (t: RegistryClassroomType) => t.classroomsCount,
+    }),
+    []
+  )
+
+  const buildingSortGetters = useMemo(
+    () => ({
+      name: (b: RegistryBuilding) => b.name,
+      address: (b: RegistryBuilding) => b.address,
+      floors: (b: RegistryBuilding) => b.floors,
+      description: (b: RegistryBuilding) => b.description ?? "",
+      count: (b: RegistryBuilding) => b.classroomsCount,
+    }),
+    []
+  )
+
+  const {
+    sortedItems: sortedClassrooms,
+    sortKey: classroomSortKey,
+    sortDir: classroomSortDir,
+    toggleSort: toggleClassroomSort,
+  } = useTableSort(filteredClassrooms, classroomSortGetters, "number")
+
+  const {
+    sortedItems: sortedTypes,
+    sortKey: typeSortKey,
+    sortDir: typeSortDir,
+    toggleSort: toggleTypeSort,
+  } = useTableSort(types, typeRowSortGetters, "name")
+
+  const {
+    sortedItems: sortedBuildings,
+    sortKey: buildingSortKey,
+    sortDir: buildingSortDir,
+    toggleSort: toggleBuildingSort,
+  } = useTableSort(buildings, buildingSortGetters, "name")
+
   if (sessionStatus === "loading" || (sessionStatus === "authenticated" && loading && !registry)) {
     return (
       <div className="space-y-6">
@@ -279,9 +342,11 @@ export default function ClassroomsPage() {
       if (isEdit && selectedClassroom) {
         await updateClassroomApi(selectedClassroom.id, payload)
         setIsEditClassroomOpen(false)
+        toast.success("Аудитория обновлена")
       } else {
         await createClassroomApi(payload)
         setIsAddClassroomOpen(false)
+        toast.success("Аудитория добавлена")
       }
       setSelectedClassroom(null)
       setClassroomForm(emptyClassroomForm())
@@ -326,6 +391,7 @@ export default function ClassroomsPage() {
           description: typeForm.description.trim() || "",
         })
         setIsEditTypeOpen(false)
+        toast.success("Тип аудитории обновлён")
       } else {
         await createClassroomTypeApi({
           name: typeForm.name.trim(),
@@ -334,6 +400,7 @@ export default function ClassroomsPage() {
           description: typeForm.description.trim(),
         })
         setIsAddTypeOpen(false)
+        toast.success("Тип аудитории добавлен")
       }
       setSelectedType(null)
       setTypeForm(emptyTypeForm())
@@ -361,6 +428,7 @@ export default function ClassroomsPage() {
           description: buildingForm.description.trim() || null,
         })
         setIsEditBuildingOpen(false)
+        toast.success("Корпус обновлён")
       } else {
         await createBuildingApi({
           name: buildingForm.name.trim(),
@@ -369,6 +437,7 @@ export default function ClassroomsPage() {
           description: buildingForm.description.trim() || null,
         })
         setIsAddBuildingOpen(false)
+        toast.success("Корпус добавлен")
       }
       setSelectedBuilding(null)
       setBuildingForm(emptyBuildingForm())
@@ -382,19 +451,19 @@ export default function ClassroomsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Аудитории</h1>
-        <p className="text-muted-foreground">
-          {isAdmin
+      <PageHeader
+        title="Аудитории"
+        description={
+          isAdmin
             ? "Управление аудиториями, типами и корпусами"
-            : "Аудитории, за которые вы назначены ответственным"}
-        </p>
-      </div>
+            : "Аудитории, за которые вы назначены ответственным"
+        }
+      />
 
       {error && (
-        <Card>
-          <CardContent className="pt-4 text-sm text-red-600">{error}</CardContent>
-        </Card>
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       )}
 
       <div className="grid gap-4 md:grid-cols-4">
@@ -542,10 +611,10 @@ export default function ClassroomsPage() {
           <Card>
             <CardHeader>
               <CardTitle>Список аудиторий</CardTitle>
-              <CardDescription>Показано {filteredClassrooms.length}</CardDescription>
+              <CardDescription>Показано {sortedClassrooms.length}</CardDescription>
             </CardHeader>
             <CardContent>
-              {filteredClassrooms.length === 0 ? (
+              {sortedClassrooms.length === 0 ? (
                 <div className="flex flex-col items-center py-12 text-center text-muted-foreground">
                   <School className="h-12 w-12 mb-4 opacity-50" />
                   <p>Нет аудиторий по фильтру или в базе ещё нет записей</p>
@@ -555,17 +624,61 @@ export default function ClassroomsPage() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Аудитория</TableHead>
-                        <TableHead>Тип</TableHead>
-                        <TableHead>Корпус / этаж</TableHead>
-                        <TableHead className="text-center">Вместимость</TableHead>
-                        <TableHead className="text-center">Рабочие места</TableHead>
-                        <TableHead>Статус</TableHead>
+                        <SortableTableHead
+                          columnKey="number"
+                          sortKey={classroomSortKey}
+                          sortDir={classroomSortDir}
+                          onSort={toggleClassroomSort}
+                        >
+                          Аудитория
+                        </SortableTableHead>
+                        <SortableTableHead
+                          columnKey="type"
+                          sortKey={classroomSortKey}
+                          sortDir={classroomSortDir}
+                          onSort={toggleClassroomSort}
+                        >
+                          Тип
+                        </SortableTableHead>
+                        <SortableTableHead
+                          columnKey="location"
+                          sortKey={classroomSortKey}
+                          sortDir={classroomSortDir}
+                          onSort={toggleClassroomSort}
+                        >
+                          Корпус / этаж
+                        </SortableTableHead>
+                        <SortableTableHead
+                          columnKey="capacity"
+                          sortKey={classroomSortKey}
+                          sortDir={classroomSortDir}
+                          onSort={toggleClassroomSort}
+                          className="text-center"
+                        >
+                          Вместимость
+                        </SortableTableHead>
+                        <SortableTableHead
+                          columnKey="workstations"
+                          sortKey={classroomSortKey}
+                          sortDir={classroomSortDir}
+                          onSort={toggleClassroomSort}
+                          className="text-center"
+                        >
+                          Рабочие места
+                        </SortableTableHead>
+                        <SortableTableHead
+                          columnKey="status"
+                          sortKey={classroomSortKey}
+                          sortDir={classroomSortDir}
+                          onSort={toggleClassroomSort}
+                        >
+                          Статус
+                        </SortableTableHead>
                         <TableHead className="w-[56px]" />
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {filteredClassrooms.map((c) => {
+                      {sortedClassrooms.map((c) => {
                         const st = getStatusInfo(toUiStatus(c.listingStatus))
                         return (
                           <TableRow key={c.id}>
@@ -651,23 +764,59 @@ export default function ClassroomsPage() {
               </div>
             </CardHeader>
             <CardContent>
-              {types.length === 0 ? (
+              {sortedTypes.length === 0 ? (
                 <p className="text-sm text-muted-foreground py-8 text-center">Нет типов — добавьте первый с типовой страницы</p>
               ) : (
                 <div className="rounded-md border">
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Название</TableHead>
-                        <TableHead>Код</TableHead>
-                        <TableHead>Цвет</TableHead>
-                        <TableHead>Описание</TableHead>
-                        <TableHead className="text-center">Аудиторий</TableHead>
+                        <SortableTableHead
+                          columnKey="name"
+                          sortKey={typeSortKey}
+                          sortDir={typeSortDir}
+                          onSort={toggleTypeSort}
+                        >
+                          Название
+                        </SortableTableHead>
+                        <SortableTableHead
+                          columnKey="code"
+                          sortKey={typeSortKey}
+                          sortDir={typeSortDir}
+                          onSort={toggleTypeSort}
+                        >
+                          Код
+                        </SortableTableHead>
+                        <SortableTableHead
+                          columnKey="color"
+                          sortKey={typeSortKey}
+                          sortDir={typeSortDir}
+                          onSort={toggleTypeSort}
+                        >
+                          Цвет
+                        </SortableTableHead>
+                        <SortableTableHead
+                          columnKey="description"
+                          sortKey={typeSortKey}
+                          sortDir={typeSortDir}
+                          onSort={toggleTypeSort}
+                        >
+                          Описание
+                        </SortableTableHead>
+                        <SortableTableHead
+                          columnKey="count"
+                          sortKey={typeSortKey}
+                          sortDir={typeSortDir}
+                          onSort={toggleTypeSort}
+                          className="text-center"
+                        >
+                          Аудиторий
+                        </SortableTableHead>
                         <TableHead className="w-[56px]" />
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {types.map((t) => (
+                      {sortedTypes.map((t) => (
                         <TableRow key={t.id}>
                           <TableCell className="font-medium">{t.name}</TableCell>
                           <TableCell><code className="text-sm bg-muted px-2 py-1 rounded">{t.code}</code></TableCell>
@@ -728,23 +877,60 @@ export default function ClassroomsPage() {
               </div>
             </CardHeader>
             <CardContent>
-              {buildings.length === 0 ? (
+              {sortedBuildings.length === 0 ? (
                 <p className="text-sm text-muted-foreground py-8 text-center">Нет корпусов</p>
               ) : (
                 <div className="rounded-md border">
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Название</TableHead>
-                        <TableHead>Адрес</TableHead>
-                        <TableHead className="text-center">Этажей</TableHead>
-                        <TableHead>Описание</TableHead>
-                        <TableHead className="text-center">Аудиторий</TableHead>
+                        <SortableTableHead
+                          columnKey="name"
+                          sortKey={buildingSortKey}
+                          sortDir={buildingSortDir}
+                          onSort={toggleBuildingSort}
+                        >
+                          Название
+                        </SortableTableHead>
+                        <SortableTableHead
+                          columnKey="address"
+                          sortKey={buildingSortKey}
+                          sortDir={buildingSortDir}
+                          onSort={toggleBuildingSort}
+                        >
+                          Адрес
+                        </SortableTableHead>
+                        <SortableTableHead
+                          columnKey="floors"
+                          sortKey={buildingSortKey}
+                          sortDir={buildingSortDir}
+                          onSort={toggleBuildingSort}
+                          className="text-center"
+                        >
+                          Этажей
+                        </SortableTableHead>
+                        <SortableTableHead
+                          columnKey="description"
+                          sortKey={buildingSortKey}
+                          sortDir={buildingSortDir}
+                          onSort={toggleBuildingSort}
+                        >
+                          Описание
+                        </SortableTableHead>
+                        <SortableTableHead
+                          columnKey="count"
+                          sortKey={buildingSortKey}
+                          sortDir={buildingSortDir}
+                          onSort={toggleBuildingSort}
+                          className="text-center"
+                        >
+                          Аудиторий
+                        </SortableTableHead>
                         <TableHead className="w-[56px]" />
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {buildings.map((b) => (
+                      {sortedBuildings.map((b) => (
                         <TableRow key={b.id}>
                           <TableCell className="font-medium">{b.name}</TableCell>
                           <TableCell className="text-muted-foreground text-sm">{b.address || "—"}</TableCell>
@@ -905,6 +1091,7 @@ export default function ClassroomsPage() {
                   setIsDeleteClassroomOpen(false)
                   setSelectedClassroom(null)
                   await loadRegistry()
+                  toast.success("Аудитория удалена")
                 } catch (e) {
                   setError(e instanceof Error ? e.message : "Ошибка удаления")
                 }
@@ -959,6 +1146,7 @@ export default function ClassroomsPage() {
                   setIsDeleteTypeOpen(false)
                   setSelectedType(null)
                   await loadRegistry()
+                  toast.success("Тип удалён")
                 } catch (e) {
                   setError(e instanceof Error ? e.message : "Ошибка")
                 }
@@ -1015,6 +1203,7 @@ export default function ClassroomsPage() {
                   setIsDeleteBuildingOpen(false)
                   setSelectedBuilding(null)
                   await loadRegistry()
+                  toast.success("Корпус удалён")
                 } catch (e) {
                   setError(e instanceof Error ? e.message : "Ошибка")
                 }

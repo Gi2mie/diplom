@@ -8,6 +8,11 @@ import {
   RepairStatus,
   SoftwareLicenseKind,
 } from "@prisma/client"
+import { toast } from "sonner"
+import { PageHeader } from "@/components/dashboard/page-header"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { SortableTableHead } from "@/components/ui/sortable-table-head"
+import { useTableSort } from "@/hooks/use-table-sort"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -246,6 +251,27 @@ export default function ReportsPage() {
     })
   }, [data?.history, historySearch])
 
+  const historySortGetters = useMemo(
+    () => ({
+      date: (r: ReportsHistoryRow) => r.date,
+      kind: (r: ReportsHistoryRow) => r.kind,
+      inventory: (r: ReportsHistoryRow) => r.inventoryNumber,
+      equipment: (r: ReportsHistoryRow) => r.equipment,
+      classroom: (r: ReportsHistoryRow) => r.classroom,
+      description: (r: ReportsHistoryRow) => r.description,
+      admin: (r: ReportsHistoryRow) => r.sysAdminDisplay ?? "",
+      status: (r: ReportsHistoryRow) => r.status,
+    }),
+    []
+  )
+
+  const {
+    sortedItems: sortedHistory,
+    sortKey: historySortKey,
+    sortDir: historySortDir,
+    toggleSort: toggleHistorySort,
+  } = useTableSort(filteredHistory, historySortGetters, "date")
+
   const summary = data?.summary
   const totalEquipment = summary?.totalEquipment ?? 0
   const totalWorking = summary?.operational ?? 0
@@ -398,7 +424,7 @@ export default function ReportsPage() {
       buildReportsExportTable({
         activeTab,
         data,
-        filteredHistory,
+        filteredHistory: sortedHistory,
         dateFrom,
         dateTo,
         softwareFilterLines: softwareFilterSummaryLines(),
@@ -409,7 +435,7 @@ export default function ReportsPage() {
     [
       activeTab,
       data,
-      filteredHistory,
+      sortedHistory,
       dateFrom,
       dateTo,
       softwareFilterSummaryLines,
@@ -483,6 +509,7 @@ export default function ReportsPage() {
         await downloadReportsPdf(exportTable, `${base}.pdf`)
       }
       setExportDialogOpen(false)
+      toast.success("Файл сохранён")
     } finally {
       setExportBusy(false)
     }
@@ -496,18 +523,20 @@ export default function ReportsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Отчёты и аналитика</h1>
-        <p className="text-muted-foreground">
-          Статистика по оборудованию, обращениям и ремонтам
-          {session.user.role === "TEACHER" ? " (только ваши аудитории)" : ""}
-        </p>
-      </div>
+      <PageHeader
+        title="Отчёты и аналитика"
+        description={
+          <>
+            Статистика по оборудованию, обращениям и ремонтам
+            {session.user.role === "TEACHER" ? " (только ваши аудитории)" : ""}
+          </>
+        }
+      />
 
       {error && (
-        <p className="text-sm text-destructive" role="alert">
-          {error}
-        </p>
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       )}
 
       <div className="grid gap-4 md:grid-cols-4">
@@ -1262,32 +1291,88 @@ export default function ReportsPage() {
                 История обращений и ремонтов
               </CardTitle>
               <CardDescription>
-                Период {dateFrom} — {dateTo}, в таблице {filteredHistory.length} записей
+                Период {dateFrom} — {dateTo}, в таблице {sortedHistory.length} записей
               </CardDescription>
             </CardHeader>
             <CardContent>
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Дата</TableHead>
-                    <TableHead>Тип</TableHead>
-                    <TableHead>Инв. №</TableHead>
-                    <TableHead>Оборудование</TableHead>
-                    <TableHead>Кабинет</TableHead>
-                    <TableHead>Описание</TableHead>
-                    <TableHead>Сис. админ</TableHead>
-                    <TableHead>Статус</TableHead>
+                    <SortableTableHead
+                      columnKey="date"
+                      sortKey={historySortKey}
+                      sortDir={historySortDir}
+                      onSort={toggleHistorySort}
+                    >
+                      Дата
+                    </SortableTableHead>
+                    <SortableTableHead
+                      columnKey="kind"
+                      sortKey={historySortKey}
+                      sortDir={historySortDir}
+                      onSort={toggleHistorySort}
+                    >
+                      Тип
+                    </SortableTableHead>
+                    <SortableTableHead
+                      columnKey="inventory"
+                      sortKey={historySortKey}
+                      sortDir={historySortDir}
+                      onSort={toggleHistorySort}
+                    >
+                      Инв. №
+                    </SortableTableHead>
+                    <SortableTableHead
+                      columnKey="equipment"
+                      sortKey={historySortKey}
+                      sortDir={historySortDir}
+                      onSort={toggleHistorySort}
+                    >
+                      Оборудование
+                    </SortableTableHead>
+                    <SortableTableHead
+                      columnKey="classroom"
+                      sortKey={historySortKey}
+                      sortDir={historySortDir}
+                      onSort={toggleHistorySort}
+                    >
+                      Кабинет
+                    </SortableTableHead>
+                    <SortableTableHead
+                      columnKey="description"
+                      sortKey={historySortKey}
+                      sortDir={historySortDir}
+                      onSort={toggleHistorySort}
+                    >
+                      Описание
+                    </SortableTableHead>
+                    <SortableTableHead
+                      columnKey="admin"
+                      sortKey={historySortKey}
+                      sortDir={historySortDir}
+                      onSort={toggleHistorySort}
+                    >
+                      Сис. админ
+                    </SortableTableHead>
+                    <SortableTableHead
+                      columnKey="status"
+                      sortKey={historySortKey}
+                      sortDir={historySortDir}
+                      onSort={toggleHistorySort}
+                    >
+                      Статус
+                    </SortableTableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredHistory.length === 0 ? (
+                  {sortedHistory.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
                         Нет записей
                       </TableCell>
                     </TableRow>
                   ) : (
-                    filteredHistory.map((item) => (
+                    sortedHistory.map((item) => (
                       <TableRow key={item.id}>
                         <TableCell className="font-mono text-sm">{item.date}</TableCell>
                         <TableCell>

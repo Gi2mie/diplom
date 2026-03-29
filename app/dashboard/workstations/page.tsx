@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useSession } from "next-auth/react"
 import { WorkstationStatus } from "@prisma/client"
+import { toast } from "sonner"
 import {
   Plus,
   Search,
@@ -17,6 +18,7 @@ import {
   Loader2,
   Package,
   ArrowRightLeft,
+  AlertCircle,
 } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -66,6 +68,11 @@ import {
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { PageHeader } from "@/components/dashboard/page-header"
+import { SortableTableHead } from "@/components/ui/sortable-table-head"
+import { EmptyState } from "@/components/ui/empty-state"
+import { useTableSort } from "@/hooks/use-table-sort"
 import { fetchClassroomRegistry, type RegistryClassroom } from "@/lib/api/classroom-registry"
 import {
   fetchWorkstations,
@@ -283,6 +290,24 @@ export default function WorkstationsPage() {
 
   const getClassroomShort = (classroomId: string) => getClassroom(classroomId)?.number ?? "—"
 
+  const workstationSortGetters = useMemo(
+    () => ({
+      code: (w: ApiWorkstation) => w.code,
+      name: (w: ApiWorkstation) => w.name,
+      classroom: (w: ApiWorkstation) => getClassroom(w.classroomId)?.number ?? "—",
+      pcName: (w: ApiWorkstation) => w.pcName || "",
+      kit: (w: ApiWorkstation) => kitEquipmentCount(w),
+      status: (w: ApiWorkstation) => normalizeWorkstationStatus(w.status),
+    }),
+    [getClassroom]
+  )
+
+  const { sortedItems: sortedWorkstations, sortKey, sortDir, toggleSort } = useTableSort(
+    filteredWorkstations,
+    workstationSortGetters,
+    "code"
+  )
+
   const resetFilters = () => {
     setSearchQuery("")
     setFilterClassroom("all")
@@ -379,6 +404,7 @@ export default function WorkstationsPage() {
       await createWorkstationApi(body)
       await loadData()
       setIsAddDialogOpen(false)
+      toast.success("Рабочее место создано")
     } catch (e) {
       setFormError(e instanceof Error ? e.message : "Ошибка сохранения")
     } finally {
@@ -412,6 +438,7 @@ export default function WorkstationsPage() {
       await loadData()
       setIsEditDialogOpen(false)
       setSelectedWorkstation(null)
+      toast.success("Изменения сохранены")
     } catch (e) {
       setFormError(e instanceof Error ? e.message : "Ошибка сохранения")
     } finally {
@@ -431,6 +458,7 @@ export default function WorkstationsPage() {
       await loadData()
       setIsDeleteDialogOpen(false)
       setSelectedWorkstation(null)
+      toast.success("Рабочее место удалено")
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ошибка удаления")
       setIsDeleteDialogOpen(false)
@@ -488,30 +516,30 @@ export default function WorkstationsPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Рабочие места</h1>
-          <p className="text-muted-foreground">Управление рабочими местами в аудиториях</p>
-        </div>
-        <div className="flex gap-2">
-          {isAdmin && (
+    <div className="space-y-6 md:space-y-8">
+      <PageHeader
+        title="Рабочие места"
+        description="Управление рабочими местами в аудиториях: комплектация, статус и перемещения."
+        actions={
+          isAdmin ? (
             <Button onClick={handleAdd} type="button">
               <Plus className="mr-2 h-4 w-4" />
               Добавить рабочее место
             </Button>
-          )}
-        </div>
-      </div>
+          ) : undefined
+        }
+      />
 
       {error && (
-        <p className="text-sm text-destructive" role="alert">
-          {error}
-        </p>
+        <Alert variant="destructive" className="border-destructive/40">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Ошибка</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       )}
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card>
+      <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
+        <Card className="transition-shadow duration-200 hover:shadow-md">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Всего мест</CardTitle>
             <MonitorSmartphone className="h-4 w-4 text-muted-foreground" />
@@ -520,7 +548,7 @@ export default function WorkstationsPage() {
             <div className="text-2xl font-bold">{stats.total}</div>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="transition-shadow duration-200 hover:shadow-md">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Исправно</CardTitle>
             <Monitor className="h-4 w-4 text-green-600" />
@@ -529,7 +557,7 @@ export default function WorkstationsPage() {
             <div className="text-2xl font-bold text-green-600">{stats.ok}</div>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="transition-shadow duration-200 hover:shadow-md sm:col-span-2 md:col-span-1">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">На обслуживании</CardTitle>
             <Monitor className="h-4 w-4 text-amber-600" />
@@ -613,45 +641,94 @@ export default function WorkstationsPage() {
         <CardHeader>
           <CardTitle>Список рабочих мест</CardTitle>
           <CardDescription>
-            Найдено {filteredWorkstations.length} из {workstations.length}
+            Найдено {sortedWorkstations.length} из {workstations.length}
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="px-0 sm:px-6">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Номер</TableHead>
-                <TableHead>Название</TableHead>
-                <TableHead>Аудитория</TableHead>
-                <TableHead>ПК</TableHead>
-                <TableHead>Комплектация</TableHead>
-                <TableHead>Статус</TableHead>
+                <SortableTableHead
+                  columnKey="code"
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={toggleSort}
+                >
+                  Номер
+                </SortableTableHead>
+                <SortableTableHead
+                  columnKey="name"
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={toggleSort}
+                >
+                  Название
+                </SortableTableHead>
+                <SortableTableHead
+                  columnKey="classroom"
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={toggleSort}
+                >
+                  Аудитория
+                </SortableTableHead>
+                <SortableTableHead
+                  columnKey="pcName"
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={toggleSort}
+                >
+                  ПК
+                </SortableTableHead>
+                <SortableTableHead
+                  columnKey="kit"
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={toggleSort}
+                >
+                  Комплектация
+                </SortableTableHead>
+                <SortableTableHead
+                  columnKey="status"
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={toggleSort}
+                >
+                  Статус
+                </SortableTableHead>
                 <TableHead className="text-right">Действия</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {classrooms.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
-                    Сначала добавьте аудитории в разделе «Аудитории».
+                  <TableCell colSpan={7} className="p-0">
+                    <EmptyState
+                      icon={School}
+                      title="Нет аудиторий"
+                      description="Сначала добавьте аудитории в разделе «Аудитории», затем создавайте рабочие места."
+                    />
                   </TableCell>
                 </TableRow>
               ) : filteredWorkstations.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="h-24 text-center">
-                    <div className="flex flex-col items-center gap-2">
-                      <MonitorSmartphone className="h-8 w-8 text-muted-foreground" />
-                      <p className="text-muted-foreground">Рабочие места не найдены</p>
-                      {hasActiveFilters && (
-                        <Button variant="link" onClick={resetFilters} type="button">
-                          Сбросить фильтры
-                        </Button>
-                      )}
-                    </div>
+                  <TableCell colSpan={7} className="p-0">
+                    <EmptyState
+                      icon={MonitorSmartphone}
+                      title="Рабочие места не найдены"
+                      description="Измените фильтры или поиск — возможно, под критерии ничего не попадает."
+                      action={
+                        hasActiveFilters ? (
+                          <Button variant="outline" size="sm" onClick={resetFilters} type="button">
+                            Сбросить фильтры
+                          </Button>
+                        ) : null
+                      }
+                    />
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredWorkstations.map((workstation) => {
+                sortedWorkstations.map((workstation) => {
                   const statusBadge = workstationStatusBadgeConfig(workstation.status)
                   return (
                     <TableRow key={workstation.id}>

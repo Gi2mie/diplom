@@ -43,6 +43,11 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Separator } from "@/components/ui/separator"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { SortableTableHead } from "@/components/ui/sortable-table-head"
+import { toast } from "sonner"
+import { PageHeader } from "@/components/dashboard/page-header"
+import { useTableSort } from "@/hooks/use-table-sort"
 import {
   createUser,
   fetchUserById,
@@ -249,6 +254,7 @@ export default function UsersPage() {
       })
       await loadUsers()
       setAddDialogOpen(false)
+      toast.success("Пользователь создан")
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : "Ошибка при создании пользователя")
     } finally {
@@ -303,6 +309,7 @@ export default function UsersPage() {
       })
       await loadUsers()
       setEditDialogOpen(false)
+      toast.success("Данные пользователя сохранены")
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : "Ошибка при сохранении пользователя")
     } finally {
@@ -322,6 +329,41 @@ export default function UsersPage() {
 
   const hasUserFilters = searchQuery || selectedRole !== "all" || selectedStatus !== "all" || selectedDept !== "all"
 
+  const userSortGetters = useMemo(
+    () => ({
+      name: (u: User) => getFullName(u),
+      role: (u: User) => u.role,
+      duty: (u: User) => `${u.position ?? ""} ${u.department ?? ""}`,
+      rooms: (u: User) => u.responsibleClassrooms.length,
+      status: (u: User) => u.status,
+      lastLogin: (u: User) => (u.lastLoginAt ? new Date(u.lastLoginAt).getTime() : 0),
+    }),
+    []
+  )
+
+  const respTeacherSortGetters = useMemo(
+    () => ({
+      name: (t: TeacherWithClassrooms) => shortName(t),
+      email: (t: TeacherWithClassrooms) => t.email,
+      count: (t: TeacherWithClassrooms) => t.classrooms.length,
+    }),
+    []
+  )
+
+  const {
+    sortedItems: sortedUsers,
+    sortKey: userSortKey,
+    sortDir: userSortDir,
+    toggleSort: toggleUserSort,
+  } = useTableSort(filteredUsers, userSortGetters, "name")
+
+  const {
+    sortedItems: sortedRespTeachers,
+    sortKey: respSortKey,
+    sortDir: respSortDir,
+    toggleSort: toggleRespSort,
+  } = useTableSort(respTeachers, respTeacherSortGetters, "name")
+
   if (sessionStatus === "loading" || isLoading) {
     return (
       <div className="space-y-6">
@@ -339,17 +381,16 @@ export default function UsersPage() {
 
   return (
     <div className="space-y-6">
-      {/* Заголовок */}
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Пользователи</h1>
-          <p className="text-muted-foreground">Управление учётными записями и ответственностью по аудиториям</p>
-        </div>
-        <Button onClick={handleAdd} disabled={!isAdmin}>
-          <Plus className="mr-2 h-4 w-4" />
-          Добавить пользователя
-        </Button>
-      </div>
+      <PageHeader
+        title="Пользователи"
+        description="Управление учётными записями и ответственностью по аудиториям"
+        actions={
+          <Button onClick={handleAdd} disabled={!isAdmin}>
+            <Plus className="mr-2 h-4 w-4" />
+            Добавить пользователя
+          </Button>
+        }
+      />
 
       {/* Статистика */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -455,39 +496,87 @@ export default function UsersPage() {
           </Card>
 
           {error && (
-            <Card>
-              <CardContent className="pt-4 text-sm text-red-600">{error}</CardContent>
-            </Card>
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
           )}
 
           {/* Таблица пользователей */}
           <Card>
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
-                <CardTitle className="text-base">Найдено: {filteredUsers.length} из {users.length}</CardTitle>
+                <CardTitle className="text-base">Найдено: {sortedUsers.length} из {users.length}</CardTitle>
               </div>
             </CardHeader>
             <CardContent className="min-w-0 p-0">
               <Table className="w-full min-w-[980px] [&_td]:px-3.5 [&_td]:py-2.5 [&_th]:px-3.5 [&_th]:py-3">
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="min-w-[200px] whitespace-normal">Пользователь</TableHead>
-                    <TableHead className="min-w-[158px] whitespace-nowrap">Роль</TableHead>
-                    <TableHead className="min-w-[220px] whitespace-normal">Должность / Кафедра</TableHead>
-                    <TableHead className="min-w-[132px] whitespace-normal">Аудитории</TableHead>
-                    <TableHead className="min-w-[108px] whitespace-nowrap">Статус</TableHead>
-                    <TableHead className="min-w-[136px] whitespace-normal">Последний вход</TableHead>
+                    <SortableTableHead
+                      columnKey="name"
+                      sortKey={userSortKey}
+                      sortDir={userSortDir}
+                      onSort={toggleUserSort}
+                      className="min-w-[200px] whitespace-normal"
+                    >
+                      Пользователь
+                    </SortableTableHead>
+                    <SortableTableHead
+                      columnKey="role"
+                      sortKey={userSortKey}
+                      sortDir={userSortDir}
+                      onSort={toggleUserSort}
+                      className="min-w-[158px] whitespace-nowrap"
+                    >
+                      Роль
+                    </SortableTableHead>
+                    <SortableTableHead
+                      columnKey="duty"
+                      sortKey={userSortKey}
+                      sortDir={userSortDir}
+                      onSort={toggleUserSort}
+                      className="min-w-[220px] whitespace-normal"
+                    >
+                      Должность / Кафедра
+                    </SortableTableHead>
+                    <SortableTableHead
+                      columnKey="rooms"
+                      sortKey={userSortKey}
+                      sortDir={userSortDir}
+                      onSort={toggleUserSort}
+                      className="min-w-[132px] whitespace-normal"
+                    >
+                      Аудитории
+                    </SortableTableHead>
+                    <SortableTableHead
+                      columnKey="status"
+                      sortKey={userSortKey}
+                      sortDir={userSortDir}
+                      onSort={toggleUserSort}
+                      className="min-w-[108px] whitespace-nowrap"
+                    >
+                      Статус
+                    </SortableTableHead>
+                    <SortableTableHead
+                      columnKey="lastLogin"
+                      sortKey={userSortKey}
+                      sortDir={userSortDir}
+                      onSort={toggleUserSort}
+                      className="min-w-[136px] whitespace-normal"
+                    >
+                      Последний вход
+                    </SortableTableHead>
                     <TableHead className="w-[76px] min-w-[76px] text-right whitespace-normal">Действия</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredUsers.length === 0 ? (
+                  {sortedUsers.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={7} className="h-32 text-center text-muted-foreground">
                         Пользователи не найдены
                       </TableCell>
                     </TableRow>
-                  ) : filteredUsers.map(user => {
+                  ) : sortedUsers.map(user => {
                     const roleInfo   = getRoleInfo(user.role)
                     const statusInfo = getStatusInfo(user.status)
                     return (
@@ -594,14 +683,35 @@ export default function UsersPage() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Преподаватель</TableHead>
-                        <TableHead>Email</TableHead>
-                        <TableHead>Аудитории</TableHead>
+                        <SortableTableHead
+                          columnKey="name"
+                          sortKey={respSortKey}
+                          sortDir={respSortDir}
+                          onSort={toggleRespSort}
+                        >
+                          Преподаватель
+                        </SortableTableHead>
+                        <SortableTableHead
+                          columnKey="email"
+                          sortKey={respSortKey}
+                          sortDir={respSortDir}
+                          onSort={toggleRespSort}
+                        >
+                          Email
+                        </SortableTableHead>
+                        <SortableTableHead
+                          columnKey="count"
+                          sortKey={respSortKey}
+                          sortDir={respSortDir}
+                          onSort={toggleRespSort}
+                        >
+                          Аудитории
+                        </SortableTableHead>
                         <TableHead className="text-right w-[100px]">Действия</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {respTeachers.map((t) => (
+                      {sortedRespTeachers.map((t) => (
                         <TableRow key={t.id}>
                           <TableCell className="font-medium">{shortName(t)}</TableCell>
                           <TableCell className="text-muted-foreground text-sm">{t.email}</TableCell>
@@ -707,6 +817,7 @@ export default function UsersPage() {
                             await updateResponsibleClassrooms(respEditTeacher.id, [...respSelectedIds])
                             await loadClassroomResponsibilities()
                             setRespEditOpen(false)
+                            toast.success("Назначения сохранены")
                           } catch (e) {
                             setRespSubmitError(e instanceof Error ? e.message : "Не удалось сохранить")
                           } finally {

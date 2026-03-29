@@ -56,7 +56,12 @@ import {
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { SortableTableHead } from "@/components/ui/sortable-table-head"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { toast } from "sonner"
+import { PageHeader } from "@/components/dashboard/page-header"
+import { useTableSort } from "@/hooks/use-table-sort"
 import {
   Select,
   SelectContent,
@@ -160,6 +165,39 @@ export default function EquipmentCategoriesPage() {
 
   const isAdmin = session?.user?.role === "ADMIN"
 
+  const categorySortGetters = useMemo(
+    () => ({
+      name: (c: RegistryEquipmentCategory) => c.name,
+      description: (c: RegistryEquipmentCategory) => c.description ?? "",
+      count: (c: RegistryEquipmentCategory) => c.equipmentCount,
+    }),
+    []
+  )
+
+  const kindSortGetters = useMemo(
+    () => ({
+      name: (k: RegistryEquipmentKind) => k.name,
+      mapsToEnum: (k: RegistryEquipmentKind) => equipmentTypeEnumLabel(k.mapsToEnum),
+      description: (k: RegistryEquipmentKind) => k.description ?? "",
+      count: (k: RegistryEquipmentKind) => k.equipmentCount,
+    }),
+    []
+  )
+
+  const {
+    sortedItems: sortedCategories,
+    sortKey: catSortKey,
+    sortDir: catSortDir,
+    toggleSort: toggleCatSort,
+  } = useTableSort(filteredCategories, categorySortGetters, "name")
+
+  const {
+    sortedItems: sortedKinds,
+    sortKey: kindSortKey,
+    sortDir: kindSortDir,
+    toggleSort: toggleKindSort,
+  } = useTableSort(filteredKinds, kindSortGetters, "name")
+
   const saveCategory = async (mode: "add" | "edit") => {
     setCatFormError(null)
     if (!catForm.name.trim()) {
@@ -175,6 +213,7 @@ export default function EquipmentCategoriesPage() {
           color: catForm.color,
         })
         setCatAddOpen(false)
+        toast.success("Категория создана")
       } else if (catEdit) {
         await updateEquipmentCategoryApi(catEdit.id, {
           name: catForm.name.trim(),
@@ -182,6 +221,7 @@ export default function EquipmentCategoriesPage() {
           color: catForm.color,
         })
         setCatEdit(null)
+        toast.success("Категория обновлена")
       }
       setCatForm({ name: "", description: "", color: "#3b82f6" })
       await load()
@@ -207,6 +247,7 @@ export default function EquipmentCategoriesPage() {
           mapsToEnum: kindForm.mapsToEnum,
         })
         setKindAddOpen(false)
+        toast.success("Тип создан")
       } else if (kindEdit) {
         await updateEquipmentKindApi(kindEdit.id, {
           name: kindForm.name.trim(),
@@ -214,6 +255,7 @@ export default function EquipmentCategoriesPage() {
           mapsToEnum: kindForm.mapsToEnum,
         })
         setKindEdit(null)
+        toast.success("Тип обновлён")
       }
       setKindForm({ name: "", description: "", mapsToEnum: "OTHER" })
       await load()
@@ -230,6 +272,7 @@ export default function EquipmentCategoriesPage() {
       await deleteEquipmentCategoryApi(catDelete.id)
       setCatDelete(null)
       await load()
+      toast.success("Категория удалена")
     } catch (e) {
       setError(e instanceof Error ? e.message : "Не удалось удалить")
     }
@@ -241,6 +284,7 @@ export default function EquipmentCategoriesPage() {
       await deleteEquipmentKindApi(kindDelete.id)
       setKindDelete(null)
       await load()
+      toast.success("Тип удалён")
     } catch (e) {
       setError(e instanceof Error ? e.message : "Не удалось удалить")
     }
@@ -260,18 +304,20 @@ export default function EquipmentCategoriesPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Категории и типы оборудования</h1>
-        <p className="text-muted-foreground">
-          Справочники для раздела «Оборудование»: категории и типы.{" "}
-          {isAdmin ? "Доступны создание, редактирование и удаление." : "Только просмотр."}
-        </p>
-      </div>
+      <PageHeader
+        title="Категории и типы оборудования"
+        description={
+          <>
+            Справочники для раздела «Оборудование»: категории и типы.{" "}
+            {isAdmin ? "Доступны создание, редактирование и удаление." : "Только просмотр."}
+          </>
+        }
+      />
 
       {error && (
-        <p className="text-sm text-destructive" role="alert">
-          {error}
-        </p>
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       )}
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
@@ -335,21 +381,43 @@ export default function EquipmentCategoriesPage() {
                     <Skeleton key={i} className="h-12" />
                   ))}
                 </div>
-              ) : filteredCategories.length === 0 ? (
+              ) : sortedCategories.length === 0 ? (
                 <p className="text-sm text-muted-foreground">Нет категорий</p>
               ) : (
                 <div className="rounded-md border">
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Название</TableHead>
-                        <TableHead>Описание</TableHead>
-                        <TableHead className="w-28 text-right">Единиц</TableHead>
+                        <SortableTableHead
+                          columnKey="name"
+                          sortKey={catSortKey}
+                          sortDir={catSortDir}
+                          onSort={toggleCatSort}
+                        >
+                          Название
+                        </SortableTableHead>
+                        <SortableTableHead
+                          columnKey="description"
+                          sortKey={catSortKey}
+                          sortDir={catSortDir}
+                          onSort={toggleCatSort}
+                        >
+                          Описание
+                        </SortableTableHead>
+                        <SortableTableHead
+                          columnKey="count"
+                          sortKey={catSortKey}
+                          sortDir={catSortDir}
+                          onSort={toggleCatSort}
+                          className="w-28 text-right"
+                        >
+                          Единиц
+                        </SortableTableHead>
                         <TableHead className="w-12 text-right" />
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {filteredCategories.map((c) => (
+                      {sortedCategories.map((c) => (
                         <TableRow key={c.id}>
                           <TableCell>
                             <div className="flex items-center gap-2">
@@ -470,22 +538,51 @@ export default function EquipmentCategoriesPage() {
                     <Skeleton key={i} className="h-12" />
                   ))}
                 </div>
-              ) : filteredKinds.length === 0 ? (
+              ) : sortedKinds.length === 0 ? (
                 <p className="text-sm text-muted-foreground">Нет типов</p>
               ) : (
                 <div className="rounded-md border">
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Название</TableHead>
-                        <TableHead>Системный класс</TableHead>
-                        <TableHead>Описание</TableHead>
-                        <TableHead className="w-28 text-right">Единиц</TableHead>
+                        <SortableTableHead
+                          columnKey="name"
+                          sortKey={kindSortKey}
+                          sortDir={kindSortDir}
+                          onSort={toggleKindSort}
+                        >
+                          Название
+                        </SortableTableHead>
+                        <SortableTableHead
+                          columnKey="mapsToEnum"
+                          sortKey={kindSortKey}
+                          sortDir={kindSortDir}
+                          onSort={toggleKindSort}
+                        >
+                          Системный класс
+                        </SortableTableHead>
+                        <SortableTableHead
+                          columnKey="description"
+                          sortKey={kindSortKey}
+                          sortDir={kindSortDir}
+                          onSort={toggleKindSort}
+                        >
+                          Описание
+                        </SortableTableHead>
+                        <SortableTableHead
+                          columnKey="count"
+                          sortKey={kindSortKey}
+                          sortDir={kindSortDir}
+                          onSort={toggleKindSort}
+                          className="w-28 text-right"
+                        >
+                          Единиц
+                        </SortableTableHead>
                         <TableHead className="w-12 text-right" />
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {filteredKinds.map((k) => (
+                      {sortedKinds.map((k) => (
                         <TableRow key={k.id}>
                           <TableCell className="font-medium">
                             {k.name}

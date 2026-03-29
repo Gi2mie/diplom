@@ -62,6 +62,11 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { SortableTableHead } from "@/components/ui/sortable-table-head"
+import { toast } from "sonner"
+import { PageHeader } from "@/components/dashboard/page-header"
+import { useTableSort } from "@/hooks/use-table-sort"
 import { fetchClassroomRegistry, type ClassroomRegistryPayload } from "@/lib/api/classroom-registry"
 import {
   fetchSoftwareDashboardList,
@@ -277,6 +282,25 @@ export default function SoftwarePage() {
     return { total, free, paid, edu, expiring, installs }
   }, [rows])
 
+  const softwareSortGetters = useMemo(
+    () => ({
+      name: (r: DashboardSoftwareRow) => r.name,
+      version: (r: DashboardSoftwareRow) => r.version,
+      vendor: (r: DashboardSoftwareRow) => r.vendor ?? "",
+      category: (r: DashboardSoftwareRow) => softwareCategoryLabel(r.category),
+      license: (r: DashboardSoftwareRow) => softwareLicenseKindLabel(r.licenseKind),
+      expires: (r: DashboardSoftwareRow) => r.licenseExpiresAt ?? "",
+      installs: (r: DashboardSoftwareRow) => r.installationCount,
+    }),
+    []
+  )
+
+  const { sortedItems: sortedSoftwareRows, sortKey, sortDir, toggleSort } = useTableSort(
+    rows,
+    softwareSortGetters,
+    "name"
+  )
+
   async function openView(row: DashboardSoftwareRow) {
     setSelected(row)
     setViewOpen(true)
@@ -344,6 +368,7 @@ export default function SoftwarePage() {
       })
       setAddOpen(false)
       await loadList()
+      toast.success("ПО добавлено в каталог")
     } catch (e) {
       setFormError(e instanceof Error ? e.message : "Ошибка сохранения")
     } finally {
@@ -369,6 +394,7 @@ export default function SoftwarePage() {
       })
       setEditOpen(false)
       await loadList()
+      toast.success("Каталог ПО обновлён")
     } catch (e) {
       setFormError(e instanceof Error ? e.message : "Ошибка сохранения")
     } finally {
@@ -384,6 +410,7 @@ export default function SoftwarePage() {
       setDeleteOpen(false)
       setSelected(null)
       await loadList()
+      toast.success("Запись удалена из каталога")
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ошибка удаления")
     } finally {
@@ -399,6 +426,7 @@ export default function SoftwarePage() {
       await assignSoftwareToWorkstationsApi(selected.id, [assignWorkstationId])
       await loadList()
       setAssignOpen(false)
+      toast.success("ПО назначено на рабочее место")
     } catch (e) {
       setError(e instanceof Error ? e.message : "Не удалось назначить")
     } finally {
@@ -415,6 +443,7 @@ export default function SoftwarePage() {
       setAssignAllOpen(false)
       setAssignOpen(false)
       await loadList()
+      toast.success("ПО назначено на все рабочие места")
     } catch (e) {
       setError(e instanceof Error ? e.message : "Не удалось назначить")
     } finally {
@@ -543,23 +572,23 @@ export default function SoftwarePage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Программное обеспечение</h1>
-          <p className="text-sm text-muted-foreground">Каталог ПО и назначение на рабочие места</p>
-        </div>
-        {isAdmin ? (
-          <Button onClick={openAdd}>
-            <Plus className="mr-2 h-4 w-4" />
-            Добавить ПО
-          </Button>
-        ) : null}
-      </div>
+      <PageHeader
+        title="Программное обеспечение"
+        description="Каталог ПО и назначение на рабочие места"
+        actions={
+          isAdmin ? (
+            <Button onClick={openAdd}>
+              <Plus className="mr-2 h-4 w-4" />
+              Добавить ПО
+            </Button>
+          ) : null
+        }
+      />
 
       {error ? (
-        <p className="text-sm text-destructive" role="alert">
-          {error}
-        </p>
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       ) : null}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
@@ -731,25 +760,75 @@ export default function SoftwarePage() {
               <Skeleton className="h-10 w-full" />
               <Skeleton className="h-10 w-full" />
             </div>
-          ) : rows.length === 0 ? (
+          ) : sortedSoftwareRows.length === 0 ? (
             <p className="text-sm text-muted-foreground">Нет записей по текущим фильтрам.</p>
           ) : (
             <ScrollArea className="h-[min(560px,60vh)] w-full rounded-md border">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Название</TableHead>
-                    <TableHead>Версия</TableHead>
-                    <TableHead>Издатель</TableHead>
-                    <TableHead>Тип ПО</TableHead>
-                    <TableHead>Тип лицензии</TableHead>
-                    <TableHead>Срок лицензии до</TableHead>
-                    <TableHead className="text-right">Установок</TableHead>
+                    <SortableTableHead
+                      columnKey="name"
+                      sortKey={sortKey}
+                      sortDir={sortDir}
+                      onSort={toggleSort}
+                    >
+                      Название
+                    </SortableTableHead>
+                    <SortableTableHead
+                      columnKey="version"
+                      sortKey={sortKey}
+                      sortDir={sortDir}
+                      onSort={toggleSort}
+                    >
+                      Версия
+                    </SortableTableHead>
+                    <SortableTableHead
+                      columnKey="vendor"
+                      sortKey={sortKey}
+                      sortDir={sortDir}
+                      onSort={toggleSort}
+                    >
+                      Издатель
+                    </SortableTableHead>
+                    <SortableTableHead
+                      columnKey="category"
+                      sortKey={sortKey}
+                      sortDir={sortDir}
+                      onSort={toggleSort}
+                    >
+                      Тип ПО
+                    </SortableTableHead>
+                    <SortableTableHead
+                      columnKey="license"
+                      sortKey={sortKey}
+                      sortDir={sortDir}
+                      onSort={toggleSort}
+                    >
+                      Тип лицензии
+                    </SortableTableHead>
+                    <SortableTableHead
+                      columnKey="expires"
+                      sortKey={sortKey}
+                      sortDir={sortDir}
+                      onSort={toggleSort}
+                    >
+                      Срок лицензии до
+                    </SortableTableHead>
+                    <SortableTableHead
+                      columnKey="installs"
+                      sortKey={sortKey}
+                      sortDir={sortDir}
+                      onSort={toggleSort}
+                      className="text-right"
+                    >
+                      Установок
+                    </SortableTableHead>
                     <TableHead className="w-[56px]" />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {rows.map((r) => (
+                  {sortedSoftwareRows.map((r) => (
                     <TableRow key={r.id}>
                       <TableCell className="font-medium">{r.name}</TableCell>
                       <TableCell>{r.version || "—"}</TableCell>

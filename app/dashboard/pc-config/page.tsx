@@ -58,7 +58,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { SortableTableHead } from "@/components/ui/sortable-table-head"
 import { Separator } from "@/components/ui/separator"
+import { toast } from "sonner"
+import { PageHeader } from "@/components/dashboard/page-header"
+import { useTableSort } from "@/hooks/use-table-sort"
 import {
   fetchClassroomRegistry,
   type RegistryBuilding,
@@ -163,6 +168,26 @@ export default function PCConfigPage() {
   const classroomLabelForPc = (pc: PCConfig) =>
     pc.classroomDisplayName?.trim() || getClassroomName(pc.classroomId)
 
+  const pcSortGetters = useMemo(
+    () => ({
+      name: (pc: PCConfig) => pc.name,
+      workstation: (pc: PCConfig) => pc.workstationCode,
+      classroom: (pc: PCConfig) =>
+        pc.classroomDisplayName?.trim() || getClassroomName(pc.classroomId),
+      cpu: (pc: PCConfig) => pc.cpuModel,
+      ram: (pc: PCConfig) => pc.ramSize,
+      storage: (pc: PCConfig) => `${pc.storageType} ${pc.storageSize}`,
+      status: (pc: PCConfig) => pc.equipmentStatus,
+    }),
+    [classrooms]
+  )
+
+  const { sortedItems: sortedPCs, sortKey, sortDir, toggleSort } = useTableSort(
+    filteredPCs,
+    pcSortGetters,
+    "name"
+  )
+
   const openViewDialog = (pc: PCConfig) => {
     setSelectedPC(pc)
     setIsViewDialogOpen(true)
@@ -206,6 +231,7 @@ export default function PCConfigPage() {
       mergeRowIntoList(row)
       setIsAddDialogOpen(false)
       setForm(emptyPcConfigForm())
+      toast.success("Конфигурация ПК добавлена")
     } catch (e) {
       setFormError(e instanceof Error ? e.message : "Не удалось сохранить")
     } finally {
@@ -227,6 +253,7 @@ export default function PCConfigPage() {
       setIsEditDialogOpen(false)
       setEditingEquipmentId(null)
       if (selectedPC?.id === row.id) setSelectedPC(row)
+      toast.success("Конфигурация ПК обновлена")
     } catch (e) {
       setFormError(e instanceof Error ? e.message : "Не удалось сохранить")
     } finally {
@@ -270,25 +297,20 @@ export default function PCConfigPage() {
 
   return (
     <div className="space-y-6">
-      {/* Заголовок */}
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Конфигурация ПК</h1>
-          <p className="text-muted-foreground">
-            Управление характеристиками компьютеров на рабочих местах
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
+      <PageHeader
+        title="Конфигурация ПК"
+        description="Управление характеристиками компьютеров на рабочих местах"
+        actions={
           <Button type="button" onClick={openAddDialog}>
             Добавить конфигурацию
           </Button>
-        </div>
-      </div>
+        }
+      />
 
       {loadError && (
-        <div className="rounded-md border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          {loadError}
-        </div>
+        <Alert variant="destructive">
+          <AlertDescription>{loadError}</AlertDescription>
+        </Alert>
       )}
 
       {/* Статистика */}
@@ -390,25 +412,74 @@ export default function PCConfigPage() {
         <CardHeader>
           <CardTitle>Список конфигураций ПК</CardTitle>
           <CardDescription>
-            Найдено: {filteredPCs.length} из {pcConfigs.length}
+            Найдено: {sortedPCs.length} из {pcConfigs.length}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Имя ПК</TableHead>
-                <TableHead>Рабочее место</TableHead>
-                <TableHead>Аудитория</TableHead>
-                <TableHead>Процессор</TableHead>
-                <TableHead>ОЗУ</TableHead>
-                <TableHead>Накопитель</TableHead>
-                <TableHead>Статус</TableHead>
+                <SortableTableHead
+                  columnKey="name"
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={toggleSort}
+                >
+                  Имя ПК
+                </SortableTableHead>
+                <SortableTableHead
+                  columnKey="workstation"
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={toggleSort}
+                >
+                  Рабочее место
+                </SortableTableHead>
+                <SortableTableHead
+                  columnKey="classroom"
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={toggleSort}
+                >
+                  Аудитория
+                </SortableTableHead>
+                <SortableTableHead
+                  columnKey="cpu"
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={toggleSort}
+                >
+                  Процессор
+                </SortableTableHead>
+                <SortableTableHead
+                  columnKey="ram"
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={toggleSort}
+                >
+                  ОЗУ
+                </SortableTableHead>
+                <SortableTableHead
+                  columnKey="storage"
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={toggleSort}
+                >
+                  Накопитель
+                </SortableTableHead>
+                <SortableTableHead
+                  columnKey="status"
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={toggleSort}
+                >
+                  Статус
+                </SortableTableHead>
                 <TableHead className="w-[70px]">Действия</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredPCs.length === 0 ? (
+              {sortedPCs.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={8} className="h-24 text-center">
                     <div className="flex flex-col items-center justify-center text-muted-foreground">
@@ -418,7 +489,7 @@ export default function PCConfigPage() {
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredPCs.map((pc) => (
+                sortedPCs.map((pc) => (
                   <TableRow key={pc.id}>
                     <TableCell className="font-medium">
                       <div className="flex items-center gap-2">

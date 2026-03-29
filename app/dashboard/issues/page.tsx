@@ -63,6 +63,10 @@ import {
 import { fetchClassroomRegistry, type RegistryClassroom, type RegistryTeacher } from "@/lib/api/classroom-registry"
 import { fetchWorkstations, type ApiWorkstation } from "@/lib/api/workstations"
 import { fetchEquipmentDashboardList, type DashboardEquipmentRow } from "@/lib/api/equipment-dashboard"
+import { toast } from "sonner"
+import { PageHeader } from "@/components/dashboard/page-header"
+import { SortableTableHead } from "@/components/ui/sortable-table-head"
+import { useTableSort } from "@/hooks/use-table-sort"
 import {
   fetchAdminIssueReports,
   createAdminIssueReport,
@@ -340,6 +344,7 @@ export default function IssuesPage() {
       })
       setAddOpen(false)
       await loadAll()
+      toast.success("Обращение добавлено")
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ошибка")
     } finally {
@@ -373,6 +378,7 @@ export default function IssuesPage() {
       setEditOpen(false)
       setSelected(null)
       await loadAll()
+      toast.success("Обращение обновлено")
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ошибка")
     } finally {
@@ -402,6 +408,7 @@ export default function IssuesPage() {
       setRepairOpen(false)
       setSelected(null)
       await loadAll()
+      toast.success("Ремонт зарегистрирован")
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ошибка")
     } finally {
@@ -410,6 +417,25 @@ export default function IssuesPage() {
   }
 
   const editHasActiveRepairs = Boolean(selected && selected.repairs.length > 0)
+
+  const issueSortGetters = useMemo(
+    () => ({
+      title: (r: AdminIssueReportRow) => r.title,
+      equipment: (r: AdminIssueReportRow) => r.equipment.name,
+      reporter: (r: AdminIssueReportRow) => personLabel(r.reporter),
+      status: (r: AdminIssueReportRow) => r.status,
+      priority: (r: AdminIssueReportRow) => r.priority,
+      repairs: (r: AdminIssueReportRow) => r.repairs.length,
+      created: (r: AdminIssueReportRow) => new Date(r.createdAt).getTime(),
+    }),
+    []
+  )
+
+  const { sortedItems: sortedIssues, sortKey, sortDir, toggleSort } = useTableSort(
+    filteredIssues,
+    issueSortGetters,
+    "created"
+  )
 
   if (sessionStatus === "loading") {
     return (
@@ -422,28 +448,27 @@ export default function IssuesPage() {
 
   if (!session?.user || session.user.role !== UserRole.ADMIN) {
     return (
-      <Card>
-        <CardContent className="py-10 text-center text-muted-foreground">
-          Раздел доступен только администратору.
-        </CardContent>
-      </Card>
+      <div className="space-y-4">
+        <PageHeader
+          title="Неисправности"
+          description="Раздел доступен только администратору."
+        />
+      </div>
     )
   }
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Неисправности</h1>
-          <p className="text-muted-foreground">
-            Обращения по всем аудиториям и рабочим местам. Постановка на ремонт фиксируется в «Активных ремонтах».
-          </p>
-        </div>
-        <Button onClick={openAdd}>
-          <Plus className="mr-2 h-4 w-4" />
-          Добавить обращение
-        </Button>
-      </div>
+      <PageHeader
+        title="Неисправности"
+        description="Обращения по всем аудиториям и рабочим местам. Постановка на ремонт фиксируется в «Активных ремонтах»."
+        actions={
+          <Button onClick={openAdd}>
+            <Plus className="mr-2 h-4 w-4" />
+            Добавить обращение
+          </Button>
+        }
+      />
 
       {error ? (
         <Alert variant="destructive">
@@ -593,7 +618,7 @@ export default function IssuesPage() {
       <Card>
         <CardHeader>
           <CardTitle>Журнал</CardTitle>
-          <CardDescription>Найдено: {filteredIssues.length}</CardDescription>
+          <CardDescription>Найдено: {sortedIssues.length}</CardDescription>
         </CardHeader>
         <CardContent>
           {loading ? (
@@ -602,24 +627,66 @@ export default function IssuesPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Обращение</TableHead>
-                  <TableHead>Оборудование</TableHead>
-                  <TableHead>Заявитель</TableHead>
-                  <TableHead>Статус</TableHead>
-                  <TableHead>Приоритет</TableHead>
-                  <TableHead>Ремонты</TableHead>
+                  <SortableTableHead
+                    columnKey="title"
+                    sortKey={sortKey}
+                    sortDir={sortDir}
+                    onSort={toggleSort}
+                  >
+                    Обращение
+                  </SortableTableHead>
+                  <SortableTableHead
+                    columnKey="equipment"
+                    sortKey={sortKey}
+                    sortDir={sortDir}
+                    onSort={toggleSort}
+                  >
+                    Оборудование
+                  </SortableTableHead>
+                  <SortableTableHead
+                    columnKey="reporter"
+                    sortKey={sortKey}
+                    sortDir={sortDir}
+                    onSort={toggleSort}
+                  >
+                    Заявитель
+                  </SortableTableHead>
+                  <SortableTableHead
+                    columnKey="status"
+                    sortKey={sortKey}
+                    sortDir={sortDir}
+                    onSort={toggleSort}
+                  >
+                    Статус
+                  </SortableTableHead>
+                  <SortableTableHead
+                    columnKey="priority"
+                    sortKey={sortKey}
+                    sortDir={sortDir}
+                    onSort={toggleSort}
+                  >
+                    Приоритет
+                  </SortableTableHead>
+                  <SortableTableHead
+                    columnKey="repairs"
+                    sortKey={sortKey}
+                    sortDir={sortDir}
+                    onSort={toggleSort}
+                  >
+                    Ремонты
+                  </SortableTableHead>
                   <TableHead className="text-right">Действия</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredIssues.length === 0 ? (
+                {sortedIssues.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={7} className="py-10 text-center text-muted-foreground">
                       Нет записей
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredIssues.map((row) => {
+                  sortedIssues.map((row) => {
                     const sm = statusMeta[row.status]
                     const Icon = sm.icon
                     const pm = priorityMeta[row.priority]

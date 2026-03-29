@@ -74,6 +74,10 @@ import {
 } from "lucide-react"
 import { fetchClassroomRegistry, type RegistryClassroom } from "@/lib/api/classroom-registry"
 import { fetchWorkstations, type ApiWorkstation } from "@/lib/api/workstations"
+import { toast } from "sonner"
+import { PageHeader } from "@/components/dashboard/page-header"
+import { SortableTableHead } from "@/components/ui/sortable-table-head"
+import { useTableSort } from "@/hooks/use-table-sort"
 import {
   fetchSoftwareRequests,
   createSoftwareRequestApi,
@@ -202,7 +206,7 @@ export default function SoftwareRequestsPage() {
   const [selectedRequest, setSelectedRequest] = useState<SoftwareRequestListRow | null>(null)
 
   const [formData, setFormData] = useState({
-    kind: SoftwareRequestKind.INSTALL,
+    kind: SoftwareRequestKind.INSTALL as SoftwareRequestKind,
     softwareName: "",
     softwareVersion: "",
     description: "",
@@ -309,6 +313,25 @@ export default function SoftwareRequestsPage() {
     selectedStatus !== "all" ||
     selectedKind !== "all"
 
+  const swReqSortGetters = useMemo(
+    () => ({
+      kind: (r: SoftwareRequestListRow) => r.kind,
+      software: (r: SoftwareRequestListRow) => r.softwareName,
+      classroom: (r: SoftwareRequestListRow) => classroomLabelFromRow(r),
+      scope: (r: SoftwareRequestListRow) => scopeLabel(r),
+      status: (r: SoftwareRequestListRow) => r.status,
+      priority: (r: SoftwareRequestListRow) => r.priority,
+      created: (r: SoftwareRequestListRow) => new Date(r.createdAt).getTime(),
+    }),
+    []
+  )
+
+  const { sortedItems: sortedSwRequests, sortKey, sortDir, toggleSort } = useTableSort(
+    filteredRequests,
+    swReqSortGetters,
+    "created"
+  )
+
   const filterWorkstationOptions = useMemo(() => {
     if (selectedClassroomId === "all") return []
     return workstations.filter((w) => w.classroomId === selectedClassroomId)
@@ -358,6 +381,7 @@ export default function SoftwareRequestsPage() {
       })
       setAddDialogOpen(false)
       await loadAll()
+      toast.success("Заявка создана")
     } catch (e) {
       setFormError(e instanceof Error ? e.message : "Не удалось отправить")
     } finally {
@@ -390,6 +414,7 @@ export default function SoftwareRequestsPage() {
       setEditStatusDialogOpen(false)
       setSelectedRequest(null)
       await loadAll()
+      toast.success("Заявка обновлена")
     } catch (e) {
       console.error(e)
     } finally {
@@ -409,6 +434,7 @@ export default function SoftwareRequestsPage() {
       setDeleteDialogOpen(false)
       setSelectedRequest(null)
       await loadAll()
+      toast.success("Заявка удалена")
     } catch (e) {
       console.error(e)
     }
@@ -455,20 +481,20 @@ export default function SoftwareRequestsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Заявки на установку/обновление ПО</h1>
-          <p className="text-muted-foreground">
-            {isAdmin
-              ? "Все заявки по всем аудиториям и рабочим местам. При создании заявки доступны любые аудитории и РМ."
-              : "Заявки по аудиториям, за которые вы ответственны"}
-          </p>
-        </div>
-        <Button onClick={handleAdd} disabled={classrooms.length === 0}>
-          <Plus className="mr-2 h-4 w-4" />
-          Новая заявка
-        </Button>
-      </div>
+      <PageHeader
+        title="Заявки на установку/обновление ПО"
+        description={
+          isAdmin
+            ? "Все заявки по всем аудиториям и рабочим местам. При создании заявки доступны любые аудитории и РМ."
+            : "Заявки по аудиториям, за которые вы ответственны"
+        }
+        actions={
+          <Button onClick={handleAdd} disabled={classrooms.length === 0}>
+            <Plus className="mr-2 h-4 w-4" />
+            Новая заявка
+          </Button>
+        }
+      />
 
       {classrooms.length === 0 ? (
         <Card>
@@ -626,31 +652,80 @@ export default function SoftwareRequestsPage() {
       <Card>
         <CardHeader>
           <CardTitle>Заявки</CardTitle>
-          <CardDescription>Найдено: {filteredRequests.length}</CardDescription>
+          <CardDescription>Найдено: {sortedSwRequests.length}</CardDescription>
         </CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Тип</TableHead>
-                <TableHead>ПО</TableHead>
-                <TableHead>Аудитория</TableHead>
-                <TableHead>Область</TableHead>
-                <TableHead>Статус</TableHead>
-                <TableHead>Приоритет</TableHead>
-                <TableHead>Дата</TableHead>
+                <SortableTableHead
+                  columnKey="kind"
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={toggleSort}
+                >
+                  Тип
+                </SortableTableHead>
+                <SortableTableHead
+                  columnKey="software"
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={toggleSort}
+                >
+                  ПО
+                </SortableTableHead>
+                <SortableTableHead
+                  columnKey="classroom"
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={toggleSort}
+                >
+                  Аудитория
+                </SortableTableHead>
+                <SortableTableHead
+                  columnKey="scope"
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={toggleSort}
+                >
+                  Область
+                </SortableTableHead>
+                <SortableTableHead
+                  columnKey="status"
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={toggleSort}
+                >
+                  Статус
+                </SortableTableHead>
+                <SortableTableHead
+                  columnKey="priority"
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={toggleSort}
+                >
+                  Приоритет
+                </SortableTableHead>
+                <SortableTableHead
+                  columnKey="created"
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={toggleSort}
+                >
+                  Дата
+                </SortableTableHead>
                 <TableHead className="text-right">Действия</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredRequests.length === 0 ? (
+              {sortedSwRequests.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
                     Заявки не найдены
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredRequests.map((request) => {
+                sortedSwRequests.map((request) => {
                   const typeInfo = getTypeInfo(request.kind)
                   const statusInfo = getStatusInfo(request.status)
                   const priorityInfo = getPriorityInfo(request.priority)

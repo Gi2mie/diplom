@@ -28,6 +28,8 @@ import {
   LayoutGrid,
 } from "lucide-react"
 import Link from "next/link"
+import { toast } from "sonner"
+import { PageHeader } from "@/components/dashboard/page-header"
 import { fetchClassroomRegistry, type RegistryClassroom } from "@/lib/api/classroom-registry"
 import { fetchWorkstations, type ApiWorkstation } from "@/lib/api/workstations"
 import { submitTeacherIssueReport } from "@/lib/api/issue-reports"
@@ -145,6 +147,9 @@ export default function NewRequestPage() {
       })
       setCreatedCount(res.created)
       setIsSubmitted(true)
+      toast.success(
+        res.created > 1 ? `Создано обращений: ${res.created}` : "Заявка отправлена"
+      )
       setTimeout(() => {
         router.push("/dashboard/my-requests")
       }, 2200)
@@ -238,16 +243,17 @@ export default function NewRequestPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" asChild>
-          <Link href="/dashboard/my-requests">
+      <div className="flex items-start gap-3 sm:gap-4">
+        <Button variant="ghost" size="icon" asChild className="mt-1 shrink-0">
+          <Link href="/dashboard/my-requests" aria-label="Назад к заявкам">
             <ArrowLeft className="h-4 w-4" />
           </Link>
         </Button>
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Сообщить о проблеме</h1>
-          <p className="text-muted-foreground">Создайте заявку на проверку или ремонт оборудования</p>
-        </div>
+        <PageHeader
+          className="min-w-0 flex-1"
+          title="Сообщить о проблеме"
+          description="Создайте заявку на проверку или ремонт оборудования"
+        />
       </div>
 
       {responsibleClassrooms.length === 0 ? (

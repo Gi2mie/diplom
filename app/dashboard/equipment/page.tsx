@@ -19,6 +19,7 @@ import {
   Wrench,
   Loader2,
   ArrowRightLeft,
+  AlertCircle,
 } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -84,7 +85,12 @@ import {
   deleteEquipmentDashboardApi,
   type DashboardEquipmentRow,
 } from "@/lib/api/equipment-dashboard"
+import { toast } from "sonner"
 import { createRelocationApi } from "@/lib/api/relocations"
+import { PageHeader } from "@/components/dashboard/page-header"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { SortableTableHead } from "@/components/ui/sortable-table-head"
+import { useTableSort } from "@/hooks/use-table-sort"
 
 type WorkstationRow = {
   id: string
@@ -235,6 +241,24 @@ export default function EquipmentPage() {
     filterRelocatedOnly,
   ])
 
+  const equipmentSortGetters = useMemo(
+    () => ({
+      name: (row: DashboardEquipmentRow) => row.name,
+      category: (row: DashboardEquipmentRow) => row.categoryName ?? "",
+      inventory: (row: DashboardEquipmentRow) => row.inventoryNumber,
+      rooms: (row: DashboardEquipmentRow) =>
+        (row.relocationRoomsLabel ?? row.classroomNumber ?? "").toString(),
+      status: (row: DashboardEquipmentRow) => row.status,
+    }),
+    []
+  )
+
+  const { sortedItems: sortedEquipment, sortKey, sortDir, toggleSort } = useTableSort(
+    filteredEquipment,
+    equipmentSortGetters,
+    "name"
+  )
+
   const equipmentCountByWorkstation = useMemo(() => {
     const m = new Map<string, number>()
     for (const e of equipment) {
@@ -360,9 +384,11 @@ export default function EquipmentPage() {
       if (mode === "add") {
         await createEquipmentDashboardApi(payload)
         setAddOpen(false)
+        toast.success("Оборудование добавлено")
       } else if (selected) {
         await updateEquipmentDashboardApi(selected.id, payload)
         setEditOpen(false)
+        toast.success("Данные оборудования обновлены")
       }
       await loadAll()
     } catch (e) {
@@ -379,6 +405,7 @@ export default function EquipmentPage() {
       setDeleteOpen(false)
       setSelected(null)
       await loadAll()
+      toast.success("Оборудование удалено")
     } catch (e) {
       setError(e instanceof Error ? e.message : "Не удалось удалить")
     }
@@ -392,6 +419,7 @@ export default function EquipmentPage() {
       setWriteOffOpen(false)
       setSelected(null)
       await loadAll()
+      toast.success("Оборудование списано")
     } catch (e) {
       setError(e instanceof Error ? e.message : "Не удалось списать")
     }
@@ -413,30 +441,30 @@ export default function EquipmentPage() {
   if (!session?.user) return null
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Управление оборудованием</h1>
-          <p className="text-muted-foreground">
-            {isAdmin
-              ? "Добавление, редактирование и удаление оборудования"
-              : "Просмотр оборудования в аудиториях, за которые вы ответственны"}
-          </p>
-        </div>
-        {isAdmin && (
-          <div className="flex gap-2">
+    <div className="space-y-6 md:space-y-8">
+      <PageHeader
+        title="Управление оборудованием"
+        description={
+          isAdmin
+            ? "Добавление, редактирование и удаление оборудования, привязка к рабочим местам и учёт статусов."
+            : "Просмотр оборудования в аудиториях, за которые вы ответственны."
+        }
+        actions={
+          isAdmin ? (
             <Button onClick={openAdd}>
               <Plus className="mr-2 h-4 w-4" />
               Добавить оборудование
             </Button>
-          </div>
-        )}
-      </div>
+          ) : undefined
+        }
+      />
 
       {error && (
-        <p className="text-sm text-destructive" role="alert">
-          {error}
-        </p>
+        <Alert variant="destructive" className="border-destructive/40">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Ошибка</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       )}
 
       <div className="grid gap-4 md:grid-cols-4">
@@ -631,7 +659,7 @@ export default function EquipmentPage() {
           <CardDescription>
             {loading
               ? "Загрузка..."
-              : `Найдено ${filteredEquipment.length} из ${equipment.length}`}
+              : `Найдено ${sortedEquipment.length} из ${equipment.length}`}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -652,16 +680,51 @@ export default function EquipmentPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Название</TableHead>
-                    <TableHead>Категория</TableHead>
-                    <TableHead>Инв. номер</TableHead>
-                    <TableHead>Аудитории</TableHead>
-                    <TableHead>Статус</TableHead>
+                    <SortableTableHead
+                      columnKey="name"
+                      sortKey={sortKey}
+                      sortDir={sortDir}
+                      onSort={toggleSort}
+                    >
+                      Название
+                    </SortableTableHead>
+                    <SortableTableHead
+                      columnKey="category"
+                      sortKey={sortKey}
+                      sortDir={sortDir}
+                      onSort={toggleSort}
+                    >
+                      Категория
+                    </SortableTableHead>
+                    <SortableTableHead
+                      columnKey="inventory"
+                      sortKey={sortKey}
+                      sortDir={sortDir}
+                      onSort={toggleSort}
+                    >
+                      Инв. номер
+                    </SortableTableHead>
+                    <SortableTableHead
+                      columnKey="rooms"
+                      sortKey={sortKey}
+                      sortDir={sortDir}
+                      onSort={toggleSort}
+                    >
+                      Аудитории
+                    </SortableTableHead>
+                    <SortableTableHead
+                      columnKey="status"
+                      sortKey={sortKey}
+                      sortDir={sortDir}
+                      onSort={toggleSort}
+                    >
+                      Статус
+                    </SortableTableHead>
                     <TableHead className="text-right">Действия</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredEquipment.map((item) => (
+                  {sortedEquipment.map((item) => (
                     <TableRow key={item.id}>
                       <TableCell>
                         <div className="font-medium">{item.name}</div>
@@ -1156,6 +1219,7 @@ export default function EquipmentPage() {
                   .then(() => {
                     setMoveOpen(false)
                     void loadAll()
+                    toast.success("Перемещение зарегистрировано")
                   })
                   .catch((e) => {
                     setMoveError(e instanceof Error ? e.message : "Ошибка")

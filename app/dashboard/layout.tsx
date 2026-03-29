@@ -53,6 +53,7 @@ import {
 } from "@/components/ui/breadcrumb"
 import { SettingsDialog } from "@/components/dashboard/settings-dialog"
 import { ProfileDialog } from "@/components/dashboard/profile-dialog"
+import { Skeleton } from "@/components/ui/skeleton"
 
 type NavigationItem = {
   title: string
@@ -217,8 +218,12 @@ export default function DashboardLayout({
 
   if (status === "loading") {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="animate-pulse text-muted-foreground">Загрузка...</div>
+      <div className="flex min-h-dvh flex-col items-center justify-center gap-4 bg-background px-4">
+        <Skeleton className="h-12 w-12 rounded-xl" />
+        <div className="flex flex-col items-center gap-2">
+          <Skeleton className="h-4 w-36" />
+          <p className="text-sm text-muted-foreground">Загрузка рабочей области…</p>
+        </div>
       </div>
     )
   }
@@ -357,10 +362,10 @@ export default function DashboardLayout({
       
       <SidebarInset>
         {/* Header */}
-        <header className="flex h-14 items-center gap-4 border-b bg-background px-6">
-          <SidebarTrigger />
-          <Separator orientation="vertical" className="h-6" />
-          <Breadcrumb>
+        <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 border-b border-border/80 bg-background/85 px-4 backdrop-blur-md supports-[backdrop-filter]:bg-background/75 md:gap-4 md:px-6">
+          <SidebarTrigger className="transition-transform duration-200 hover:opacity-90" />
+          <Separator orientation="vertical" className="hidden h-6 sm:block" />
+          <Breadcrumb className="min-w-0">
             <BreadcrumbList>
               <BreadcrumbItem>
                 <BreadcrumbLink href="/dashboard">EduControl</BreadcrumbLink>
@@ -380,8 +385,13 @@ export default function DashboardLayout({
         </header>
         
         {/* Main Content */}
-        <main className="flex-1 overflow-auto p-6">
-          {children}
+        <main className="flex-1 overflow-auto">
+          <div
+            key={pathname}
+            className="edu-page-enter page-shell px-4 py-5 sm:px-5 sm:py-6 md:px-6 md:py-8"
+          >
+            {children}
+          </div>
         </main>
       </SidebarInset>
       
