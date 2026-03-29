@@ -6,6 +6,7 @@ import { createEquipmentSchema } from "@/lib/validators"
 import { initialEquipmentStatusForCreate } from "@/lib/equipment-workstation-status"
 import { syncWorkstationKitFromEquipment } from "@/lib/workstation-kit-sync"
 import { syncWorkstationStatusFromEquipment } from "@/lib/workstation-status-sync"
+import { buildActiveRelocationLabels } from "@/lib/relocation-service"
 import type { Prisma } from "@prisma/client"
 
 export async function GET(request: Request) {
@@ -87,6 +88,8 @@ export async function GET(request: Request) {
     },
   })
 
+  const relocationLabels = await buildActiveRelocationLabels()
+
   const equipment = rows.map((e) => ({
     id: e.id,
     name: e.name,
@@ -112,6 +115,7 @@ export async function GET(request: Request) {
     classroomName: e.workstation?.classroom?.name ?? null,
     buildingId: e.workstation?.classroom?.buildingId ?? null,
     buildingName: e.workstation?.classroom?.building?.name ?? null,
+    relocationRoomsLabel: relocationLabels.get(e.id) ?? null,
   }))
 
   return NextResponse.json({ equipment })

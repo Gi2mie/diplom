@@ -25,6 +25,8 @@ export type DashboardEquipmentRow = {
   classroomName: string | null
   buildingId: string | null
   buildingName: string | null
+  /** Если оборудование временно в другой аудитории по журналу: «401->101» */
+  relocationRoomsLabel: string | null
 }
 
 export type EquipmentFormPayload = {

@@ -9,6 +9,7 @@ import {
   syncWorkstationStatusFromEquipment,
   workstationStatusFromOnServiceFlags,
 } from "@/lib/workstation-status-sync"
+import { getActiveRelocationAugmentation } from "@/lib/relocation-service"
 
 function parseLastMaintenance(v: string | null | undefined): Date | null {
   if (v == null || v === "") return null
@@ -86,28 +87,115 @@ export async function GET() {
     },
   })
 
+  const { labels: relocationLabels, equipmentSourceClassroom, awayByWorkstation } =
+    await getActiveRelocationAugmentation()
+
+  const awayEquipmentIds = new Set<string>()
+  for (const entries of awayByWorkstation.values()) {
+    for (const { equipmentId } of entries) awayEquipmentIds.add(equipmentId)
+  }
+
+  const awayEquipmentRows =
+    awayEquipmentIds.size === 0
+      ? []
+      : await db.equipment.findMany({
+          where: { id: { in: [...awayEquipmentIds] } },
+          select: {
+            id: true,
+            name: true,
+            inventoryNumber: true,
+            type: true,
+            status: true,
+            equipmentKind: { select: { name: true } },
+            issueReports: {
+              where: { status: { in: [IssueStatus.NEW, IssueStatus.IN_PROGRESS] } },
+              take: 1,
+              select: { id: true },
+            },
+            repairs: {
+              where: { status: { in: [RepairStatus.PLANNED, RepairStatus.IN_PROGRESS] } },
+              take: 1,
+              select: { id: true },
+            },
+            software: {
+              orderBy: { software: { name: "asc" } },
+              select: {
+                id: true,
+                version: true,
+                software: { select: { name: true, version: true } },
+              },
+            },
+          },
+        })
+
+  const awayEquipmentById = new Map(awayEquipmentRows.map((e) => [e.id, e]))
+
+  function mapEquipmentListItem(
+    e: (typeof rows)[0]["equipment"][0],
+    relocationFromClassroom: string | null
+  ) {
+    return {
+      id: e.id,
+      name: e.name,
+      inventoryNumber: e.inventoryNumber,
+      typeEnum: e.type,
+      kindName: e.equipmentKind?.name ?? null,
+      equipmentStatus: e.status,
+      onService: isEquipmentOnService({
+        status: e.status,
+        hasOpenIssue: e.issueReports.length > 0,
+        hasActiveRepair: e.repairs.length > 0,
+      }),
+      installedSoftware: e.software.map((row) => ({
+        id: row.id,
+        softwareName: row.software.name,
+        catalogVersion: row.software.version,
+        installedVersion: row.version,
+      })),
+      relocationFromClassroom,
+    }
+  }
+
+  function mapAwayEquipmentRow(
+    e: (typeof awayEquipmentRows)[0],
+    relocatedToClassroom: string
+  ) {
+    return {
+      id: e.id,
+      name: e.name,
+      inventoryNumber: e.inventoryNumber,
+      typeEnum: e.type,
+      kindName: e.equipmentKind?.name ?? null,
+      equipmentStatus: e.status,
+      onService: isEquipmentOnService({
+        status: e.status,
+        hasOpenIssue: e.issueReports.length > 0,
+        hasActiveRepair: e.repairs.length > 0,
+      }),
+      installedSoftware: e.software.map((row) => ({
+        id: row.id,
+        softwareName: row.software.name,
+        catalogVersion: row.software.version,
+        installedVersion: row.version,
+      })),
+      relocatedToClassroom,
+    }
+  }
+
   return NextResponse.json({
     workstations: rows.map((w) => {
-      const equipmentItems = w.equipment.map((e) => ({
-        id: e.id,
-        name: e.name,
-        inventoryNumber: e.inventoryNumber,
-        typeEnum: e.type,
-        kindName: e.equipmentKind?.name ?? null,
-        equipmentStatus: e.status,
-        onService: isEquipmentOnService({
-          status: e.status,
-          hasOpenIssue: e.issueReports.length > 0,
-          hasActiveRepair: e.repairs.length > 0,
-        }),
-        installedSoftware: e.software.map((row) => ({
-          id: row.id,
-          softwareName: row.software.name,
-          catalogVersion: row.software.version,
-          installedVersion: row.version,
-        })),
-      }))
+      const equipmentItems = w.equipment.map((e) =>
+        mapEquipmentListItem(e, equipmentSourceClassroom.get(e.id) ?? null)
+      )
+      const awayEntries = awayByWorkstation.get(w.id) ?? []
+      const relocatedAwayItems = awayEntries.flatMap(({ equipmentId, toClassroomNumber }) => {
+        const e = awayEquipmentById.get(equipmentId)
+        return e ? [mapAwayEquipmentRow(e, toClassroomNumber)] : []
+      })
       const status = workstationStatusFromOnServiceFlags(equipmentItems)
+
+      const hasRelocatedEquipment =
+        w.equipment.some((e) => relocationLabels.has(e.id)) || relocatedAwayItems.length > 0
 
       return {
         id: w.id,
@@ -128,6 +216,8 @@ export async function GET() {
         classroomName: w.classroom.name,
         buildingName: w.classroom.building?.name ?? null,
         equipmentItems,
+        relocatedAwayItems,
+        hasRelocatedEquipment,
       }
     }),
   })

@@ -16,6 +16,7 @@ import {
   School,
   Loader2,
   Package,
+  ArrowRightLeft,
 } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -73,6 +74,7 @@ import {
   deleteWorkstationApi,
   type ApiWorkstation,
 } from "@/lib/api/workstations"
+import { createRelocationApi } from "@/lib/api/relocations"
 import { workstationRmPrefix, pcNameFromRmCode, suffixFromRmCode } from "@/lib/workstation-code"
 import { cn } from "@/lib/utils"
 
@@ -123,8 +125,14 @@ const emptyForm = (): WorkstationFormState => ({
   lastMaintenance: "",
 })
 
-function equipmentCount(ws: ApiWorkstation): number {
+/** Сколько единиц физически привязано к РМ (БД). */
+function physicalEquipmentCount(ws: ApiWorkstation): number {
   return ws.equipmentItems.length
+}
+
+/** Комплектация в интерфейсе: на месте + временно на другом РМ (активный перенос). */
+function kitEquipmentCount(ws: ApiWorkstation): number {
+  return ws.equipmentItems.length + (ws.relocatedAwayItems?.length ?? 0)
 }
 
 function formatSoftwareVersion(catalogVersion: string, installedVersion: string | null): string {
@@ -145,6 +153,7 @@ export default function WorkstationsPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [filterClassroom, setFilterClassroom] = useState<string>("all")
   const [filterStatus, setFilterStatus] = useState<string>("all")
+  const [filterRelocatedOnly, setFilterRelocatedOnly] = useState(false)
 
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
@@ -154,6 +163,13 @@ export default function WorkstationsPage() {
   const [form, setForm] = useState<WorkstationFormState>(emptyForm)
   const [formError, setFormError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+
+  const [wsMoveOpen, setWsMoveOpen] = useState(false)
+  const [wsMoveFrom, setWsMoveFrom] = useState<ApiWorkstation | null>(null)
+  const [wsMoveTargetClassroomId, setWsMoveTargetClassroomId] = useState("")
+  const [wsMoveTargetWsId, setWsMoveTargetWsId] = useState("")
+  const [wsMoveBusy, setWsMoveBusy] = useState(false)
+  const [wsMoveError, setWsMoveError] = useState<string | null>(null)
 
   const isAdmin = session?.user?.role === "ADMIN"
 
@@ -178,6 +194,31 @@ export default function WorkstationsPage() {
     (id: string) => classrooms.find((c) => c.id === id),
     [classrooms]
   )
+
+  const equipmentCountByWorkstation = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const w of workstations) {
+      m.set(w.id, w.equipmentItems.length)
+    }
+    return m
+  }, [workstations])
+
+  const freeWorkstationsForWsMove = useMemo(() => {
+    if (!wsMoveOpen || !wsMoveFrom || !wsMoveTargetClassroomId) return []
+    if (wsMoveTargetClassroomId === wsMoveFrom.classroomId) return []
+    return workstations.filter(
+      (w) =>
+        w.id !== wsMoveFrom.id &&
+        w.classroomId === wsMoveTargetClassroomId &&
+        (equipmentCountByWorkstation.get(w.id) ?? 0) === 0
+    )
+  }, [
+    wsMoveOpen,
+    wsMoveFrom,
+    wsMoveTargetClassroomId,
+    workstations,
+    equipmentCountByWorkstation,
+  ])
 
   const countInClassroom = useCallback(
     (classroomId: string, excludeWorkstationId?: string) =>
@@ -208,16 +249,19 @@ export default function WorkstationsPage() {
   const filteredWorkstations = useMemo(() => {
     return workstations.filter((ws) => {
       const q = searchQuery.toLowerCase()
-      const inv = ws.equipmentItems.map((e) => e.inventoryNumber).join(" ")
+      const inv = [...ws.equipmentItems, ...(ws.relocatedAwayItems ?? [])]
+        .map((e) => e.inventoryNumber)
+        .join(" ")
       const blob =
         `${ws.name} ${ws.code} ${ws.pcName} ${ws.description} ${inv}`.toLowerCase()
       const matchesSearch = !q || blob.includes(q)
       const matchesClassroom = filterClassroom === "all" || ws.classroomId === filterClassroom
       const matchesStatus =
         filterStatus === "all" || normalizeWorkstationStatus(ws.status) === filterStatus
-      return matchesSearch && matchesClassroom && matchesStatus
+      const matchesRelocated = !filterRelocatedOnly || ws.hasRelocatedEquipment
+      return matchesSearch && matchesClassroom && matchesStatus && matchesRelocated
     })
-  }, [workstations, searchQuery, filterClassroom, filterStatus])
+  }, [workstations, searchQuery, filterClassroom, filterStatus, filterRelocatedOnly])
 
   const stats = useMemo(() => {
     return {
@@ -243,10 +287,14 @@ export default function WorkstationsPage() {
     setSearchQuery("")
     setFilterClassroom("all")
     setFilterStatus("all")
+    setFilterRelocatedOnly(false)
   }
 
   const hasActiveFilters =
-    searchQuery !== "" || filterClassroom !== "all" || filterStatus !== "all"
+    searchQuery !== "" ||
+    filterClassroom !== "all" ||
+    filterStatus !== "all" ||
+    filterRelocatedOnly
 
   const selectedClassroomForForm = form.classroomId ? getClassroom(form.classroomId) : undefined
   const rmPrefix = selectedClassroomForForm
@@ -494,7 +542,15 @@ export default function WorkstationsPage() {
 
       <Card>
         <CardHeader className="pb-4">
-          <CardTitle className="text-base">Фильтры</CardTitle>
+          <div className="flex items-center justify-between gap-2">
+            <CardTitle className="text-base">Фильтры</CardTitle>
+            {hasActiveFilters && (
+              <Button variant="ghost" size="sm" type="button" onClick={resetFilters} className="shrink-0 gap-2">
+                <X className="h-4 w-4" />
+                Сбросить
+              </Button>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
           <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-[repeat(5,minmax(0,1fr))]">
@@ -509,43 +565,46 @@ export default function WorkstationsPage() {
             </div>
 
             <div className="min-w-0">
-            <Select value={filterClassroom} onValueChange={setFilterClassroom}>
-              <SelectTrigger>
-                <SelectValue placeholder="Аудитория" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Все аудитории</SelectItem>
-                {classrooms.map((classroom) => (
-                  <SelectItem key={classroom.id} value={classroom.id}>
-                    {classroom.number}
-                    {classroom.name ? ` — ${classroom.name}` : ""}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              <Select value={filterClassroom} onValueChange={setFilterClassroom}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Аудитория" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Все аудитории</SelectItem>
+                  {classrooms.map((classroom) => (
+                    <SelectItem key={classroom.id} value={classroom.id}>
+                      {classroom.number}
+                      {classroom.name ? ` — ${classroom.name}` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="min-w-0">
-            <Select value={filterStatus} onValueChange={setFilterStatus}>
-              <SelectTrigger>
-                <SelectValue placeholder="Статус" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Все статусы</SelectItem>
-                <SelectItem value={WorkstationStatus.ACTIVE}>Исправно</SelectItem>
-                <SelectItem value={WorkstationStatus.MAINTENANCE}>На обслуживании</SelectItem>
-              </SelectContent>
-            </Select>
+              <Select value={filterStatus} onValueChange={setFilterStatus}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Статус" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Все статусы</SelectItem>
+                  <SelectItem value={WorkstationStatus.ACTIVE}>Исправно</SelectItem>
+                  <SelectItem value={WorkstationStatus.MAINTENANCE}>На обслуживании</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
-            {hasActiveFilters && (
-              <div className="flex min-w-0 items-end sm:col-span-2 lg:col-span-1">
-                <Button variant="ghost" onClick={resetFilters} className="gap-2 w-full lg:w-auto" type="button">
-                  <X className="h-4 w-4" />
-                  Сбросить
-                </Button>
-              </div>
-            )}
+            <div className="flex items-end sm:col-span-2 lg:col-span-1">
+              <Button
+                type="button"
+                variant={filterRelocatedOnly ? "secondary" : "outline"}
+                className="w-full shrink-0"
+                onClick={() => setFilterRelocatedOnly((v) => !v)}
+              >
+                <ArrowRightLeft className="mr-2 h-4 w-4" />
+                {filterRelocatedOnly ? "Только перемещённые" : "Отобразить перемещённое"}
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -612,7 +671,7 @@ export default function WorkstationsPage() {
                         )}
                       </TableCell>
                       <TableCell>
-                        <Badge variant="secondary">{equipmentCount(workstation)}</Badge>
+                        <Badge variant="secondary">{kitEquipmentCount(workstation)}</Badge>
                       </TableCell>
                       <TableCell>
                         <Badge variant={statusBadge.variant} className={statusBadge.className}>
@@ -642,6 +701,20 @@ export default function WorkstationsPage() {
                               <DropdownMenuItem onClick={() => handleEdit(workstation)}>
                                 <Pencil className="mr-2 h-4 w-4" />
                                 Редактировать
+                              </DropdownMenuItem>
+                            )}
+                            {isAdmin && physicalEquipmentCount(workstation) > 0 && (
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  setWsMoveFrom(workstation)
+                                  setWsMoveTargetClassroomId("")
+                                  setWsMoveTargetWsId("")
+                                  setWsMoveError(null)
+                                  setWsMoveOpen(true)
+                                }}
+                              >
+                                <ArrowRightLeft className="mr-2 h-4 w-4" />
+                                Переместить РМ целиком
                               </DropdownMenuItem>
                             )}
                             {isAdmin && (
@@ -918,7 +991,7 @@ export default function WorkstationsPage() {
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Единиц комплектации (позиций)</p>
-                  <p className="font-medium">{equipmentCount(selectedWorkstation)}</p>
+                  <p className="font-medium">{kitEquipmentCount(selectedWorkstation)}</p>
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Последнее ТО</p>
@@ -928,56 +1001,117 @@ export default function WorkstationsPage() {
 
               <div className="pt-4 border-t">
                 <p className="text-sm text-muted-foreground mb-2">Комплектация</p>
-                {selectedWorkstation.equipmentItems.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">Оборудование не привязано</p>
-                ) : (
-                  <div className="space-y-2">
-                    {selectedWorkstation.equipmentItems.map((item) => (
-                      <div
-                        key={item.id}
-                        className={cn(
-                          "flex flex-wrap items-center justify-between gap-3 rounded-md border px-3 py-2",
-                          item.onService &&
-                            "border-red-200 bg-red-50 text-red-950 dark:border-red-800 dark:bg-red-950/55 dark:text-red-50"
-                        )}
-                      >
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium">{item.name}</p>
-                          <p
-                            className={cn(
-                              "text-xs",
-                              item.onService
-                                ? "text-red-800/90 dark:text-red-200/95"
-                                : "text-muted-foreground"
+                {(() => {
+                  const away = selectedWorkstation.relocatedAwayItems ?? []
+                  const onSite = selectedWorkstation.equipmentItems
+                  if (onSite.length === 0 && away.length === 0) {
+                    return (
+                      <p className="text-sm text-muted-foreground">Оборудование не привязано</p>
+                    )
+                  }
+                  return (
+                    <div className="space-y-2">
+                      {onSite.map((item) => (
+                        <div
+                          key={item.id}
+                          className={cn(
+                            "flex flex-wrap items-center justify-between gap-3 rounded-md border px-3 py-2",
+                            item.onService &&
+                              "border-red-200 bg-red-50 text-red-950 dark:border-red-800 dark:bg-red-950/55 dark:text-red-50"
+                          )}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="text-sm font-medium">{item.name}</p>
+                              {item.relocationFromClassroom ? (
+                                <Badge
+                                  variant="secondary"
+                                  className="shrink-0 text-xs font-normal tabular-nums"
+                                >
+                                  из ауд. {item.relocationFromClassroom}
+                                </Badge>
+                              ) : null}
+                            </div>
+                            <p
+                              className={cn(
+                                "text-xs",
+                                item.onService
+                                  ? "text-red-800/90 dark:text-red-200/95"
+                                  : "text-muted-foreground"
+                              )}
+                            >
+                              {item.kindName || item.typeEnum}
+                            </p>
+                          </div>
+                          <div className="flex shrink-0 flex-wrap items-center gap-2">
+                            {item.onService && (
+                              <Badge
+                                variant="outline"
+                                className="border-red-300 bg-red-100/90 text-red-900 dark:border-red-600 dark:bg-red-900/55 dark:text-red-50"
+                              >
+                                На обслуживании
+                              </Badge>
                             )}
-                          >
-                            {item.kindName || item.typeEnum}
-                          </p>
-                        </div>
-                        <div className="flex shrink-0 flex-wrap items-center gap-2">
-                          {item.onService && (
                             <Badge
                               variant="outline"
-                              className="border-red-300 bg-red-100/90 text-red-900 dark:border-red-600 dark:bg-red-900/55 dark:text-red-50"
+                              className={cn(
+                                "font-mono",
+                                item.onService &&
+                                  "border-red-300 text-red-900 dark:border-red-600 dark:bg-red-900/40 dark:text-red-100"
+                              )}
                             >
-                              На обслуживании
+                              {item.inventoryNumber}
                             </Badge>
-                          )}
-                          <Badge
-                            variant="outline"
-                            className={cn(
-                              "font-mono",
-                              item.onService &&
-                                "border-red-300 text-red-900 dark:border-red-600 dark:bg-red-900/40 dark:text-red-100"
-                            )}
-                          >
-                            {item.inventoryNumber}
-                          </Badge>
+                          </div>
                         </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                      ))}
+                      {away.map((item) => (
+                        <div
+                          key={`away-${item.id}`}
+                          className={cn(
+                            "flex flex-wrap items-center justify-between gap-3 rounded-md border border-dashed px-3 py-2 bg-muted/35",
+                            item.onService &&
+                              "border-red-200 bg-red-50/90 text-red-950 dark:border-red-800 dark:bg-red-950/55 dark:text-red-50"
+                          )}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="text-sm font-medium">{item.name}</p>
+                              <Badge
+                                variant="outline"
+                                className="shrink-0 text-xs font-normal tabular-nums"
+                              >
+                                в ауд. {item.relocatedToClassroom}
+                              </Badge>
+                            </div>
+                            <p
+                              className={cn(
+                                "text-xs text-muted-foreground",
+                                item.onService && "text-red-800/90 dark:text-red-200/95"
+                              )}
+                            >
+                              {item.kindName || item.typeEnum}
+                              <span className="text-muted-foreground/80"> · временно на другом РМ</span>
+                            </p>
+                          </div>
+                          <div className="flex shrink-0 flex-wrap items-center gap-2">
+                            {item.onService && (
+                              <Badge
+                                variant="outline"
+                                className="border-red-300 bg-red-100/90 text-red-900 dark:border-red-600 dark:bg-red-900/55 dark:text-red-50"
+                              >
+                                На обслуживании
+                              </Badge>
+                            )}
+                            <Badge variant="outline" className="font-mono">
+                              {item.inventoryNumber}
+                            </Badge>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                })()}
               </div>
 
               <div className="pt-4 border-t">
@@ -986,7 +1120,11 @@ export default function WorkstationsPage() {
                   Установленное ПО
                 </p>
                 {(() => {
-                  const rows = selectedWorkstation.equipmentItems.flatMap((item) =>
+                  const kit = [
+                    ...selectedWorkstation.equipmentItems,
+                    ...(selectedWorkstation.relocatedAwayItems ?? []),
+                  ]
+                  const rows = kit.flatMap((item) =>
                     (item.installedSoftware ?? []).map((sw) => ({
                       key: sw.id,
                       equipmentName: item.name,
@@ -1051,6 +1189,117 @@ export default function WorkstationsPage() {
                 Редактировать
               </Button>
             )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={wsMoveOpen} onOpenChange={setWsMoveOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Перемещение рабочего места целиком</DialogTitle>
+            <DialogDescription className="text-pretty break-words">
+              Всё оборудование с текущего РМ будет привязано к свободному РМ в другой аудитории.
+              Запись появится в журнале перемещений; откат — кнопкой «Вернуть обратно».
+            </DialogDescription>
+          </DialogHeader>
+          {wsMoveFrom && (
+            <div className="grid gap-3 py-2">
+              <p className="text-sm font-mono">{wsMoveFrom.code}</p>
+              <p className="text-xs text-muted-foreground">
+                Оборудования: {physicalEquipmentCount(wsMoveFrom)} · Сейчас:{" "}
+                {getClassroomShort(wsMoveFrom.classroomId)}
+              </p>
+              {wsMoveError && <p className="text-sm text-destructive">{wsMoveError}</p>}
+              <div className="grid gap-2">
+                <Label>Аудитория назначения</Label>
+                <Select
+                  value={wsMoveTargetClassroomId || undefined}
+                  onValueChange={(v) => {
+                    setWsMoveTargetClassroomId(v)
+                    setWsMoveTargetWsId("")
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Выберите аудиторию" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {classrooms
+                      .filter((c) => c.id !== wsMoveFrom.classroomId)
+                      .map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.number}
+                          {c.name ? ` · ${c.name}` : ""}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label>Свободное рабочее место</Label>
+                <Select
+                  value={wsMoveTargetWsId || undefined}
+                  onValueChange={setWsMoveTargetWsId}
+                  disabled={
+                    !wsMoveTargetClassroomId || freeWorkstationsForWsMove.length === 0
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue
+                      placeholder={
+                        !wsMoveTargetClassroomId
+                          ? "Сначала аудитория"
+                          : freeWorkstationsForWsMove.length === 0
+                            ? "Нет свободных РМ"
+                            : "Выберите РМ"
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {freeWorkstationsForWsMove.map((w) => (
+                      <SelectItem key={w.id} value={w.id}>
+                        {w.code}
+                        {w.name ? ` · ${w.name}` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" type="button" onClick={() => setWsMoveOpen(false)}>
+              Отмена
+            </Button>
+            <Button
+              type="button"
+              disabled={
+                wsMoveBusy ||
+                !wsMoveFrom ||
+                !wsMoveTargetWsId ||
+                freeWorkstationsForWsMove.length === 0
+              }
+              onClick={() => {
+                if (!wsMoveFrom || !wsMoveTargetWsId) return
+                setWsMoveBusy(true)
+                setWsMoveError(null)
+                void createRelocationApi({
+                  kind: "WORKSTATION",
+                  fromWorkstationId: wsMoveFrom.id,
+                  toWorkstationId: wsMoveTargetWsId,
+                })
+                  .then(() => {
+                    setWsMoveOpen(false)
+                    void loadData()
+                  })
+                  .catch((e) => {
+                    setWsMoveError(e instanceof Error ? e.message : "Ошибка")
+                  })
+                  .finally(() => setWsMoveBusy(false))
+              }}
+            >
+              {wsMoveBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Переместить
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

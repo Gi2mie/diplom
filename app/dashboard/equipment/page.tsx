@@ -18,6 +18,7 @@ import {
   AlertTriangle,
   Wrench,
   Loader2,
+  ArrowRightLeft,
 } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -49,6 +50,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -82,6 +84,7 @@ import {
   deleteEquipmentDashboardApi,
   type DashboardEquipmentRow,
 } from "@/lib/api/equipment-dashboard"
+import { createRelocationApi } from "@/lib/api/relocations"
 
 type WorkstationRow = {
   id: string
@@ -139,11 +142,18 @@ export default function EquipmentPage() {
   const [filterStatus, setFilterStatus] = useState<EquipmentStatus | "all">("all")
   const [filterCategoryId, setFilterCategoryId] = useState("all")
   const [filterKindId, setFilterKindId] = useState("all")
+  const [filterRelocatedOnly, setFilterRelocatedOnly] = useState(false)
 
   const [viewOpen, setViewOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [writeOffOpen, setWriteOffOpen] = useState(false)
+  const [moveOpen, setMoveOpen] = useState(false)
+  const [moveSelected, setMoveSelected] = useState<DashboardEquipmentRow | null>(null)
+  const [moveTargetClassroomId, setMoveTargetClassroomId] = useState("")
+  const [moveTargetWsId, setMoveTargetWsId] = useState("")
+  const [moveBusy, setMoveBusy] = useState(false)
+  const [moveError, setMoveError] = useState<string | null>(null)
   const [addOpen, setAddOpen] = useState(false)
   const [selected, setSelected] = useState<DashboardEquipmentRow | null>(null)
   const [form, setForm] = useState(emptyForm)
@@ -202,7 +212,17 @@ export default function EquipmentPage() {
       const matchSt = filterStatus === "all" || item.status === filterStatus
       const matchCat = filterCategoryId === "all" || item.categoryId === filterCategoryId
       const matchKind = filterKindId === "all" || item.equipmentKindId === filterKindId
-      return matchQ && matchClass && matchBuild && matchSt && matchCat && matchKind
+      const matchRelocated =
+        !filterRelocatedOnly || Boolean(item.relocationRoomsLabel?.trim())
+      return (
+        matchQ &&
+        matchClass &&
+        matchBuild &&
+        matchSt &&
+        matchCat &&
+        matchKind &&
+        matchRelocated
+      )
     })
   }, [
     equipment,
@@ -212,6 +232,33 @@ export default function EquipmentPage() {
     filterStatus,
     filterCategoryId,
     filterKindId,
+    filterRelocatedOnly,
+  ])
+
+  const equipmentCountByWorkstation = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const e of equipment) {
+      if (e.workstationId) {
+        m.set(e.workstationId, (m.get(e.workstationId) ?? 0) + 1)
+      }
+    }
+    return m
+  }, [equipment])
+
+  const freeWorkstationsForEquipmentMove = useMemo(() => {
+    if (!moveOpen || !moveSelected?.classroomId || !moveTargetClassroomId) return []
+    if (moveTargetClassroomId === moveSelected.classroomId) return []
+    return workstations.filter(
+      (w) =>
+        w.classroomId === moveTargetClassroomId &&
+        (equipmentCountByWorkstation.get(w.id) ?? 0) === 0
+    )
+  }, [
+    moveOpen,
+    moveSelected?.classroomId,
+    moveTargetClassroomId,
+    workstations,
+    equipmentCountByWorkstation,
   ])
 
   const stats = useMemo(() => {
@@ -230,6 +277,7 @@ export default function EquipmentPage() {
     setFilterStatus("all")
     setFilterCategoryId("all")
     setFilterKindId("all")
+    setFilterRelocatedOnly(false)
   }
 
   const hasFilters =
@@ -238,7 +286,8 @@ export default function EquipmentPage() {
     filterClassroomId !== "all" ||
     filterStatus !== "all" ||
     filterCategoryId !== "all" ||
-    filterKindId !== "all"
+    filterKindId !== "all" ||
+    filterRelocatedOnly
 
   const isAdmin = session?.user?.role === "ADMIN"
 
@@ -561,6 +610,17 @@ export default function EquipmentPage() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="flex items-end sm:col-span-2 xl:col-span-2">
+              <Button
+                type="button"
+                variant={filterRelocatedOnly ? "secondary" : "outline"}
+                className="w-full shrink-0"
+                onClick={() => setFilterRelocatedOnly((v) => !v)}
+              >
+                <ArrowRightLeft className="mr-2 h-4 w-4" />
+                {filterRelocatedOnly ? "Только перемещённые" : "Отобразить перемещённое"}
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -595,7 +655,7 @@ export default function EquipmentPage() {
                     <TableHead>Название</TableHead>
                     <TableHead>Категория</TableHead>
                     <TableHead>Инв. номер</TableHead>
-                    <TableHead>Аудитория</TableHead>
+                    <TableHead>Аудитории</TableHead>
                     <TableHead>Статус</TableHead>
                     <TableHead className="text-right">Действия</TableHead>
                   </TableRow>
@@ -627,7 +687,7 @@ export default function EquipmentPage() {
                       </TableCell>
                       <TableCell className="font-mono text-sm">{item.inventoryNumber}</TableCell>
                       <TableCell className="text-sm tabular-nums">
-                        {item.classroomNumber?.trim() || "—"}
+                        {(item.relocationRoomsLabel ?? item.classroomNumber?.trim()) || "—"}
                       </TableCell>
                       <TableCell>
                         <Badge variant={equipmentStatusBadgeVariant(item.status)}>
@@ -660,6 +720,22 @@ export default function EquipmentPage() {
                                   <Pencil className="mr-2 h-4 w-4" />
                                   Редактировать
                                 </DropdownMenuItem>
+                                {item.workstationId &&
+                                  !item.relocationRoomsLabel &&
+                                  item.status !== EquipmentStatus.DECOMMISSIONED && (
+                                    <DropdownMenuItem
+                                      onClick={() => {
+                                        setMoveSelected(item)
+                                        setMoveTargetClassroomId("")
+                                        setMoveTargetWsId("")
+                                        setMoveError(null)
+                                        setMoveOpen(true)
+                                      }}
+                                    >
+                                      <ArrowRightLeft className="mr-2 h-4 w-4" />
+                                      Переместить в другую аудиторию
+                                    </DropdownMenuItem>
+                                  )}
                                 {item.status !== EquipmentStatus.DECOMMISSIONED && (
                                   <DropdownMenuItem
                                     disabled={Boolean(item.workstationId)}
@@ -975,6 +1051,120 @@ export default function EquipmentPage() {
             >
               {formSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               {addOpen ? "Добавить" : "Сохранить"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={moveOpen} onOpenChange={setMoveOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Перемещение оборудования</DialogTitle>
+            <DialogDescription className="text-pretty break-words">
+              Выберите аудиторию и свободное рабочее место. После перемещения в списке будет
+              отображаться маршрут вида «401-&gt;101». Отменить перемещение можно в журнале.
+            </DialogDescription>
+          </DialogHeader>
+          {moveSelected && (
+            <div className="grid gap-3 py-2">
+              <p className="text-sm">
+                <span className="font-medium">{moveSelected.name}</span>
+                <span className="ml-2 font-mono text-muted-foreground">
+                  {moveSelected.inventoryNumber}
+                </span>
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Сейчас: аудитория {moveSelected.classroomNumber ?? "—"}, РМ{" "}
+                {moveSelected.workstationCode ?? "—"}
+              </p>
+              {moveError && <p className="text-sm text-destructive">{moveError}</p>}
+              <div className="grid gap-2">
+                <Label>Аудитория назначения</Label>
+                <Select
+                  value={moveTargetClassroomId || undefined}
+                  onValueChange={(v) => {
+                    setMoveTargetClassroomId(v)
+                    setMoveTargetWsId("")
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Выберите аудиторию" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {classroomReg?.classrooms
+                      .filter((c) => c.id !== moveSelected.classroomId)
+                      .map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.number}
+                          {c.name ? ` · ${c.name}` : ""}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label>Свободное рабочее место</Label>
+                <Select
+                  value={moveTargetWsId || undefined}
+                  onValueChange={setMoveTargetWsId}
+                  disabled={!moveTargetClassroomId || freeWorkstationsForEquipmentMove.length === 0}
+                >
+                  <SelectTrigger>
+                    <SelectValue
+                      placeholder={
+                        !moveTargetClassroomId
+                          ? "Сначала аудитория"
+                          : freeWorkstationsForEquipmentMove.length === 0
+                            ? "Нет свободных РМ"
+                            : "Выберите РМ"
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {freeWorkstationsForEquipmentMove.map((w) => (
+                      <SelectItem key={w.id} value={w.id}>
+                        {w.code}
+                        {w.name ? ` · ${w.name}` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" type="button" onClick={() => setMoveOpen(false)}>
+              Отмена
+            </Button>
+            <Button
+              type="button"
+              disabled={
+                moveBusy ||
+                !moveTargetWsId ||
+                !moveSelected ||
+                freeWorkstationsForEquipmentMove.length === 0
+              }
+              onClick={() => {
+                if (!moveSelected || !moveTargetWsId) return
+                setMoveBusy(true)
+                setMoveError(null)
+                void createRelocationApi({
+                  kind: "EQUIPMENT",
+                  equipmentId: moveSelected.id,
+                  toWorkstationId: moveTargetWsId,
+                })
+                  .then(() => {
+                    setMoveOpen(false)
+                    void loadAll()
+                  })
+                  .catch((e) => {
+                    setMoveError(e instanceof Error ? e.message : "Ошибка")
+                  })
+                  .finally(() => setMoveBusy(false))
+              }}
+            >
+              {moveBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Переместить
             </Button>
           </DialogFooter>
         </DialogContent>

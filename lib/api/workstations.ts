@@ -26,6 +26,8 @@ export type ApiWorkstation = {
     kindName: string | null
     equipmentStatus: EquipmentStatus
     onService: boolean
+    /** Активный перенос: номер аудитории, откуда привезли на это РМ */
+    relocationFromClassroom: string | null
     installedSoftware: {
       id: string
       softwareName: string
@@ -33,6 +35,28 @@ export type ApiWorkstation = {
       installedVersion: string | null
     }[]
   }[]
+  /**
+   * Оборудование с этого РМ ушло на другое место (активный перенос);
+   * в комплектации показывается с подписью «в ауд. …».
+   */
+  relocatedAwayItems: {
+    id: string
+    name: string
+    inventoryNumber: string
+    typeEnum: string
+    kindName: string | null
+    equipmentStatus: EquipmentStatus
+    onService: boolean
+    installedSoftware: {
+      id: string
+      softwareName: string
+      catalogVersion: string
+      installedVersion: string | null
+    }[]
+    relocatedToClassroom: string
+  }[]
+  /** Есть оборудование с активным переносом (отображается как ауд.1->ауд.2) */
+  hasRelocatedEquipment: boolean
 }
 
 async function parseJson<T>(response: Response): Promise<T> {

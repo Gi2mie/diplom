@@ -50,6 +50,7 @@ model User {
   changeHistories   ChangeHistory[]     // История изменений, созданная пользователем
   responsibleRooms  Classroom[]         // Кабинеты, за которые отвечает
   softwareRequests  SoftwareRequest[]   // Заявки на ПО
+  relocationLogs    RelocationLog[]     // Журнал перемещений (кто создал запись)
 
   @@map("users")
 }
@@ -117,6 +118,8 @@ model Classroom {
   responsible   User?          @relation(fields: [responsibleId], references: [id], onDelete: SetNull)
   workstations  Workstation[] // Рабочие места в кабинете
   softwareRequests SoftwareRequest[]
+  relocationLogsFrom RelocationLog[] @relation("RelFromClassroom")
+  relocationLogsTo   RelocationLog[] @relation("RelToClassroom")
 
   @@map("classrooms")
 }
@@ -153,6 +156,8 @@ model Workstation {
   classroom   Classroom   @relation(fields: [classroomId], references: [id], onDelete: Cascade)
   equipment   Equipment[]
   softwareRequests SoftwareRequest[]
+  relocationsFrom RelocationLog[] @relation("RelocationFromWs")
+  relocationsTo   RelocationLog[] @relation("RelocationToWs")
 
   @@unique([classroomId, code])
   @@map("workstations")
@@ -242,8 +247,50 @@ model Equipment {
   repairs         Repair[]            // Ремонты
   customFields    CustomFieldValue[]  // Пользовательские поля
   changeHistories ChangeHistory[]     // История изменений
+  relocationLogs  RelocationLog[]     // Записи журнала (перемещение единицы)
 
   @@map("equipment")
+}
+
+// ==========================================
+// ЖУРНАЛ ПЕРЕМЕЩЕНИЙ (аудитория / РМ)
+// ==========================================
+
+enum RelocationKind {
+  EQUIPMENT    // Одна единица оборудования
+  WORKSTATION  // Всё оборудование с исходного РМ
+}
+
+model RelocationLog {
+  id                   String          @id @default(cuid())
+  kind                 RelocationKind
+  /// Для kind EQUIPMENT
+  equipmentId          String?         @map("equipment_id")
+  /// Для kind WORKSTATION — список id оборудования на момент перемещения
+  movedEquipmentIds    Json?           @map("moved_equipment_ids")
+  fromWorkstationId    String          @map("from_workstation_id")
+  toWorkstationId      String          @map("to_workstation_id")
+  fromClassroomId      String          @map("from_classroom_id")
+  toClassroomId        String          @map("to_classroom_id")
+  fromClassroomNumber  String          @map("from_classroom_number")
+  toClassroomNumber    String          @map("to_classroom_number")
+  fromWorkstationCode  String          @map("from_workstation_code")
+  toWorkstationCode    String          @map("to_workstation_code")
+  createdById          String          @map("created_by_id")
+  /// Заполнено при «Вернуть обратно»; запись остаётся в журнале
+  revertedAt           DateTime?       @map("reverted_at")
+  createdAt            DateTime        @default(now()) @map("created_at")
+
+  equipment       Equipment?  @relation(fields: [equipmentId], references: [id], onDelete: SetNull)
+  fromWorkstation Workstation @relation("RelocationFromWs", fields: [fromWorkstationId], references: [id])
+  toWorkstation   Workstation @relation("RelocationToWs", fields: [toWorkstationId], references: [id])
+  fromClassroom   Classroom   @relation("RelFromClassroom", fields: [fromClassroomId], references: [id])
+  toClassroom     Classroom   @relation("RelToClassroom", fields: [toClassroomId], references: [id])
+  createdBy       User        @relation(fields: [createdById], references: [id])
+
+  @@index([createdAt])
+  @@index([revertedAt])
+  @@map("relocation_logs")
 }
 
 // ==========================================

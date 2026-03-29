@@ -179,6 +179,19 @@ export const updateEquipmentStatusSchema = z.object({
   status: z.nativeEnum(EquipmentStatus),
 })
 
+export const createRelocationSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("EQUIPMENT"),
+    equipmentId: z.string().cuid(),
+    toWorkstationId: z.string().cuid(),
+  }),
+  z.object({
+    kind: z.literal("WORKSTATION"),
+    fromWorkstationId: z.string().cuid(),
+    toWorkstationId: z.string().cuid(),
+  }),
+])
+
 // ==========================================
 // КОМПОНЕНТЫ
 // ==========================================
@@ -500,6 +513,7 @@ export type CreateWorkstationInput = z.infer<typeof createWorkstationSchema>
 export type UpdateWorkstationInput = z.infer<typeof updateWorkstationSchema>
 export type CreateEquipmentInput = z.infer<typeof createEquipmentSchema>
 export type UpdateEquipmentInput = z.infer<typeof updateEquipmentSchema>
+export type CreateRelocationInput = z.infer<typeof createRelocationSchema>
 export type CreateComponentInput = z.infer<typeof createComponentSchema>
 export type UpdateComponentInput = z.infer<typeof updateComponentSchema>
 export type CreateSoftwareInput = z.infer<typeof createSoftwareSchema>
