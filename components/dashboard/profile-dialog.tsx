@@ -43,6 +43,8 @@ import {
 type Props = {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** Вкладка при открытии из пошагового обучения */
+  forcedTab?: "edit" | "password"
 }
 
 const formatDate = (iso: string) =>
@@ -63,8 +65,9 @@ const formatDateTime = (iso: string | null) =>
       })
     : "—"
 
-export function ProfileDialog({ open, onOpenChange }: Props) {
+export function ProfileDialog({ open, onOpenChange, forcedTab }: Props) {
   const { data: session } = useSession()
+  const [activeTab, setActiveTab] = useState<"edit" | "password">("edit")
   const isAdmin = session?.user?.role === "ADMIN"
   const isTeacher = session?.user?.role === "TEACHER"
 
@@ -117,6 +120,12 @@ export function ProfileDialog({ open, onOpenChange }: Props) {
       setLoading(false)
     }
   }, [session?.user?.id])
+
+  useEffect(() => {
+    if (open) {
+      setActiveTab(forcedTab ?? "edit")
+    }
+  }, [open, forcedTab])
 
   useEffect(() => {
     if (open && session?.user?.id) {
@@ -233,7 +242,11 @@ export function ProfileDialog({ open, onOpenChange }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[92vh] max-w-lg flex-col gap-0 overflow-hidden p-0 sm:max-w-lg">
+      <DialogContent
+        data-tour="profile-dialog-content"
+        className="z-[118] flex max-h-[92vh] max-w-lg flex-col gap-0 overflow-hidden p-0 sm:max-w-lg"
+        overlayClassName="z-[117]"
+      >
         <DialogHeader className="shrink-0 space-y-1 px-6 pt-6 pb-2">
           <DialogTitle>Профиль</DialogTitle>
           <DialogDescription className="sr-only">
@@ -252,7 +265,8 @@ export function ProfileDialog({ open, onOpenChange }: Props) {
 
         {!loading && user && (
           <Tabs
-            defaultValue="edit"
+            value={activeTab}
+            onValueChange={(v) => setActiveTab(v as "edit" | "password")}
             className="flex min-h-0 flex-1 flex-col overflow-hidden"
           >
             <div className="shrink-0 px-6 pb-2">
@@ -463,7 +477,7 @@ export function ProfileDialog({ open, onOpenChange }: Props) {
               className="mt-0 min-h-0 flex-1 overflow-hidden data-[state=inactive]:hidden"
             >
               <div className={tabBodyScroll}>
-                <div className="space-y-4">
+                <div data-tour="profile-password-section" className="space-y-4">
                   <p className="text-sm text-muted-foreground">
                     Введите текущий пароль и новый (не короче 8 символов). Пароль преподавателя
                     может задать администратор в «Пользователях». Пароль администратора — здесь

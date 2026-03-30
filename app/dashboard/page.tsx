@@ -214,18 +214,22 @@ export default function DashboardPage() {
         actions={
           isAdmin ? (
             <div className="flex flex-wrap gap-2">
-              <Button asChild>
-                <Link href="/dashboard/reports">
-                  <FileText className="mr-2 h-4 w-4" />
-                  Создать отчёт
-                </Link>
-              </Button>
-              <Button variant="outline" asChild>
-                <Link href="/dashboard/equipment">
-                  <Plus className="mr-2 h-4 w-4" />
-                  Добавить оборудование
-                </Link>
-              </Button>
+              <span data-tour="admin-btn-report" className="inline-flex">
+                <Button asChild>
+                  <Link href="/dashboard/reports">
+                    <FileText className="mr-2 h-4 w-4" />
+                    Создать отчёт
+                  </Link>
+                </Button>
+              </span>
+              <span data-tour="admin-btn-equipment" className="inline-flex">
+                <Button variant="outline" asChild>
+                  <Link href="/dashboard/equipment">
+                    <Plus className="mr-2 h-4 w-4" />
+                    Добавить оборудование
+                  </Link>
+                </Button>
+              </span>
             </div>
           ) : (
             <Button asChild>
@@ -253,7 +257,7 @@ export default function DashboardPage() {
           ) : null}
 
           {/* Primary Stats - Заявки */}
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <div data-tour="admin-primary-stats" className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             <Card className="border-l-4 border-l-orange-500">
               <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <CardTitle className="text-sm font-medium">Неисправности</CardTitle>
@@ -339,7 +343,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Secondary Stats - Оборудование и ресурсы */}
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+          <div data-tour="admin-secondary-stats" className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <CardTitle className="text-sm font-medium">Исправное</CardTitle>
@@ -503,7 +507,7 @@ export default function DashboardPage() {
             </Card>
 
             <div className="space-y-4">
-              <Card>
+              <Card data-tour="admin-quick-actions">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base">Быстрые действия</CardTitle>
                 </CardHeader>

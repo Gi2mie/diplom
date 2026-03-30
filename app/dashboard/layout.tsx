@@ -53,7 +53,10 @@ import {
 } from "@/components/ui/breadcrumb"
 import { SettingsDialog } from "@/components/dashboard/settings-dialog"
 import { ProfileDialog } from "@/components/dashboard/profile-dialog"
+import { OnboardingInvite } from "@/components/onboarding/onboarding-invite"
+import { DashboardTourHost } from "@/components/onboarding/dashboard-tour-host"
 import { Skeleton } from "@/components/ui/skeleton"
+import { type EduTourChromeDetail, EDU_TOUR_CHROME_EVENT } from "@/lib/site-onboarding"
 
 type NavigationItem = {
   title: string
@@ -131,6 +134,19 @@ const adminNavigation: NavigationGroup[] = [
   },
 ]
 
+/** Якоря пошагового обучения (пункты бокового меню) */
+const SIDEBAR_LINK_DATA_TOUR: Partial<Record<string, string>> = {
+  "/dashboard/software": "nav-software",
+  "/dashboard/categories": "nav-categories",
+  "/dashboard/equipment": "nav-equipment",
+  "/dashboard/pc-config": "nav-pc-config",
+  "/dashboard/workstations": "nav-workstations",
+  "/dashboard/classrooms": "nav-classrooms",
+  "/dashboard/users": "nav-users",
+  "/dashboard/reports": "nav-reports",
+  "/dashboard/movement-journal": "nav-movement-journal",
+}
+
 // Навигация для преподавателя
 const teacherNavigation: NavigationGroup[] = [
   {
@@ -164,6 +180,9 @@ export default function DashboardLayout({
   const pathname = usePathname()
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
+  const [profileForcedTab, setProfileForcedTab] = useState<"edit" | "password" | undefined>(
+    undefined,
+  )
   const [navCounts, setNavCounts] = useState<NavCounts | null>(null)
 
   const { data: session, status } = useSession()
@@ -186,6 +205,28 @@ export default function DashboardLayout({
     window.addEventListener("hashchange", openFromHash)
     return () => window.removeEventListener("hashchange", openFromHash)
   }, [pathname])
+
+  useEffect(() => {
+    const fn = (e: Event) => {
+      const d = (e as CustomEvent<EduTourChromeDetail>).detail
+      if (!d) return
+      if ("reset" in d && d.reset) {
+        setSettingsOpen(false)
+        setProfileOpen(false)
+        setProfileForcedTab(undefined)
+        return
+      }
+      setSettingsOpen(d.settingsOpen)
+      setProfileOpen(d.profileOpen)
+      if (d.profileOpen) {
+        setProfileForcedTab(d.profileTab ?? "edit")
+      } else {
+        setProfileForcedTab(undefined)
+      }
+    }
+    window.addEventListener(EDU_TOUR_CHROME_EVENT, fn as EventListener)
+    return () => window.removeEventListener(EDU_TOUR_CHROME_EVENT, fn as EventListener)
+  }, [])
 
   useEffect(() => {
     if (!isAdminSession) {
@@ -292,7 +333,7 @@ export default function DashboardLayout({
                         isActive={pathname === item.href || pathname.startsWith(item.href + "/")}
                         tooltip={item.title}
                       >
-                        <Link href={item.href}>
+                        <Link href={item.href} data-tour={SIDEBAR_LINK_DATA_TOUR[item.href]}>
                           <item.icon className="h-4 w-4" />
                           <span>{item.title}</span>
                           {navBadgeText ? (
@@ -316,20 +357,29 @@ export default function DashboardLayout({
         <SidebarFooter>
           <SidebarMenu>
             <SidebarMenuItem>
-              <SidebarMenuButton
-                type="button"
-                tooltip="Профиль"
-                onClick={() => setProfileOpen(true)}
-              >
-                <User className="h-4 w-4" />
-                <span>Профиль</span>
-              </SidebarMenuButton>
+              <span data-tour="nav-profile" className="block w-full">
+                <SidebarMenuButton
+                  className="w-full"
+                  type="button"
+                  tooltip="Профиль"
+                  onClick={() => setProfileOpen(true)}
+                >
+                  <User className="h-4 w-4" />
+                  <span>Профиль</span>
+                </SidebarMenuButton>
+              </span>
             </SidebarMenuItem>
             <SidebarMenuItem>
-              <SidebarMenuButton onClick={() => setSettingsOpen(true)} tooltip="Настройки">
-                <Settings className="h-4 w-4" />
-                <span>Настройки</span>
-              </SidebarMenuButton>
+              <span data-tour="nav-settings" className="block w-full">
+                <SidebarMenuButton
+                  className="w-full"
+                  onClick={() => setSettingsOpen(true)}
+                  tooltip="Настройки"
+                >
+                  <Settings className="h-4 w-4" />
+                  <span>Настройки</span>
+                </SidebarMenuButton>
+              </span>
             </SidebarMenuItem>
           </SidebarMenu>
           
@@ -395,7 +445,16 @@ export default function DashboardLayout({
       </SidebarInset>
       
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
-      <ProfileDialog open={profileOpen} onOpenChange={setProfileOpen} />
+      <ProfileDialog
+        open={profileOpen}
+        onOpenChange={(o) => {
+          setProfileOpen(o)
+          if (!o) setProfileForcedTab(undefined)
+        }}
+        forcedTab={profileForcedTab}
+      />
+      <OnboardingInvite />
+      <DashboardTourHost />
     </SidebarProvider>
   )
 }

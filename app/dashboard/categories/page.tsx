@@ -1,8 +1,8 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useSession } from "next-auth/react"
-import type { EquipmentType } from "@prisma/client"
+import { EquipmentType } from "@prisma/client"
 import {
   Plus,
   Search,
@@ -81,6 +81,28 @@ import {
   type RegistryEquipmentCategory,
   type RegistryEquipmentKind,
 } from "@/lib/api/equipment-registry"
+import {
+  type EduTourMockUiDetail,
+  EDU_TOUR_CATEGORIES_TAB_EVENT,
+  EDU_TOUR_MOCK_UI_EVENT,
+} from "@/lib/site-onboarding"
+
+const TOUR_DEMO_CAT: RegistryEquipmentCategory = {
+  id: "__edu-tour-cat__",
+  name: "Демо-категория",
+  description: "Пример для обучения",
+  color: "#3b82f6",
+  equipmentCount: 0,
+}
+
+const TOUR_DEMO_KIND: RegistryEquipmentKind = {
+  id: "__edu-tour-kind__",
+  name: "Демо-тип",
+  description: "Пример для обучения",
+  mapsToEnum: EquipmentType.OTHER,
+  code: null,
+  equipmentCount: 0,
+}
 
 const COLOR_PRESETS = [
   { name: "Синий", value: "#3b82f6" },
@@ -142,6 +164,15 @@ export default function EquipmentCategoriesPage() {
     if (sessionStatus === "authenticated") void load()
   }, [sessionStatus, load])
 
+  useEffect(() => {
+    const fn = (e: Event) => {
+      const d = (e as CustomEvent<{ tab: "categories" | "kinds" }>).detail
+      if (d?.tab === "categories" || d?.tab === "kinds") setActiveTab(d.tab)
+    }
+    window.addEventListener(EDU_TOUR_CATEGORIES_TAB_EVENT, fn as EventListener)
+    return () => window.removeEventListener(EDU_TOUR_CATEGORIES_TAB_EVENT, fn as EventListener)
+  }, [])
+
   const filteredCategories = useMemo(() => {
     const q = searchCat.trim().toLowerCase()
     if (!q) return categories
@@ -197,6 +228,11 @@ export default function EquipmentCategoriesPage() {
     sortDir: kindSortDir,
     toggleSort: toggleKindSort,
   } = useTableSort(filteredKinds, kindSortGetters, "name")
+
+  const sortedCategoriesRef = useRef(sortedCategories)
+  sortedCategoriesRef.current = sortedCategories
+  const sortedKindsRef = useRef(sortedKinds)
+  sortedKindsRef.current = sortedKinds
 
   const saveCategory = async (mode: "add" | "edit") => {
     setCatFormError(null)
@@ -257,7 +293,7 @@ export default function EquipmentCategoriesPage() {
         setKindEdit(null)
         toast.success("Тип обновлён")
       }
-      setKindForm({ name: "", description: "", mapsToEnum: "OTHER" })
+      setKindForm({ name: "", description: "", mapsToEnum: EquipmentType.OTHER })
       await load()
     } catch (e) {
       setKindFormError(e instanceof Error ? e.message : "Ошибка")
@@ -265,6 +301,99 @@ export default function EquipmentCategoriesPage() {
       setKindSaving(false)
     }
   }
+
+  useEffect(() => {
+    const closeTour = () => {
+      setCatView(null)
+      setCatEdit(null)
+      setCatDelete(null)
+      setCatAddOpen(false)
+      setKindView(null)
+      setKindEdit(null)
+      setKindDelete(null)
+      setKindAddOpen(false)
+      setCatFormError(null)
+      setKindFormError(null)
+    }
+
+    const pickCat = (): RegistryEquipmentCategory => {
+      const row = sortedCategoriesRef.current[0]
+      if (row && row.id !== TOUR_DEMO_CAT.id) return row
+      return TOUR_DEMO_CAT
+    }
+    const pickKind = (): RegistryEquipmentKind => {
+      const row = sortedKindsRef.current[0]
+      if (row && row.id !== TOUR_DEMO_KIND.id) return row
+      return TOUR_DEMO_KIND
+    }
+
+    const onMock = (e: Event) => {
+      const detail = (e as CustomEvent<EduTourMockUiDetail>).detail
+      if (!detail) return
+      if ("reset" in detail && detail.reset) {
+        closeTour()
+        return
+      }
+      if ("category" in detail) {
+        closeTour()
+        const row = pickCat()
+        switch (detail.category) {
+          case "view":
+            setCatView(row)
+            break
+          case "edit":
+            setCatAddOpen(false)
+            setCatEdit(row)
+            setCatForm({
+              name: row.name,
+              description: row.description ?? "",
+              color: row.color,
+            })
+            setCatFormError(null)
+            break
+          case "delete":
+            setCatDelete(row)
+            break
+          case "add":
+            setCatForm({ name: "", description: "", color: "#3b82f6" })
+            setCatFormError(null)
+            setCatAddOpen(true)
+            break
+        }
+        return
+      }
+      if ("kind" in detail) {
+        closeTour()
+        const row = pickKind()
+        switch (detail.kind) {
+          case "view":
+            setKindView(row)
+            break
+          case "edit":
+            setKindAddOpen(false)
+            setKindEdit(row)
+            setKindForm({
+              name: row.name,
+              description: row.description ?? "",
+              mapsToEnum: row.mapsToEnum,
+            })
+            setKindFormError(null)
+            break
+          case "delete":
+            setKindDelete(row)
+            break
+          case "add":
+            setKindForm({ name: "", description: "", mapsToEnum: EquipmentType.OTHER })
+            setKindFormError(null)
+            setKindAddOpen(true)
+            break
+        }
+      }
+    }
+
+    window.addEventListener(EDU_TOUR_MOCK_UI_EVENT, onMock as EventListener)
+    return () => window.removeEventListener(EDU_TOUR_MOCK_UI_EVENT, onMock as EventListener)
+  }, [])
 
   const doDeleteCategory = async () => {
     if (!catDelete) return
@@ -321,40 +450,42 @@ export default function EquipmentCategoriesPage() {
       )}
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="categories" className="gap-1.5">
+        <TabsList data-tour="categories-tabs">
+          <TabsTrigger value="categories" className="gap-1.5" data-tour="categories-tab-categories">
             <Folder className="h-4 w-4" />
             Категории
           </TabsTrigger>
-          <TabsTrigger value="kinds" className="gap-1.5">
+          <TabsTrigger value="kinds" className="gap-1.5" data-tour="categories-tab-kinds">
             <Tags className="h-4 w-4" />
             Типы
           </TabsTrigger>
         </TabsList>
 
         <TabsContent value="categories" className="space-y-4">
-          <Card>
+          <Card data-tour="categories-cat-card">
             <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <CardTitle>Категории</CardTitle>
                 <CardDescription>Группировка оборудования по назначению</CardDescription>
               </div>
               {isAdmin && (
-                <Button
-                  type="button"
-                  onClick={() => {
-                    setCatForm({ name: "", description: "", color: "#3b82f6" })
-                    setCatFormError(null)
-                    setCatAddOpen(true)
-                  }}
-                >
-                  <Plus className="mr-2 h-4 w-4" />
-                  Добавить категорию
-                </Button>
+                <span data-tour="categories-cat-add" className="inline-flex">
+                  <Button
+                    type="button"
+                    onClick={() => {
+                      setCatForm({ name: "", description: "", color: "#3b82f6" })
+                      setCatFormError(null)
+                      setCatAddOpen(true)
+                    }}
+                  >
+                    <Plus className="mr-2 h-4 w-4" />
+                    Добавить категорию
+                  </Button>
+                </span>
               )}
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="relative max-w-sm">
+              <div data-tour="categories-cat-search" className="relative max-w-sm">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   className="pl-10"
@@ -384,7 +515,7 @@ export default function EquipmentCategoriesPage() {
               ) : sortedCategories.length === 0 ? (
                 <p className="text-sm text-muted-foreground">Нет категорий</p>
               ) : (
-                <div className="rounded-md border">
+                <div data-tour="categories-cat-table" className="rounded-md border">
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -490,28 +621,30 @@ export default function EquipmentCategoriesPage() {
         </TabsContent>
 
         <TabsContent value="kinds" className="space-y-4">
-          <Card>
+          <Card data-tour="categories-kind-card">
             <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <CardTitle>Типы оборудования</CardTitle>
                 <CardDescription>Соответствие системной классификации (для отчётов и ПК)</CardDescription>
               </div>
               {isAdmin && (
-                <Button
-                  type="button"
-                  onClick={() => {
-                    setKindForm({ name: "", description: "", mapsToEnum: "OTHER" })
-                    setKindFormError(null)
-                    setKindAddOpen(true)
-                  }}
-                >
-                  <Plus className="mr-2 h-4 w-4" />
-                  Добавить тип
-                </Button>
+                <span data-tour="categories-kind-add" className="inline-flex">
+                  <Button
+                    type="button"
+                    onClick={() => {
+                      setKindForm({ name: "", description: "", mapsToEnum: EquipmentType.OTHER })
+                      setKindFormError(null)
+                      setKindAddOpen(true)
+                    }}
+                  >
+                    <Plus className="mr-2 h-4 w-4" />
+                    Добавить тип
+                  </Button>
+                </span>
               )}
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="relative max-w-sm">
+              <div data-tour="categories-kind-search" className="relative max-w-sm">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   className="pl-10"
@@ -541,7 +674,7 @@ export default function EquipmentCategoriesPage() {
               ) : sortedKinds.length === 0 ? (
                 <p className="text-sm text-muted-foreground">Нет типов</p>
               ) : (
-                <div className="rounded-md border">
+                <div data-tour="categories-kind-table" className="rounded-md border">
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -655,7 +788,11 @@ export default function EquipmentCategoriesPage() {
 
       {/* Category view */}
       <Dialog open={!!catView} onOpenChange={(o) => !o && setCatView(null)}>
-        <DialogContent>
+        <DialogContent
+          data-tour="categories-cat-view-dialog"
+          className="z-[115]"
+          overlayClassName="z-[113]"
+        >
           <DialogHeader>
             <DialogTitle>{catView?.name}</DialogTitle>
           </DialogHeader>
@@ -691,7 +828,11 @@ export default function EquipmentCategoriesPage() {
           }
         }}
       >
-        <DialogContent>
+        <DialogContent
+          data-tour={catAddOpen ? "categories-cat-add-dialog" : "categories-cat-edit-dialog"}
+          className="z-[115]"
+          overlayClassName="z-[113]"
+        >
           <DialogHeader>
             <DialogTitle>{catAddOpen ? "Новая категория" : "Редактирование категории"}</DialogTitle>
           </DialogHeader>
@@ -761,7 +902,11 @@ export default function EquipmentCategoriesPage() {
       </Dialog>
 
       <AlertDialog open={!!catDelete} onOpenChange={(o) => !o && setCatDelete(null)}>
-        <AlertDialogContent>
+        <AlertDialogContent
+          data-tour="categories-cat-delete-dialog"
+          className="z-[115]"
+          overlayClassName="z-[113]"
+        >
           <AlertDialogHeader>
             <AlertDialogTitle>Удалить категорию?</AlertDialogTitle>
             <AlertDialogDescription>
@@ -779,7 +924,11 @@ export default function EquipmentCategoriesPage() {
 
       {/* Kind view */}
       <Dialog open={!!kindView} onOpenChange={(o) => !o && setKindView(null)}>
-        <DialogContent>
+        <DialogContent
+          data-tour="categories-kind-view-dialog"
+          className="z-[115]"
+          overlayClassName="z-[113]"
+        >
           <DialogHeader>
             <DialogTitle>{kindView?.name}</DialogTitle>
           </DialogHeader>
@@ -814,7 +963,11 @@ export default function EquipmentCategoriesPage() {
           }
         }}
       >
-        <DialogContent>
+        <DialogContent
+          data-tour={kindAddOpen ? "categories-kind-add-dialog" : "categories-kind-edit-dialog"}
+          className="z-[115]"
+          overlayClassName="z-[113]"
+        >
           <DialogHeader>
             <DialogTitle>{kindAddOpen ? "Новый тип" : "Редактирование типа"}</DialogTitle>
             <DialogDescription>
@@ -881,7 +1034,11 @@ export default function EquipmentCategoriesPage() {
       </Dialog>
 
       <AlertDialog open={!!kindDelete} onOpenChange={(o) => !o && setKindDelete(null)}>
-        <AlertDialogContent>
+        <AlertDialogContent
+          data-tour="categories-kind-delete-dialog"
+          className="z-[115]"
+          overlayClassName="z-[113]"
+        >
           <AlertDialogHeader>
             <AlertDialogTitle>Удалить тип?</AlertDialogTitle>
             <AlertDialogDescription>

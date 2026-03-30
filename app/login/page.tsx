@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label"
 import { Monitor, AlertCircle, Cpu, Server, HardDrive, Eye, EyeOff } from "lucide-react"
 import { normalizeNhtkEmail } from "@/lib/user-validation"
 import { Skeleton } from "@/components/ui/skeleton"
+import { scheduleSiteOnboardingAfterLogin } from "@/lib/site-onboarding"
 
 function LoginForm() {
   const router = useRouter()
@@ -44,6 +45,7 @@ function LoginForm() {
       setFieldError("Неверный email или пароль")
       setPassword("")
     } else if (result?.ok) {
+      scheduleSiteOnboardingAfterLogin()
       router.push("/dashboard")
     }
 

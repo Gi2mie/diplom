@@ -4,6 +4,7 @@ import * as React from 'react'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { XIcon } from 'lucide-react'
 
+import { useDashboardSiteTourActive } from '@/hooks/use-dashboard-site-tour-active'
 import { cn } from '@/lib/utils'
 
 function Dialog({
@@ -51,13 +52,16 @@ function DialogContent({
   children,
   showCloseButton = true,
   "aria-describedby": ariaDescribedBy,
+  overlayClassName,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
+  overlayClassName?: string
 }) {
+  const tourActive = useDashboardSiteTourActive()
   return (
     <DialogPortal data-slot="dialog-portal">
-      <DialogOverlay />
+      <DialogOverlay className={overlayClassName} />
       <DialogPrimitive.Content
         data-slot="dialog-content"
         className={cn(
@@ -66,6 +70,12 @@ function DialogContent({
         )}
         aria-describedby={ariaDescribedBy ?? undefined}
         {...props}
+        {...(tourActive
+          ? {
+              onInteractOutside: (e: Event) => e.preventDefault(),
+              onEscapeKeyDown: (e: KeyboardEvent) => e.preventDefault(),
+            }
+          : {})}
       >
         {children}
         {showCloseButton && (

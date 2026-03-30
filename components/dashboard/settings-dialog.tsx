@@ -11,7 +11,15 @@ import {
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
-import { Sparkles } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { BookOpen, Sparkles } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { useCallback, useEffect, useState } from "react"
+import {
+  isOnboardingCompleted,
+  requestDashboardTour,
+  skipOnboardingForeverAndCloseTour,
+} from "@/lib/site-onboarding"
 
 interface SettingsDialogProps {
   open: boolean
@@ -20,10 +28,33 @@ interface SettingsDialogProps {
 
 export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const { animationsEnabled, setAnimationsEnabled } = useTheme()
+  const router = useRouter()
+  const [onboardingPending, setOnboardingPending] = useState(false)
+
+  useEffect(() => {
+    if (!open) return
+    setOnboardingPending(!isOnboardingCompleted())
+  }, [open])
+
+  const startSiteTour = useCallback(() => {
+    requestDashboardTour()
+    onOpenChange(false)
+    router.push("/dashboard?siteTour=1")
+  }, [onOpenChange, router])
+
+  const skipSiteOnboarding = useCallback(() => {
+    skipOnboardingForeverAndCloseTour()
+    setOnboardingPending(false)
+    onOpenChange(false)
+  }, [onOpenChange])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent
+        data-tour="settings-dialog-content"
+        className="z-[118] max-w-md"
+        overlayClassName="z-[117]"
+      >
         <DialogHeader>
           <DialogTitle>Настройки</DialogTitle>
           <DialogDescription>
@@ -35,6 +66,33 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
           <ThemePicker />
 
           <div className="space-y-3 border-t border-border/80 pt-4">
+            <div className="flex items-start gap-3">
+              <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted">
+                <BookOpen className="h-4 w-4 text-primary" aria-hidden />
+              </div>
+              <div className="min-w-0 flex-1 space-y-2">
+                <Label className="text-sm font-medium">Обучение по сайту</Label>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Запустите пошаговый обход панели управления или отключите автоматические подсказки.
+                </p>
+                <div className="flex flex-col gap-2 pt-1 sm:flex-row sm:flex-wrap">
+                  <Button type="button" size="sm" variant="secondary" onClick={startSiteTour}>
+                    Запустить обучение
+                  </Button>
+                  {onboardingPending ? (
+                    <Button type="button" size="sm" variant="outline" onClick={skipSiteOnboarding}>
+                      Пропустить обучение
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div
+            data-tour="settings-animations-section"
+            className="space-y-3 border-t border-border/80 pt-4"
+          >
             <div className="flex items-start gap-3">
               <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted">
                 <Sparkles className="h-4 w-4 text-primary" aria-hidden />

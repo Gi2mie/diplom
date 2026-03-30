@@ -516,7 +516,7 @@ export default function WorkstationsPage() {
   }
 
   return (
-    <div className="space-y-6 md:space-y-8">
+    <div className="space-y-6 md:space-y-8" data-tour="tour-workstations-page">
       <PageHeader
         title="Рабочие места"
         description="Управление рабочими местами в аудиториях: комплектация, статус и перемещения."

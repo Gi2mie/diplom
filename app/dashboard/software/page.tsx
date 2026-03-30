@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useSession } from "next-auth/react"
 import { SoftwareCatalogCategory, SoftwareLicenseKind } from "@prisma/client"
 import {
@@ -86,6 +86,7 @@ import {
   SOFTWARE_CATEGORY_OPTIONS,
   SOFTWARE_LICENSE_OPTIONS,
 } from "@/lib/software-labels"
+import { type EduTourMockUiDetail, EDU_TOUR_MOCK_UI_EVENT } from "@/lib/site-onboarding"
 
 type WorkstationRow = {
   id: string
@@ -118,6 +119,48 @@ function createEmptyForm(): SoftwareFormState {
     licenseExpiresAt: "",
     description: "",
   }
+}
+
+const TOUR_DEMO_SOFTWARE_ID = "__edu-tour-software__"
+
+const TOUR_DEMO_SOFTWARE_ROW: DashboardSoftwareRow = {
+  id: TOUR_DEMO_SOFTWARE_ID,
+  name: "Демонстрационная программа",
+  version: "1.0",
+  vendor: "Учебный пример",
+  category: SoftwareCatalogCategory.OFFICE,
+  licenseKind: SoftwareLicenseKind.FREE,
+  defaultLicenseKey: null,
+  licenseExpiresAt: null,
+  description: "Иллюстрация интерфейса при обучении.",
+  installationCount: 1,
+}
+
+const TOUR_DEMO_SOFTWARE_DETAIL: SoftwareDetail = {
+  id: TOUR_DEMO_SOFTWARE_ID,
+  name: TOUR_DEMO_SOFTWARE_ROW.name,
+  version: TOUR_DEMO_SOFTWARE_ROW.version,
+  vendor: TOUR_DEMO_SOFTWARE_ROW.vendor,
+  category: TOUR_DEMO_SOFTWARE_ROW.category,
+  licenseKind: TOUR_DEMO_SOFTWARE_ROW.licenseKind,
+  defaultLicenseKey: TOUR_DEMO_SOFTWARE_ROW.defaultLicenseKey,
+  licenseExpiresAt: TOUR_DEMO_SOFTWARE_ROW.licenseExpiresAt,
+  description: TOUR_DEMO_SOFTWARE_ROW.description,
+  installations: [
+    {
+      id: "tour-ins",
+      version: "1.0",
+      licenseKey: null,
+      expiresAt: null,
+      installedAt: "2024-01-15T10:00:00.000Z",
+      workstationId: "tour-ws",
+      workstationCode: "RM-101-01",
+      workstationName: "ПК 1",
+      classroomNumber: "101",
+      classroomName: "Аудитория",
+      buildingName: "Учебный корпус",
+    },
+  ],
 }
 
 function parseYmd(s: string | null | undefined): Date | null {
@@ -301,6 +344,9 @@ export default function SoftwarePage() {
     "name"
   )
 
+  const sortedSoftwareRowsRef = useRef(sortedSoftwareRows)
+  sortedSoftwareRowsRef.current = sortedSoftwareRows
+
   async function openView(row: DashboardSoftwareRow) {
     setSelected(row)
     setViewOpen(true)
@@ -350,6 +396,70 @@ export default function SoftwarePage() {
     setAssignWorkstationId("all")
     setAssignOpen(true)
   }
+
+  useEffect(() => {
+    const closeTour = () => {
+      setAddOpen(false)
+      setViewOpen(false)
+      setEditOpen(false)
+      setDeleteOpen(false)
+      setAssignOpen(false)
+      setAssignAllOpen(false)
+      setViewDetail(null)
+      setViewLoading(false)
+      setSelected(null)
+    }
+
+    const pickRow = (): DashboardSoftwareRow => {
+      const list = sortedSoftwareRowsRef.current
+      const first = list[0]
+      if (first && first.id !== TOUR_DEMO_SOFTWARE_ID) return first
+      return TOUR_DEMO_SOFTWARE_ROW
+    }
+
+    const onMock = (e: Event) => {
+      const detail = (e as CustomEvent<EduTourMockUiDetail>).detail
+      if (!detail) return
+      if ("reset" in detail && detail.reset) {
+        closeTour()
+        return
+      }
+      if (!("software" in detail)) return
+      closeTour()
+      const row = pickRow()
+      setSelected(row)
+      switch (detail.software) {
+        case "add":
+          setForm(createEmptyForm())
+          setFormError(null)
+          setAddOpen(true)
+          break
+        case "view":
+          if (row.id === TOUR_DEMO_SOFTWARE_ID) {
+            setViewOpen(true)
+            setViewDetail(TOUR_DEMO_SOFTWARE_DETAIL)
+            setViewLoading(false)
+          } else {
+            void openView(row)
+          }
+          break
+        case "edit":
+          openEdit(row)
+          break
+        case "assign":
+          openAssign(row)
+          break
+        case "delete":
+          openDelete(row)
+          break
+        default:
+          break
+      }
+    }
+
+    window.addEventListener(EDU_TOUR_MOCK_UI_EVENT, onMock as EventListener)
+    return () => window.removeEventListener(EDU_TOUR_MOCK_UI_EVENT, onMock as EventListener)
+  }, [])
 
   async function submitCreate() {
     setFormSaving(true)
@@ -577,10 +687,12 @@ export default function SoftwarePage() {
         description="Каталог ПО и назначение на рабочие места"
         actions={
           isAdmin ? (
-            <Button onClick={openAdd}>
-              <Plus className="mr-2 h-4 w-4" />
-              Добавить ПО
-            </Button>
+            <span data-tour="software-btn-add" className="inline-flex">
+              <Button onClick={openAdd}>
+                <Plus className="mr-2 h-4 w-4" />
+                Добавить ПО
+              </Button>
+            </span>
           ) : null
         }
       />
@@ -591,7 +703,7 @@ export default function SoftwarePage() {
         </Alert>
       ) : null}
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      <div data-tour="software-stats" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>В каталоге (по фильтру)</CardDescription>
@@ -630,7 +742,7 @@ export default function SoftwarePage() {
         </Card>
       </div>
 
-      <Card>
+      <Card data-tour="software-filters">
         <CardHeader>
           <CardTitle>Фильтры</CardTitle>
         </CardHeader>
@@ -745,7 +857,7 @@ export default function SoftwarePage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card data-tour="software-table">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Package className="h-5 w-5" />
@@ -885,7 +997,11 @@ export default function SoftwarePage() {
       </Card>
 
       <Dialog open={viewOpen} onOpenChange={setViewOpen}>
-        <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
+        <DialogContent
+          data-tour="software-view-dialog"
+          className="z-[115] max-h-[90vh] max-w-lg overflow-y-auto"
+          overlayClassName="z-[113]"
+        >
           <DialogHeader>
             <DialogTitle>Просмотр ПО</DialogTitle>
             <DialogDescription>Карточка каталога и установки</DialogDescription>
@@ -951,7 +1067,11 @@ export default function SoftwarePage() {
       </Dialog>
 
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
-        <DialogContent className="flex max-h-[90vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-lg">
+        <DialogContent
+          data-tour="software-add-dialog"
+          className="z-[115] flex max-h-[90vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-lg"
+          overlayClassName="z-[113]"
+        >
           <DialogHeader className="shrink-0 space-y-1.5 px-6 pt-6 pr-14">
             <DialogTitle>Добавить ПО</DialogTitle>
             <DialogDescription>Новая запись в каталоге</DialogDescription>
@@ -969,7 +1089,11 @@ export default function SoftwarePage() {
       </Dialog>
 
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className="flex max-h-[90vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-lg">
+        <DialogContent
+          data-tour="software-edit-dialog"
+          className="z-[115] flex max-h-[90vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-lg"
+          overlayClassName="z-[113]"
+        >
           <DialogHeader className="shrink-0 space-y-1.5 px-6 pt-6 pr-14">
             <DialogTitle>Редактирование</DialogTitle>
             <DialogDescription>Изменение записи каталога</DialogDescription>
@@ -987,7 +1111,11 @@ export default function SoftwarePage() {
       </Dialog>
 
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-        <AlertDialogContent>
+        <AlertDialogContent
+          data-tour="software-delete-dialog"
+          className="z-[115]"
+          overlayClassName="z-[113]"
+        >
           <AlertDialogHeader>
             <AlertDialogTitle>Удалить ПО?</AlertDialogTitle>
             <AlertDialogDescription>
@@ -1010,7 +1138,11 @@ export default function SoftwarePage() {
       </AlertDialog>
 
       <Dialog open={assignOpen} onOpenChange={setAssignOpen}>
-        <DialogContent>
+        <DialogContent
+          data-tour="software-assign-dialog"
+          className="z-[115]"
+          overlayClassName="z-[113]"
+        >
           <DialogHeader>
             <DialogTitle>Назначить на РМ</DialogTitle>
             <DialogDescription>
