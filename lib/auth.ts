@@ -32,6 +32,9 @@ declare module "@auth/core/jwt" {
 
 export const authConfig: NextAuthConfig = {
   secret: process.env.AUTH_SECRET || "development-secret-do-not-use-in-production",
+  // In local/dev environments (and proxy setups), host header can differ from AUTH_URL.
+  // trustHost prevents Auth.js from returning an HTML error page for client JSON calls.
+  trustHost: true,
   providers: [
     Credentials({
       name: "credentials",

@@ -362,7 +362,7 @@ export default function DashboardLayout({
       
       <SidebarInset>
         {/* Header */}
-        <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 border-b border-border/80 bg-background/85 px-4 backdrop-blur-md supports-[backdrop-filter]:bg-background/75 md:gap-4 md:px-6">
+        <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 border-b border-border/80 bg-background/90 px-4 backdrop-blur-sm supports-[backdrop-filter]:bg-background/80 md:gap-4 md:px-6">
           <SidebarTrigger className="transition-transform duration-200 hover:opacity-90" />
           <Separator orientation="vertical" className="hidden h-6 sm:block" />
           <Breadcrumb className="min-w-0">
@@ -387,7 +387,6 @@ export default function DashboardLayout({
         {/* Main Content */}
         <main className="flex-1 overflow-auto">
           <div
-            key={pathname}
             className="edu-page-enter page-shell px-4 py-5 sm:px-5 sm:py-6 md:px-6 md:py-8"
           >
             {children}

@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useLayoutEffect,
+  useRef,
   useState,
 } from "react"
 
@@ -66,6 +67,7 @@ export const ANIMATIONS_STORAGE_KEY = "edutrack-animations"
 export const THEME_STORAGE_KEY = "edutrack-theme"
 /** Класс на `<html>`: отключает анимации и почти все transition в интерфейсе */
 export const MOTION_OFF_CLASS = "edu-motion-off"
+export const THEME_SWITCHING_CLASS = "edu-theme-switching"
 
 interface ThemeContextValue {
   theme: AppTheme
@@ -94,7 +96,10 @@ export function isDarkAppTheme(theme: AppTheme): boolean {
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setThemeState] = useState<AppTheme>("light")
   const [animationsEnabled, setAnimationsEnabledState] = useState(true)
+  const [isApplyingTheme, setIsApplyingTheme] = useState(false)
   const [mounted, setMounted] = useState(false)
+  const isFirstThemeCommit = useRef(true)
+  const pendingThemeRef = useRef<AppTheme | null>(null)
 
   useEffect(() => {
     const raw = localStorage.getItem(THEME_STORAGE_KEY)
@@ -113,8 +118,29 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   useIsomorphicLayoutEffect(() => {
     if (!mounted) return
-    applyThemeClasses(document.documentElement, theme)
+    const root = document.documentElement
+
+    if (isFirstThemeCommit.current) {
+      isFirstThemeCommit.current = false
+      applyThemeClasses(root, theme)
+      localStorage.setItem(THEME_STORAGE_KEY, theme)
+      return
+    }
+
+    root.classList.add(THEME_SWITCHING_CLASS)
+    applyThemeClasses(root, theme)
     localStorage.setItem(THEME_STORAGE_KEY, theme)
+
+    const id = window.setTimeout(() => {
+      root.classList.remove(THEME_SWITCHING_CLASS)
+      pendingThemeRef.current = null
+      setIsApplyingTheme(false)
+    }, 320)
+
+    return () => {
+      window.clearTimeout(id)
+      root.classList.remove(THEME_SWITCHING_CLASS)
+    }
   }, [theme, mounted])
 
   useEffect(() => {
@@ -128,13 +154,21 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem(ANIMATIONS_STORAGE_KEY, animationsEnabled ? "on" : "off")
   }, [animationsEnabled, mounted])
 
-  const setTheme = useCallback((newTheme: AppTheme) => {
-    if (typeof document !== "undefined") {
-      applyThemeClasses(document.documentElement, newTheme)
-      localStorage.setItem(THEME_STORAGE_KEY, newTheme)
-    }
-    setThemeState(newTheme)
-  }, [])
+  const setTheme = useCallback(
+    (newTheme: AppTheme) => {
+      if (newTheme === theme || pendingThemeRef.current === newTheme) return
+      pendingThemeRef.current = newTheme
+      setIsApplyingTheme(true)
+
+      // Даем браузеру кадр на отрисовку оверлея, затем применяем тему.
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          setThemeState(newTheme)
+        })
+      })
+    },
+    [theme]
+  )
 
   const setAnimationsEnabled = useCallback((value: boolean) => {
     setAnimationsEnabledState(value)
@@ -145,6 +179,13 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       value={{ theme, setTheme, animationsEnabled, setAnimationsEnabled }}
     >
       {children}
+      {isApplyingTheme ? (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-background/70 backdrop-blur-sm">
+          <div className="rounded-lg border bg-card px-4 py-3 text-sm font-medium text-card-foreground shadow-lg">
+            Тема применяется, подождите...
+          </div>
+        </div>
+      ) : null}
     </ThemeContext.Provider>
   )
 }
