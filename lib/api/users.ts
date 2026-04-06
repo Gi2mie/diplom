@@ -24,6 +24,8 @@ export type UserListItem = {
   responsibleClassrooms: ResponsibleClassroomItem[]
   createdAt: string
   lastLoginAt: string | null
+  /** Только у администратора: пароль для выдачи (последний заданный при создании/смене). */
+  handoutPasswordPlain?: string | null
 }
 
 export type CreateUserPayload = {

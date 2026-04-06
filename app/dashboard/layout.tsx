@@ -57,6 +57,7 @@ import { OnboardingInvite } from "@/components/onboarding/onboarding-invite"
 import { DashboardTourHost } from "@/components/onboarding/dashboard-tour-host"
 import { Skeleton } from "@/components/ui/skeleton"
 import { type EduTourChromeDetail, EDU_TOUR_CHROME_EVENT } from "@/lib/site-onboarding"
+import { DASHBOARD_NAV_COUNTS_REFRESH_EVENT } from "@/lib/dashboard-nav-counts-refresh"
 
 type NavigationItem = {
   title: string
@@ -216,6 +217,7 @@ export default function DashboardLayout({
         setProfileForcedTab(undefined)
         return
       }
+      if (!("settingsOpen" in d)) return
       setSettingsOpen(d.settingsOpen)
       setProfileOpen(d.profileOpen)
       if (d.profileOpen) {
@@ -234,26 +236,43 @@ export default function DashboardLayout({
       return
     }
     let cancelled = false
-    fetch("/api/dashboard-nav-counts", { cache: "no-store" })
-      .then((res) => res.json())
-      .then((d: NavCounts) => {
-        if (
-          cancelled ||
-          typeof d?.softwareRequests !== "number" ||
-          typeof d?.activeRepairs !== "number" ||
-          typeof d?.issues !== "number"
-        ) {
-          return
-        }
-        setNavCounts({
-          softwareRequests: d.softwareRequests,
-          activeRepairs: d.activeRepairs,
-          issues: d.issues,
+    const POLL_MS = 20_000
+
+    const load = () => {
+      fetch("/api/dashboard-nav-counts", { cache: "no-store" })
+        .then((res) => res.json())
+        .then((d: NavCounts) => {
+          if (
+            cancelled ||
+            typeof d?.softwareRequests !== "number" ||
+            typeof d?.activeRepairs !== "number" ||
+            typeof d?.issues !== "number"
+          ) {
+            return
+          }
+          setNavCounts({
+            softwareRequests: d.softwareRequests,
+            activeRepairs: d.activeRepairs,
+            issues: d.issues,
+          })
         })
-      })
-      .catch(() => {})
+        .catch(() => {})
+    }
+
+    load()
+    const interval = window.setInterval(load, POLL_MS)
+    const onVisible = () => {
+      if (document.visibilityState === "visible") load()
+    }
+    window.addEventListener("focus", load)
+    document.addEventListener("visibilitychange", onVisible)
+    window.addEventListener(DASHBOARD_NAV_COUNTS_REFRESH_EVENT, load)
     return () => {
       cancelled = true
+      window.clearInterval(interval)
+      window.removeEventListener("focus", load)
+      document.removeEventListener("visibilitychange", onVisible)
+      window.removeEventListener(DASHBOARD_NAV_COUNTS_REFRESH_EVENT, load)
     }
   }, [isAdminSession])
 
@@ -410,7 +429,7 @@ export default function DashboardLayout({
         </SidebarFooter>
       </Sidebar>
       
-      <SidebarInset>
+      <SidebarInset className="min-w-0">
         {/* Header */}
         <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 border-b border-border/80 bg-background/90 px-4 backdrop-blur-sm supports-[backdrop-filter]:bg-background/80 md:gap-4 md:px-6">
           <SidebarTrigger className="transition-transform duration-200 hover:opacity-90" />
@@ -435,9 +454,9 @@ export default function DashboardLayout({
         </header>
         
         {/* Main Content */}
-        <main className="flex-1 overflow-auto">
+        <main className="flex-1 overflow-y-auto overflow-x-hidden">
           <div
-            className="edu-page-enter page-shell px-4 py-5 sm:px-5 sm:py-6 md:px-6 md:py-8"
+            className="edu-page-enter page-shell min-w-0 px-4 py-5 sm:px-5 sm:py-6 md:px-6 md:py-8"
           >
             {children}
           </div>

@@ -1,6 +1,7 @@
 "use server"
 
 import { prisma } from "@/lib/db"
+import { assertEquipmentPermanentDeleteAllowed } from "@/lib/equipment-deletion-policy"
 
 export type DeleteEquipmentResult = {
   success: boolean
@@ -23,6 +24,14 @@ export async function deleteEquipment(id: string): Promise<DeleteEquipmentResult
         success: false,
         error: "Оборудование не найдено",
       }
+    }
+
+    const policy = assertEquipmentPermanentDeleteAllowed({
+      status: existing.status,
+      decommissionedAt: existing.decommissionedAt,
+    })
+    if (!policy.ok) {
+      return { success: false, error: policy.error }
     }
 
     // Проверка на активные обращения/ремонты

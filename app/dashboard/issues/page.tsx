@@ -74,6 +74,9 @@ import {
   postRepairsForIssue,
   type AdminIssueReportRow,
 } from "@/lib/api/admin-issue-reports"
+import { fetchDashboardRepairs } from "@/lib/api/repairs-dashboard"
+import { requestDashboardNavCountsRefresh } from "@/lib/dashboard-nav-counts-refresh"
+import { cn } from "@/lib/utils"
 
 function personLabel(p: { firstName: string; lastName: string; middleName: string | null }): string {
   const m = p.middleName ? ` ${p.middleName}` : ""
@@ -96,6 +99,9 @@ function issueLocation(row: AdminIssueReportRow): string {
   const ws = row.equipment.workstation
   if (!ws) return "—"
   const room = classroomLine(ws.classroom)
+  if (row.description.includes("[Охват: вся аудитория]")) {
+    return room
+  }
   const wsName = ws.name?.trim() ? `${ws.code} — ${ws.name}` : ws.code
   return `${room} · ${wsName}`
 }
@@ -185,6 +191,11 @@ export default function IssuesPage() {
   const [repairWsId, setRepairWsId] = useState<string>("all")
   const [repairPick, setRepairPick] = useState<Record<string, boolean>>({})
   const [repairEquipment, setRepairEquipment] = useState<DashboardEquipmentRow[]>([])
+  /** null — карта ещё грузится; иначе id оборудования с ремонтом PLANNED/IN_PROGRESS (любое обращение). */
+  const [activeRepairEquipmentMap, setActiveRepairEquipmentMap] = useState<Record<
+    string,
+    boolean
+  > | null>(null)
   const [saving, setSaving] = useState(false)
 
   const loadAll = useCallback(async () => {
@@ -241,6 +252,12 @@ export default function IssuesPage() {
   }, [addForm.classroomId, addForm.workstationId])
 
   const issueAnchorClassroomId = selected?.equipment.workstation?.classroom.id
+  const issueAnchorWorkstationId = selected?.equipment.workstation?.id
+  const isWholeClassroomIssue = Boolean(
+    selected?.description?.includes("[Охват: вся аудитория]")
+  )
+  const effectiveRepairWsId =
+    isWholeClassroomIssue ? repairWsId : (issueAnchorWorkstationId ?? "all")
 
   useEffect(() => {
     if (!repairOpen || !issueAnchorClassroomId) {
@@ -250,7 +267,7 @@ export default function IssuesPage() {
     let cancelled = false
     fetchEquipmentDashboardList({
       classroomId: issueAnchorClassroomId,
-      ...(repairWsId !== "all" ? { workstationId: repairWsId } : {}),
+      ...(effectiveRepairWsId !== "all" ? { workstationId: effectiveRepairWsId } : {}),
     })
       .then((rows) => {
         if (!cancelled) setRepairEquipment(rows)
@@ -261,7 +278,63 @@ export default function IssuesPage() {
     return () => {
       cancelled = true
     }
-  }, [repairOpen, issueAnchorClassroomId, repairWsId])
+  }, [repairOpen, issueAnchorClassroomId, effectiveRepairWsId])
+
+  useEffect(() => {
+    if (!repairOpen) {
+      setActiveRepairEquipmentMap(null)
+      return
+    }
+    let cancelled = false
+    setActiveRepairEquipmentMap(null)
+    void Promise.all([fetchDashboardRepairs({ activeOnly: true }), fetchAdminIssueReports()]).then(
+      ([repairs, issues]) => {
+        if (cancelled) return
+        const map: Record<string, boolean> = {}
+        for (const r of repairs) {
+          map[r.equipment.id] = true
+        }
+        setActiveRepairEquipmentMap(map)
+        setSelected((prev) => {
+          if (!prev) return prev
+          const fresh = issues.find((i) => i.id === prev.id)
+          return fresh ?? prev
+        })
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [repairOpen])
+
+  useEffect(() => {
+    if (!repairOpen) return
+    const refreshLocks = () => {
+      void fetchDashboardRepairs({ activeOnly: true }).then((repairs) => {
+        const map: Record<string, boolean> = {}
+        for (const r of repairs) {
+          map[r.equipment.id] = true
+        }
+        setActiveRepairEquipmentMap(map)
+      })
+    }
+    window.addEventListener("focus", refreshLocks)
+    return () => window.removeEventListener("focus", refreshLocks)
+  }, [repairOpen])
+
+  const repairLocksReady = activeRepairEquipmentMap !== null
+
+  const isEquipmentInActiveRepair = useCallback(
+    (equipmentId: string) => {
+      if (activeRepairEquipmentMap) return Boolean(activeRepairEquipmentMap[equipmentId])
+      return Boolean(selected?.repairs.some((r) => r.equipmentId === equipmentId))
+    },
+    [activeRepairEquipmentMap, selected],
+  )
+
+  const newRepairSelectionsCount = useMemo(() => {
+    return repairEquipment.filter((e) => !isEquipmentInActiveRepair(e.id) && repairPick[e.id]).length
+  }, [repairEquipment, repairPick, isEquipmentInActiveRepair])
 
   const filterWsOptions = useMemo(() => {
     if (filterClassroomId === "all") return []
@@ -275,8 +348,10 @@ export default function IssuesPage() {
 
   const repairWsOptions = useMemo(() => {
     if (!issueAnchorClassroomId) return []
-    return workstations.filter((w) => w.classroomId === issueAnchorClassroomId)
-  }, [issueAnchorClassroomId, workstations])
+    const inClassroom = workstations.filter((w) => w.classroomId === issueAnchorClassroomId)
+    if (isWholeClassroomIssue) return inClassroom
+    return inClassroom.filter((w) => w.id === issueAnchorWorkstationId)
+  }, [issueAnchorClassroomId, issueAnchorWorkstationId, isWholeClassroomIssue, workstations])
 
   const filteredIssues = useMemo(() => {
     const q = searchQuery.toLowerCase()
@@ -344,6 +419,7 @@ export default function IssuesPage() {
       })
       setAddOpen(false)
       await loadAll()
+      requestDashboardNavCountsRefresh()
       toast.success("Обращение добавлено")
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ошибка")
@@ -378,6 +454,7 @@ export default function IssuesPage() {
       setEditOpen(false)
       setSelected(null)
       await loadAll()
+      requestDashboardNavCountsRefresh()
       toast.success("Обращение обновлено")
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ошибка")
@@ -388,16 +465,20 @@ export default function IssuesPage() {
 
   const openRepair = (row: AdminIssueReportRow) => {
     setSelected(row)
-    setRepairWsId("all")
+    if (row.description.includes("[Охват: вся аудитория]")) {
+      setRepairWsId("all")
+    } else {
+      setRepairWsId(row.equipment.workstation?.id ?? "all")
+    }
     setRepairPick({})
     setRepairOpen(true)
   }
 
   const submitRepair = async () => {
-    if (!selected || !issueAnchorClassroomId) return
-    const ids = Object.entries(repairPick)
-      .filter(([, v]) => v)
-      .map(([k]) => k)
+    if (!selected || !issueAnchorClassroomId || !repairLocksReady || !activeRepairEquipmentMap) return
+    const ids = repairEquipment
+      .map((e) => e.id)
+      .filter((id) => !activeRepairEquipmentMap[id] && repairPick[id])
     if (ids.length === 0) return
     setSaving(true)
     try {
@@ -408,6 +489,7 @@ export default function IssuesPage() {
       setRepairOpen(false)
       setSelected(null)
       await loadAll()
+      requestDashboardNavCountsRefresh()
       toast.success("Ремонт зарегистрирован")
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ошибка")
@@ -1033,7 +1115,8 @@ export default function IssuesPage() {
             <DialogTitle>Поставить на ремонт</DialogTitle>
             <DialogDescription>
               Выберите оборудование в той же аудитории, что и обращение. У заявителя в «Моих заявках» появится
-              комментарий о ремонте выбранных устройств.
+              комментарий о ремонте выбранных устройств. Позиции «в активном ремонте» уже отмечены и не снимаются,
+              пока ремонт в разделе «Активные ремонты» не переведён в «Готово» или «Отменено».
             </DialogDescription>
           </DialogHeader>
           {!issueAnchorClassroomId ? (
@@ -1046,12 +1129,16 @@ export default function IssuesPage() {
             <>
               <div className="grid gap-2">
                 <Label>Рабочее место (фильтр)</Label>
-                <Select value={repairWsId} onValueChange={setRepairWsId}>
+                <Select
+                  value={effectiveRepairWsId}
+                  onValueChange={setRepairWsId}
+                  disabled={!isWholeClassroomIssue}
+                >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">Вся аудитория</SelectItem>
+                    {isWholeClassroomIssue ? <SelectItem value="all">Вся аудитория</SelectItem> : null}
                     {repairWsOptions.map((w) => (
                       <SelectItem key={w.id} value={w.id}>
                         {w.code}
@@ -1059,28 +1146,50 @@ export default function IssuesPage() {
                     ))}
                   </SelectContent>
                 </Select>
+                {!isWholeClassroomIssue ? (
+                  <p className="text-xs text-muted-foreground">
+                    Для этого обращения доступно только рабочее место из исходной заявки.
+                  </p>
+                ) : null}
               </div>
               <div className="max-h-56 space-y-2 overflow-y-auto rounded-md border p-2">
                 {repairEquipment.length === 0 ? (
                   <p className="text-sm text-muted-foreground">Нет оборудования в выборке</p>
                 ) : (
-                  repairEquipment.map((e) => (
-                    <label key={e.id} className="flex cursor-pointer items-start gap-2 text-sm">
-                      <Checkbox
-                        checked={Boolean(repairPick[e.id])}
-                        onCheckedChange={(c) =>
-                          setRepairPick((p) => ({ ...p, [e.id]: c === true }))
-                        }
-                      />
-                      <span>
-                        <span className="font-medium">{e.name}</span>
-                        <span className="text-muted-foreground"> · инв. {e.inventoryNumber}</span>
-                        {e.workstationCode ? (
-                          <span className="block text-xs text-muted-foreground">{e.workstationCode}</span>
-                        ) : null}
-                      </span>
-                    </label>
-                  ))
+                  repairEquipment.map((e) => {
+                    const locked = isEquipmentInActiveRepair(e.id)
+                    const checked = locked || Boolean(repairPick[e.id])
+                    return (
+                      <label
+                        key={e.id}
+                        className={cn(
+                          "flex items-start gap-2 text-sm",
+                          locked ? "cursor-default opacity-90" : "cursor-pointer",
+                        )}
+                      >
+                        <Checkbox
+                          checked={checked}
+                          disabled={locked}
+                          onCheckedChange={(c) => {
+                            if (locked) return
+                            setRepairPick((p) => ({ ...p, [e.id]: c === true }))
+                          }}
+                        />
+                        <span>
+                          <span className="font-medium">{e.name}</span>
+                          <span className="text-muted-foreground"> · инв. {e.inventoryNumber}</span>
+                          {locked ? (
+                            <span className="ml-1.5 text-xs font-medium text-amber-700 dark:text-amber-500">
+                              в активном ремонте
+                            </span>
+                          ) : null}
+                          {e.workstationCode ? (
+                            <span className="block text-xs text-muted-foreground">{e.workstationCode}</span>
+                          ) : null}
+                        </span>
+                      </label>
+                    )
+                  })
                 )}
               </div>
             </>
@@ -1093,7 +1202,8 @@ export default function IssuesPage() {
               disabled={
                 saving ||
                 !issueAnchorClassroomId ||
-                Object.values(repairPick).filter(Boolean).length === 0
+                !repairLocksReady ||
+                newRepairSelectionsCount === 0
               }
               onClick={() => void submitRepair()}
             >

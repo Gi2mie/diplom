@@ -83,8 +83,13 @@ import {
   softwareCategoryLabel,
   softwareLicenseExpiresDisplay,
   softwareLicenseKindLabel,
+  softwareLicenseTypeFromRow,
+  softwareLicenseTypeLabel,
+  softwareLicenseTypeToKind,
   SOFTWARE_CATEGORY_OPTIONS,
+  SOFTWARE_LICENSE_TYPE_OPTIONS,
   SOFTWARE_LICENSE_OPTIONS,
+  type SoftwareLicenseTypeValue,
 } from "@/lib/software-labels"
 import { type EduTourMockUiDetail, EDU_TOUR_MOCK_UI_EVENT } from "@/lib/site-onboarding"
 
@@ -103,6 +108,7 @@ type SoftwareFormState = {
   vendor: string
   category: SoftwareCatalogCategory
   licenseKind: SoftwareLicenseKind
+  licenseType: SoftwareLicenseTypeValue
   defaultLicenseKey: string
   licenseExpiresAt: string
   description: string
@@ -115,6 +121,7 @@ function createEmptyForm(): SoftwareFormState {
     vendor: "",
     category: SoftwareCatalogCategory.OTHER,
     licenseKind: SoftwareLicenseKind.FREE,
+    licenseType: "free_license",
     defaultLicenseKey: "",
     licenseExpiresAt: "",
     description: "",
@@ -376,6 +383,7 @@ export default function SoftwarePage() {
       vendor: row.vendor ?? "",
       category: row.category,
       licenseKind: row.licenseKind,
+      licenseType: softwareLicenseTypeFromRow(row.licenseType, row.licenseKind),
       defaultLicenseKey: row.defaultLicenseKey ?? "",
       licenseExpiresAt: row.licenseExpiresAt ?? "",
       description: row.description ?? "",
@@ -472,6 +480,7 @@ export default function SoftwarePage() {
         vendor: form.vendor.trim() || null,
         category: form.category,
         licenseKind: form.licenseKind,
+        licenseType: form.licenseType,
         defaultLicenseKey: isFree ? null : form.defaultLicenseKey.trim() || null,
         licenseExpiresAt: isFree ? null : form.licenseExpiresAt ? parseYmd(form.licenseExpiresAt) : null,
         description: form.description.trim() || null,
@@ -498,6 +507,7 @@ export default function SoftwarePage() {
         vendor: form.vendor.trim() || null,
         category: form.category,
         licenseKind: form.licenseKind,
+        licenseType: form.licenseType,
         defaultLicenseKey: isFree ? null : form.defaultLicenseKey.trim() || null,
         licenseExpiresAt: isFree ? null : form.licenseExpiresAt ? parseYmd(form.licenseExpiresAt) : null,
         description: form.description.trim() || null,
@@ -610,11 +620,13 @@ export default function SoftwarePage() {
         <div className="grid gap-2">
           <Label>Тип лицензии</Label>
           <Select
-            value={form.licenseKind}
+            value={form.licenseType}
             onValueChange={(v) => {
-              const k = v as SoftwareLicenseKind
+              const t = v as SoftwareLicenseTypeValue
+              const k = softwareLicenseTypeToKind(t)
               setForm((f) => ({
                 ...f,
+                licenseType: t,
                 licenseKind: k,
                 ...(k === SoftwareLicenseKind.FREE
                   ? { licenseExpiresAt: "", defaultLicenseKey: "" }
@@ -626,7 +638,7 @@ export default function SoftwarePage() {
               <SelectValue placeholder="Тип лицензии" />
             </SelectTrigger>
             <SelectContent>
-              {SOFTWARE_LICENSE_OPTIONS.map((o) => (
+              {SOFTWARE_LICENSE_TYPE_OPTIONS.map((o) => (
                 <SelectItem key={o.value} value={o.value}>
                   {o.label}
                 </SelectItem>
@@ -946,7 +958,7 @@ export default function SoftwarePage() {
                       <TableCell>{r.version || "—"}</TableCell>
                       <TableCell>{r.vendor || "—"}</TableCell>
                       <TableCell>{softwareCategoryLabel(r.category)}</TableCell>
-                      <TableCell>{softwareLicenseKindLabel(r.licenseKind)}</TableCell>
+                      <TableCell>{softwareLicenseTypeLabel(r.licenseType)}</TableCell>
                       <TableCell>{softwareLicenseExpiresDisplay(r.licenseExpiresAt)}</TableCell>
                       <TableCell className="text-right">{r.installationCount}</TableCell>
                       <TableCell>
@@ -1027,7 +1039,7 @@ export default function SoftwarePage() {
               </div>
               <div>
                 <span className="text-muted-foreground">Тип лицензии:</span>{" "}
-                {softwareLicenseKindLabel(viewDetail.licenseKind)}
+                {softwareLicenseTypeLabel(viewDetail.licenseType)}
               </div>
               <div>
                 <span className="text-muted-foreground">Срок лицензии до:</span>{" "}

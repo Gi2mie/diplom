@@ -17,6 +17,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   }
 
   const { id } = await params
+  const includeCreds = isAdminSession(session)
   const user = await db.user.findUnique({
     where: { id },
     select: {
@@ -33,6 +34,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
       createdAt: true,
       lastLoginAt: true,
       responsibleRooms: userResponsibleRoomsSelect,
+      ...(includeCreds ? { handoutPasswordPlain: true } : {}),
     },
   })
 
@@ -44,7 +46,9 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
-  return NextResponse.json({ user: toPublicUserJson(user) })
+  return NextResponse.json({
+    user: toPublicUserJson(user, { includeCredentials: includeCreds }),
+  })
 }
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -132,6 +136,12 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     return NextResponse.json({ error: "Недопустимый статус" }, { status: 400 })
   }
 
+  const passwordTrim = password !== undefined ? String(password).trim() : ""
+  const nextHandout =
+    passwordTrim !== ""
+      ? { passwordHash: await bcrypt.hash(passwordTrim, 12), handoutPasswordPlain: passwordTrim }
+      : {}
+
   const user = await db.user.update({
     where: { id },
     data: {
@@ -144,7 +154,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       ...(status !== undefined ? { status, isActive: status === UserStatus.ACTIVE } : {}),
       ...(position !== undefined ? { position: position || null } : {}),
       ...(department !== undefined ? { department: department || null } : {}),
-      ...(password ? { passwordHash: await bcrypt.hash(password, 12) } : {}),
+      ...nextHandout,
     },
     select: {
       id: true,
@@ -159,9 +169,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       department: true,
       createdAt: true,
       lastLoginAt: true,
+      handoutPasswordPlain: true,
       responsibleRooms: userResponsibleRoomsSelect,
     },
   })
 
-  return NextResponse.json({ user: toPublicUserJson(user) })
+  return NextResponse.json({ user: toPublicUserJson(user, { includeCredentials: true }) })
 }

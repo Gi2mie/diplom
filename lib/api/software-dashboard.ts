@@ -7,6 +7,7 @@ export type DashboardSoftwareRow = {
   vendor: string | null
   category: SoftwareCatalogCategory
   licenseKind: SoftwareLicenseKind
+  licenseType: string | null
   defaultLicenseKey: string | null
   licenseExpiresAt: string | null
   description: string | null
@@ -34,6 +35,7 @@ export type SoftwareDetail = {
   vendor: string | null
   category: SoftwareCatalogCategory
   licenseKind: SoftwareLicenseKind
+  licenseType: string | null
   defaultLicenseKey: string | null
   licenseExpiresAt: string | null
   description: string | null
@@ -46,6 +48,7 @@ export type SoftwareFormBody = {
   vendor?: string | null
   category: SoftwareCatalogCategory
   licenseKind: SoftwareLicenseKind
+  licenseType?: string | null
   defaultLicenseKey?: string | null
   licenseExpiresAt?: string | Date | null
   description?: string | null

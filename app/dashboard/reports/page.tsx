@@ -54,6 +54,7 @@ import {
   equipmentStatusBadgeVariant,
   equipmentStatusLabel,
 } from "@/lib/equipment-labels"
+import { softwareLicenseTypeLabel } from "@/lib/software-labels"
 import { fetchClassroomRegistry, type ClassroomRegistryPayload } from "@/lib/api/classroom-registry"
 import {
   fetchReportsDashboard,
@@ -99,14 +100,15 @@ function repairStatusLabel(s: string): string {
   return m[s] ?? s
 }
 
-function licenseLabel(k: SoftwareLicenseKind): string {
+function licenseLabel(k: SoftwareLicenseKind, licenseType?: string | null): string {
+  if (licenseType) return softwareLicenseTypeLabel(licenseType)
   switch (k) {
     case SoftwareLicenseKind.FREE:
-      return "Бесплатная"
+      return "Бесплатная лицензия"
     case SoftwareLicenseKind.PAID:
-      return "Платная"
+      return "Коммерческая лицензия"
     case SoftwareLicenseKind.EDUCATIONAL:
-      return "Образовательная"
+      return "Проприетарная лицензия"
     default:
       return String(k)
   }
@@ -369,22 +371,24 @@ export default function ReportsPage() {
 
   const getLicenseBadge = (license: string) => {
     switch (license) {
-      case "Бесплатная":
+      case "Бесплатная лицензия":
+      case "Свободная лицензия":
+      case "Лицензия с открытым исходным кодом":
         return (
           <Badge variant="outline" className="border-green-200 bg-green-50 text-green-700">
-            Бесплатная
+            {license}
           </Badge>
         )
-      case "Образовательная":
+      case "Проприетарная лицензия":
         return (
           <Badge variant="outline" className="border-blue-200 bg-blue-50 text-blue-700">
-            Образовательная
+            Проприетарная
           </Badge>
         )
-      case "Платная":
+      case "Коммерческая лицензия":
         return (
           <Badge variant="outline" className="border-orange-200 bg-orange-50 text-orange-700">
-            Платная
+            Коммерческая
           </Badge>
         )
       default:
@@ -1175,7 +1179,7 @@ export default function ReportsPage() {
                                 <TableCell className="font-medium">{sw.name}</TableCell>
                                 <TableCell>{sw.version}</TableCell>
                                 <TableCell>
-                                  {getLicenseBadge(licenseLabel(sw.licenseKind))}
+                                  {getLicenseBadge(licenseLabel(sw.licenseKind, sw.licenseType))}
                                 </TableCell>
                               </TableRow>
                             ))}
@@ -1234,6 +1238,7 @@ export default function ReportsPage() {
                   <Button
                     variant="outline"
                     size="sm"
+                    className="whitespace-nowrap"
                     type="button"
                     onClick={() => setDateRange(defaultDateRange())}
                   >
@@ -1242,6 +1247,7 @@ export default function ReportsPage() {
                   <Button
                     variant="outline"
                     size="sm"
+                    className="whitespace-nowrap"
                     type="button"
                     onClick={() => {
                       const today = new Date()
@@ -1295,7 +1301,8 @@ export default function ReportsPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <Table>
+              <div className="max-h-[min(62vh,700px)] overflow-x-auto overflow-y-auto rounded-md border">
+                <Table className="min-w-[1400px]">
                 <TableHeader>
                   <TableRow>
                     <SortableTableHead
@@ -1303,6 +1310,7 @@ export default function ReportsPage() {
                       sortKey={historySortKey}
                       sortDir={historySortDir}
                       onSort={toggleHistorySort}
+                      className="min-w-[10rem]"
                     >
                       Дата
                     </SortableTableHead>
@@ -1311,6 +1319,7 @@ export default function ReportsPage() {
                       sortKey={historySortKey}
                       sortDir={historySortDir}
                       onSort={toggleHistorySort}
+                      className="min-w-[8rem]"
                     >
                       Тип
                     </SortableTableHead>
@@ -1319,6 +1328,7 @@ export default function ReportsPage() {
                       sortKey={historySortKey}
                       sortDir={historySortDir}
                       onSort={toggleHistorySort}
+                      className="min-w-[10rem]"
                     >
                       Инв. №
                     </SortableTableHead>
@@ -1327,6 +1337,7 @@ export default function ReportsPage() {
                       sortKey={historySortKey}
                       sortDir={historySortDir}
                       onSort={toggleHistorySort}
+                      className="min-w-[16rem]"
                     >
                       Оборудование
                     </SortableTableHead>
@@ -1335,6 +1346,7 @@ export default function ReportsPage() {
                       sortKey={historySortKey}
                       sortDir={historySortDir}
                       onSort={toggleHistorySort}
+                      className="min-w-[13rem]"
                     >
                       Кабинет
                     </SortableTableHead>
@@ -1343,6 +1355,7 @@ export default function ReportsPage() {
                       sortKey={historySortKey}
                       sortDir={historySortDir}
                       onSort={toggleHistorySort}
+                      className="min-w-[20rem]"
                     >
                       Описание
                     </SortableTableHead>
@@ -1351,6 +1364,7 @@ export default function ReportsPage() {
                       sortKey={historySortKey}
                       sortDir={historySortDir}
                       onSort={toggleHistorySort}
+                      className="min-w-[13rem]"
                     >
                       Сис. админ
                     </SortableTableHead>
@@ -1359,6 +1373,7 @@ export default function ReportsPage() {
                       sortKey={historySortKey}
                       sortDir={historySortDir}
                       onSort={toggleHistorySort}
+                      className="min-w-[10rem]"
                     >
                       Статус
                     </SortableTableHead>
@@ -1399,7 +1414,8 @@ export default function ReportsPage() {
                     ))
                   )}
                 </TableBody>
-              </Table>
+                </Table>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>

@@ -6,8 +6,9 @@ function preferComputer<T extends { id: string; type: EquipmentType }>(rows: T[]
 }
 
 /**
- * ID оборудования для создания обращений: по одному «якорю» на выбранное РМ или на каждое РМ в аудитории.
- * Предпочтительно устройство типа COMPUTER на рабочем месте.
+ * ID оборудования для создания обращения преподавателя.
+ * - Для одного РМ: выбирается «якорь» этого места (предпочтительно COMPUTER).
+ * - Для всей аудитории: создаётся ОДНО обращение на аудиторию (якорь по всей аудитории).
  */
 export async function resolveEquipmentIdsForTeacherIssue(
   db: PrismaClient,
@@ -31,21 +32,8 @@ export async function resolveEquipmentIdsForTeacherIssue(
 
   const rows = await db.equipment.findMany({
     where: base,
-    select: { id: true, workstationId: true, type: true },
+    select: { id: true, type: true },
   })
-
-  const byWs = new Map<string, { id: string; type: EquipmentType }[]>()
-  for (const e of rows) {
-    if (!e.workstationId) continue
-    const list = byWs.get(e.workstationId) ?? []
-    list.push({ id: e.id, type: e.type })
-    byWs.set(e.workstationId, list)
-  }
-
-  const ids: string[] = []
-  for (const [, list] of byWs) {
-    const pick = preferComputer(list)
-    if (pick) ids.push(pick.id)
-  }
-  return [...new Set(ids)]
+  const pick = preferComputer(rows)
+  return pick ? [pick.id] : []
 }

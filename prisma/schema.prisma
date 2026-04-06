@@ -234,6 +234,8 @@ model Equipment {
   warrantyUntil   DateTime?       @map("warranty_until") // Гарантия до
   description     String?         // Описание
   isActive        Boolean         @default(true) @map("is_active")
+  /** Момент перевода в статус «Списано»; нужен для правила удаления из учёта через 30 суток. */
+  decommissionedAt DateTime?      @map("decommissioned_at")
   createdAt       DateTime        @default(now()) @map("created_at")
   updatedAt       DateTime        @updatedAt @map("updated_at")
 

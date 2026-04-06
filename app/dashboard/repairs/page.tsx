@@ -46,6 +46,7 @@ import { PageHeader } from "@/components/dashboard/page-header"
 import { SortableTableHead } from "@/components/ui/sortable-table-head"
 import { useTableSort } from "@/hooks/use-table-sort"
 import { fetchDashboardRepairs, patchRepairStatus, type DashboardRepairRow } from "@/lib/api/repairs-dashboard"
+import { requestDashboardNavCountsRefresh } from "@/lib/dashboard-nav-counts-refresh"
 
 type ClassroomBrief = {
   id: string
@@ -154,6 +155,7 @@ export default function RepairsPage() {
           setSelected(updated)
         }
       }
+      requestDashboardNavCountsRefresh()
       toast.success("Статус ремонта обновлён")
     } catch (e) {
       setError(e instanceof Error ? e.message : "Не удалось сохранить статус")

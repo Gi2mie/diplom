@@ -6,6 +6,9 @@ import { resolveStatusAfterWorkstationChange } from "@/lib/equipment-workstation
 import { updateEquipmentSchema } from "@/lib/validators"
 import { syncWorkstationKitFromEquipment } from "@/lib/workstation-kit-sync"
 import { syncWorkstationStatusFromEquipment } from "@/lib/workstation-status-sync"
+import {
+  assertEquipmentPermanentDeleteAllowed,
+} from "@/lib/equipment-deletion-policy"
 
 export async function GET(
   _request: Request,
@@ -52,6 +55,7 @@ export async function GET(
     description: e.description,
     purchaseDate: e.purchaseDate ? e.purchaseDate.toISOString().slice(0, 10) : null,
     warrantyUntil: e.warrantyUntil ? e.warrantyUntil.toISOString().slice(0, 10) : null,
+    decommissionedAt: e.decommissionedAt ? e.decommissionedAt.toISOString() : null,
     manufacturer: e.manufacturer,
     model: e.model,
     categoryId: e.categoryId,
@@ -140,6 +144,13 @@ export async function PATCH(
   const nextStatus =
     resolvedStatus !== undefined ? resolvedStatus : d.status !== undefined ? d.status : existing.status
 
+  const becomesDecommissioned =
+    nextStatus === EquipmentStatus.DECOMMISSIONED &&
+    existing.status !== EquipmentStatus.DECOMMISSIONED
+  const leavesDecommissioned =
+    nextStatus !== EquipmentStatus.DECOMMISSIONED &&
+    existing.status === EquipmentStatus.DECOMMISSIONED
+
   if (nextStatus === EquipmentStatus.DECOMMISSIONED && nextWorkstationId) {
     return NextResponse.json(
       {
@@ -161,7 +172,9 @@ export async function PATCH(
           ? { equipmentKindId: d.equipmentKindId, type: mapsToEnum }
           : {}),
         ...(d.workstationId !== undefined ? { workstationId: d.workstationId } : {}),
-        ...(resolvedStatus !== undefined ? { status: resolvedStatus } : {}),
+        ...(nextStatus !== existing.status ? { status: nextStatus } : {}),
+        ...(becomesDecommissioned ? { decommissionedAt: new Date() } : {}),
+        ...(leavesDecommissioned ? { decommissionedAt: null } : {}),
         ...(d.manufacturer !== undefined ? { manufacturer: d.manufacturer?.trim() || null } : {}),
         ...(d.model !== undefined ? { model: d.model?.trim() || null } : {}),
         ...(d.serialNumber !== undefined ? { serialNumber: d.serialNumber?.trim() || null } : {}),
@@ -197,10 +210,18 @@ export async function DELETE(
   const { id } = await params
   const existing = await db.equipment.findUnique({
     where: { id },
-    select: { id: true, workstationId: true },
+    select: { id: true, workstationId: true, status: true, decommissionedAt: true },
   })
   if (!existing) {
     return NextResponse.json({ error: "Не найдено" }, { status: 404 })
+  }
+
+  const delCheck = assertEquipmentPermanentDeleteAllowed({
+    status: existing.status,
+    decommissionedAt: existing.decommissionedAt,
+  })
+  if (!delCheck.ok) {
+    return NextResponse.json({ error: delCheck.error }, { status: 409 })
   }
 
   await db.$transaction(async (tx) => {

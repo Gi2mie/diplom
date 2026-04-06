@@ -69,6 +69,7 @@ export async function GET(
     vendor: s.vendor,
     category: s.category,
     licenseKind: s.licenseKind,
+    licenseType: s.licenseType,
     defaultLicenseKey: s.defaultLicenseKey,
     licenseExpiresAt: licenseDateToApiYmd(s.licenseExpiresAt),
     description: s.description,
@@ -138,6 +139,7 @@ export async function PATCH(
       ...(d.vendor !== undefined ? { vendor: d.vendor?.trim() || null } : {}),
       ...(d.category !== undefined ? { category: d.category } : {}),
       ...(d.licenseKind !== undefined ? { licenseKind: d.licenseKind } : {}),
+      ...(d.licenseType !== undefined ? { licenseType: d.licenseType?.trim() || null } : {}),
       ...(d.defaultLicenseKey !== undefined
         ? { defaultLicenseKey: d.defaultLicenseKey?.trim() || null }
         : {}),
