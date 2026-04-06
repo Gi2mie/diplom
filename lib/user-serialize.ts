@@ -24,6 +24,7 @@ export type UserWithResponsibleRooms = {
   department: string | null
   createdAt: Date
   lastLoginAt: Date | null
+  handoutPasswordPlain?: string | null
   responsibleRooms?: {
     id: string
     number: string
@@ -32,9 +33,12 @@ export type UserWithResponsibleRooms = {
   }[]
 }
 
-export function toPublicUserJson(user: UserWithResponsibleRooms) {
-  const { responsibleRooms, ...rest } = user
-  return {
+export function toPublicUserJson(
+  user: UserWithResponsibleRooms,
+  options?: { includeCredentials?: boolean }
+) {
+  const { responsibleRooms, handoutPasswordPlain, ...rest } = user
+  const base = {
     id: rest.id,
     firstName: rest.firstName,
     lastName: rest.lastName,
@@ -54,4 +58,11 @@ export function toPublicUserJson(user: UserWithResponsibleRooms) {
     createdAt: rest.createdAt.toISOString(),
     lastLoginAt: rest.lastLoginAt?.toISOString() ?? null,
   }
+  if (options?.includeCredentials) {
+    return {
+      ...base,
+      handoutPasswordPlain: handoutPasswordPlain ?? null,
+    }
+  }
+  return base
 }

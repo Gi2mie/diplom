@@ -85,6 +85,7 @@ import {
   deleteSoftwareRequestApi,
   type SoftwareRequestListRow,
 } from "@/lib/api/software-requests"
+import { requestDashboardNavCountsRefresh } from "@/lib/dashboard-nav-counts-refresh"
 
 function classroomLabel(c: RegistryClassroom): string {
   const title = c.name?.trim() || `Аудитория ${c.number}`
@@ -381,6 +382,7 @@ export default function SoftwareRequestsPage() {
       })
       setAddDialogOpen(false)
       await loadAll()
+      requestDashboardNavCountsRefresh()
       toast.success("Заявка создана")
     } catch (e) {
       setFormError(e instanceof Error ? e.message : "Не удалось отправить")
@@ -414,6 +416,7 @@ export default function SoftwareRequestsPage() {
       setEditStatusDialogOpen(false)
       setSelectedRequest(null)
       await loadAll()
+      requestDashboardNavCountsRefresh()
       toast.success("Заявка обновлена")
     } catch (e) {
       console.error(e)
@@ -434,6 +437,7 @@ export default function SoftwareRequestsPage() {
       setDeleteDialogOpen(false)
       setSelectedRequest(null)
       await loadAll()
+      requestDashboardNavCountsRefresh()
       toast.success("Заявка удалена")
     } catch (e) {
       console.error(e)

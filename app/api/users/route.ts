@@ -16,6 +16,8 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
+  const isAdmin = isAdminSession(session)
+
   const [users, adminsTotal, blockedTotal] = await Promise.all([
     db.user.findMany({
       where: {
@@ -36,6 +38,7 @@ export async function GET() {
         createdAt: true,
         lastLoginAt: true,
         responsibleRooms: userResponsibleRoomsSelect,
+        ...(isAdmin ? { handoutPasswordPlain: true } : {}),
       },
     }),
     db.user.count({ where: { role: UserRole.ADMIN } }),
@@ -43,7 +46,7 @@ export async function GET() {
   ])
 
   return NextResponse.json({
-    users: users.map((u) => toPublicUserJson(u)),
+    users: users.map((u) => toPublicUserJson(u, { includeCredentials: isAdmin })),
     meta: { adminsTotal, blockedTotal },
   })
 }
@@ -130,6 +133,7 @@ export async function POST(request: Request) {
       position: position || null,
       department: department || null,
       passwordHash,
+      handoutPasswordPlain: password,
     },
     select: {
       id: true,
@@ -144,10 +148,14 @@ export async function POST(request: Request) {
       department: true,
       createdAt: true,
       lastLoginAt: true,
+      handoutPasswordPlain: true,
       responsibleRooms: userResponsibleRoomsSelect,
     },
   })
 
-  return NextResponse.json({ user: toPublicUserJson(user) }, { status: 201 })
+  return NextResponse.json(
+    { user: toPublicUserJson(user, { includeCredentials: true }) },
+    { status: 201 }
+  )
 }
 

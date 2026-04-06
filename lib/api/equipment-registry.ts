@@ -1,4 +1,5 @@
 import type { EquipmentType } from "@prisma/client"
+import { parseFetchJson } from "@/lib/api/parse-fetch-json"
 
 export type RegistryEquipmentCategory = {
   id: string
@@ -22,17 +23,9 @@ export type EquipmentRegistryPayload = {
   kinds: RegistryEquipmentKind[]
 }
 
-async function parseJson<T>(response: Response): Promise<T> {
-  const data = await response.json()
-  if (!response.ok) {
-    throw new Error(data?.error || "Request failed")
-  }
-  return data as T
-}
-
 export async function fetchEquipmentRegistry(): Promise<EquipmentRegistryPayload> {
   const response = await fetch("/api/equipment-registry", { cache: "no-store" })
-  return parseJson(response)
+  return parseFetchJson(response)
 }
 
 export async function createEquipmentCategoryApi(body: {
@@ -45,7 +38,7 @@ export async function createEquipmentCategoryApi(body: {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   })
-  await parseJson<{ ok: boolean }>(response)
+  await parseFetchJson<{ ok: boolean }>(response)
 }
 
 export async function updateEquipmentCategoryApi(
@@ -57,12 +50,12 @@ export async function updateEquipmentCategoryApi(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   })
-  await parseJson<{ ok: boolean }>(response)
+  await parseFetchJson<{ ok: boolean }>(response)
 }
 
 export async function deleteEquipmentCategoryApi(id: string): Promise<void> {
   const response = await fetch(`/api/equipment-categories/${id}`, { method: "DELETE" })
-  await parseJson<{ ok: boolean }>(response)
+  await parseFetchJson<{ ok: boolean }>(response)
 }
 
 export async function createEquipmentKindApi(body: {
@@ -75,7 +68,7 @@ export async function createEquipmentKindApi(body: {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   })
-  await parseJson<{ ok: boolean }>(response)
+  await parseFetchJson<{ ok: boolean }>(response)
 }
 
 export async function updateEquipmentKindApi(
@@ -87,10 +80,10 @@ export async function updateEquipmentKindApi(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   })
-  await parseJson<{ ok: boolean }>(response)
+  await parseFetchJson<{ ok: boolean }>(response)
 }
 
 export async function deleteEquipmentKindApi(id: string): Promise<void> {
   const response = await fetch(`/api/equipment-kinds/${id}`, { method: "DELETE" })
-  await parseJson<{ ok: boolean }>(response)
+  await parseFetchJson<{ ok: boolean }>(response)
 }

@@ -12,6 +12,7 @@ async function main() {
     where: { email: "admin@nhtk" },
     update: {
       passwordHash: adminPassword,
+      handoutPasswordPlain: "admin123",
       isActive: true,
       status: UserStatus.ACTIVE,
       phone: "+7(900) 111-11-11",
@@ -21,6 +22,7 @@ async function main() {
     create: {
       email: "admin@nhtk",
       passwordHash: adminPassword,
+      handoutPasswordPlain: "admin123",
       firstName: "Администратор",
       lastName: "Системы",
       status: UserStatus.ACTIVE,
@@ -39,6 +41,7 @@ async function main() {
     where: { email: "teacher@nhtk" },
     update: {
       passwordHash: teacherPassword,
+      handoutPasswordPlain: "teacher123",
       isActive: true,
       status: UserStatus.ACTIVE,
       phone: "+7(900) 222-22-22",
@@ -48,6 +51,7 @@ async function main() {
     create: {
       email: "teacher@nhtk",
       passwordHash: teacherPassword,
+      handoutPasswordPlain: "teacher123",
       firstName: "Иван",
       lastName: "Петров",
       middleName: "Сергеевич",

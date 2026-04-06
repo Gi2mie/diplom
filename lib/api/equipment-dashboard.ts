@@ -1,4 +1,5 @@
 import type { EquipmentStatus } from "@prisma/client"
+import { parseFetchJson } from "@/lib/api/parse-fetch-json"
 
 export type DashboardEquipmentRow = {
   id: string
@@ -9,6 +10,8 @@ export type DashboardEquipmentRow = {
   description: string | null
   purchaseDate: string | null
   warrantyUntil: string | null
+  /** ISO; заполняется при списании; удаление из учёта — не ранее чем через 30 суток. */
+  decommissionedAt: string | null
   manufacturer: string | null
   model: string | null
   categoryId: string | null
@@ -36,16 +39,8 @@ export type EquipmentFormPayload = {
   equipmentKindId: string
   status?: EquipmentStatus
   workstationId?: string | null
-  serialNumber?: string | null
+  serialNumber: string
   description?: string | null
-}
-
-async function parseJson<T>(response: Response): Promise<T> {
-  const data = await response.json()
-  if (!response.ok) {
-    throw new Error(data?.error || "Request failed")
-  }
-  return data as T
 }
 
 function buildQuery(params: Record<string, string | undefined>) {
@@ -67,7 +62,7 @@ export async function fetchEquipmentDashboardList(filters: {
   equipmentKindId?: string
 }): Promise<DashboardEquipmentRow[]> {
   const response = await fetch(`/api/equipment${buildQuery(filters)}`, { cache: "no-store" })
-  const data = await parseJson<{ equipment: DashboardEquipmentRow[] }>(response)
+  const data = await parseFetchJson<{ equipment: DashboardEquipmentRow[] }>(response)
   return data.equipment
 }
 
@@ -77,7 +72,7 @@ export async function createEquipmentDashboardApi(body: EquipmentFormPayload): P
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   })
-  await parseJson<{ ok: boolean }>(response)
+  await parseFetchJson<{ ok: boolean }>(response)
 }
 
 export async function updateEquipmentDashboardApi(
@@ -89,10 +84,10 @@ export async function updateEquipmentDashboardApi(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   })
-  await parseJson<{ ok: boolean }>(response)
+  await parseFetchJson<{ ok: boolean }>(response)
 }
 
 export async function deleteEquipmentDashboardApi(id: string): Promise<void> {
   const response = await fetch(`/api/equipment/${id}`, { method: "DELETE" })
-  await parseJson<{ ok: boolean }>(response)
+  await parseFetchJson<{ ok: boolean }>(response)
 }

@@ -18,10 +18,11 @@ const KIND_LABEL: Record<string, string> = {
   other: "Другое",
 }
 
-function buildDescription(raw: string, title: string, kind: string): string {
+function buildDescription(raw: string, title: string, kind: string, wholeClassroom: boolean): string {
   const body = raw.trim() || title.trim()
   const label = KIND_LABEL[kind] ?? kind
-  return `[Тип по заявке: ${label}]\n\n${body}`
+  const scope = wholeClassroom ? "вся аудитория" : "одно рабочее место"
+  return `[Тип по заявке: ${label}]\n[Охват: ${scope}]\n\n${body}`
 }
 
 export async function POST(request: Request) {
@@ -82,7 +83,7 @@ export async function POST(request: Request) {
     )
   }
 
-  const description = buildDescription(d.description, d.title, d.problemEquipmentKind)
+  const description = buildDescription(d.description, d.title, d.problemEquipmentKind, d.wholeClassroom)
   const priority = d.priority ?? IssuePriority.MEDIUM
 
   await db.$transaction(async (tx) => {

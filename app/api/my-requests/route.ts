@@ -58,6 +58,10 @@ function softwareKindRu(k: SoftwareRequestKind): string {
   }
 }
 
+function isWholeClassroomIssueDescription(text: string): boolean {
+  return text.includes("[Охват: вся аудитория]")
+}
+
 export async function GET() {
   const session = await auth()
   if (!session?.user?.id) {
@@ -125,11 +129,13 @@ export async function GET() {
           buildingName: cr.building?.name ?? null,
         })
       : "—"
-    const workstationLabel = ws
-      ? ws.name?.trim()
-        ? `${ws.code} — ${ws.name}`
-        : ws.code
-      : null
+    const workstationLabel = isWholeClassroomIssueDescription(ir.description)
+      ? null
+      : ws
+        ? ws.name?.trim()
+          ? `${ws.code} — ${ws.name}`
+          : ws.code
+        : null
 
     const resolution = ir.resolution?.trim()
     const adminComment = resolution || null

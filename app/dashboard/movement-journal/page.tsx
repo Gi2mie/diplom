@@ -404,7 +404,7 @@ export default function MovementJournalPage() {
         </CardHeader>
         <CardContent>
           <div className="max-h-[min(70vh,720px)] overflow-auto rounded-md border">
-            <Table>
+            <Table className="min-w-[1080px]">
               <TableHeader>
                 <TableRow>
                   <SortableTableHead
@@ -412,6 +412,7 @@ export default function MovementJournalPage() {
                     sortKey={sortKey}
                     sortDir={sortDir}
                     onSort={toggleSort}
+                    className="min-w-[10rem]"
                   >
                     Перемещено
                   </SortableTableHead>
@@ -420,6 +421,7 @@ export default function MovementJournalPage() {
                     sortKey={sortKey}
                     sortDir={sortDir}
                     onSort={toggleSort}
+                    className="min-w-[10rem]"
                   >
                     Возврат
                   </SortableTableHead>
@@ -428,6 +430,7 @@ export default function MovementJournalPage() {
                     sortKey={sortKey}
                     sortDir={sortDir}
                     onSort={toggleSort}
+                    className="min-w-[8rem]"
                   >
                     Тип
                   </SortableTableHead>
@@ -436,6 +439,7 @@ export default function MovementJournalPage() {
                     sortKey={sortKey}
                     sortDir={sortDir}
                     onSort={toggleSort}
+                    className="min-w-[18rem]"
                   >
                     Оборудование
                   </SortableTableHead>
@@ -444,6 +448,7 @@ export default function MovementJournalPage() {
                     sortKey={sortKey}
                     sortDir={sortDir}
                     onSort={toggleSort}
+                    className="min-w-[10rem]"
                   >
                     Маршрут ауд.
                   </SortableTableHead>
@@ -452,6 +457,7 @@ export default function MovementJournalPage() {
                     sortKey={sortKey}
                     sortDir={sortDir}
                     onSort={toggleSort}
+                    className="min-w-[16rem]"
                   >
                     РМ
                   </SortableTableHead>
@@ -460,10 +466,11 @@ export default function MovementJournalPage() {
                     sortKey={sortKey}
                     sortDir={sortDir}
                     onSort={toggleSort}
+                    className="min-w-[14rem]"
                   >
                     Инициатор
                   </SortableTableHead>
-                  <TableHead className="text-right">Действие</TableHead>
+                  <TableHead className="min-w-[10rem] text-right">Действие</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -517,15 +524,19 @@ export default function MovementJournalPage() {
                       <TableCell className="font-mono text-sm tabular-nums">
                         {`${item.fromClassroomNumber}->${item.toClassroomNumber}`}
                       </TableCell>
-                      <TableCell className="max-w-[10rem] text-xs">
+                      <TableCell className="max-w-[16rem] text-xs">
                         <div className="flex items-start gap-1">
                           <MapPin className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground" />
-                          <span className="break-all">
+                          <span className="break-all" title={`${item.fromWorkstationCode} → ${item.toWorkstationCode}`}>
                             {item.fromWorkstationCode} → {item.toWorkstationCode}
                           </span>
                         </div>
                       </TableCell>
-                      <TableCell className="text-sm">{item.initiator}</TableCell>
+                      <TableCell className="max-w-[14rem] text-sm">
+                        <span className="block truncate" title={item.initiator}>
+                          {item.initiator}
+                        </span>
+                      </TableCell>
                       <TableCell className="text-right">
                         {!item.revertedAt ? (
                           <Button

@@ -216,7 +216,7 @@ export default function MyRequestsPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 min-h-0">
       <PageHeader
         title="Мои заявки"
         description="Обращения о неисправностях и заявки на ПО, которые вы подавали"
@@ -341,12 +341,12 @@ export default function MyRequestsPage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="min-h-0">
         <CardHeader>
           <CardTitle>Заявки</CardTitle>
           <CardDescription>Найдено: {sortedRequests.length}</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="min-h-0">
           {sortedRequests.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-center">
               <AlertTriangle className="mb-4 h-12 w-12 text-muted-foreground" />
@@ -371,14 +371,16 @@ export default function MyRequestsPage() {
               )}
             </div>
           ) : (
-            <Table>
-              <TableHeader>
+            <div className="max-h-[min(62vh,680px)] overflow-auto rounded-md border">
+              <Table className="min-w-[940px]">
+                <TableHeader>
                 <TableRow>
                   <SortableTableHead
                     columnKey="title"
                     sortKey={sortKey}
                     sortDir={sortDir}
                     onSort={toggleSort}
+                    className="min-w-[20rem]"
                   >
                     Заявка
                   </SortableTableHead>
@@ -387,6 +389,7 @@ export default function MyRequestsPage() {
                     sortKey={sortKey}
                     sortDir={sortDir}
                     onSort={toggleSort}
+                    className="min-w-[10rem]"
                   >
                     Тип
                   </SortableTableHead>
@@ -395,6 +398,7 @@ export default function MyRequestsPage() {
                     sortKey={sortKey}
                     sortDir={sortDir}
                     onSort={toggleSort}
+                    className="min-w-[14rem]"
                   >
                     Аудитория
                   </SortableTableHead>
@@ -403,6 +407,7 @@ export default function MyRequestsPage() {
                     sortKey={sortKey}
                     sortDir={sortDir}
                     onSort={toggleSort}
+                    className="min-w-[9rem]"
                   >
                     Приоритет
                   </SortableTableHead>
@@ -411,13 +416,14 @@ export default function MyRequestsPage() {
                     sortKey={sortKey}
                     sortDir={sortDir}
                     onSort={toggleSort}
+                    className="min-w-[10rem]"
                   >
                     Статус
                   </SortableTableHead>
-                  <TableHead className="text-right">Действия</TableHead>
+                  <TableHead className="min-w-[7rem] text-right">Действия</TableHead>
                 </TableRow>
-              </TableHeader>
-              <TableBody>
+                </TableHeader>
+                <TableBody>
                 {sortedRequests.map((request) => {
                   const statusInfo = statusConfig[request.status]
                   const priorityInfo = priorityConfig[request.priority]
@@ -470,8 +476,9 @@ export default function MyRequestsPage() {
                     </TableRow>
                   )
                 })}
-              </TableBody>
-            </Table>
+                </TableBody>
+              </Table>
+            </div>
           )}
         </CardContent>
       </Card>

@@ -33,6 +33,7 @@ import { PageHeader } from "@/components/dashboard/page-header"
 import { fetchClassroomRegistry, type RegistryClassroom } from "@/lib/api/classroom-registry"
 import { fetchWorkstations, type ApiWorkstation } from "@/lib/api/workstations"
 import { submitTeacherIssueReport } from "@/lib/api/issue-reports"
+import { requestDashboardNavCountsRefresh } from "@/lib/dashboard-nav-counts-refresh"
 import type { TeacherProblemEquipmentKind } from "@/lib/validators"
 
 const priorityOptions: {
@@ -147,6 +148,7 @@ export default function NewRequestPage() {
       })
       setCreatedCount(res.created)
       setIsSubmitted(true)
+      requestDashboardNavCountsRefresh()
       toast.success(
         res.created > 1 ? `Создано обращений: ${res.created}` : "Заявка отправлена"
       )
@@ -226,7 +228,7 @@ export default function NewRequestPage() {
             <h2 className="mb-2 text-xl font-semibold">Заявка отправлена</h2>
             <p className="text-muted-foreground">
               {createdCount > 1
-                ? `Создано обращений: ${createdCount} (по рабочим местам в аудитории).`
+                ? `Создано обращений: ${createdCount}.`
                 : "Ваша заявка передана администратору. Скоро вы будете перенаправлены к списку заявок."}
             </p>
           </CardContent>
@@ -389,8 +391,7 @@ export default function NewRequestPage() {
                     </div>
                     {wholeClassroom ? (
                       <p className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm text-muted-foreground">
-                        Будет создано отдельное обращение по каждому рабочему месту, где в системе есть
-                        зарегистрированное оборудование (по умолчанию — запись ПК).
+                        Будет создано одно обращение на выбранную аудиторию (без разбиения по рабочим местам).
                       </p>
                     ) : null}
                     <Select

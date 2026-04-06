@@ -91,6 +91,8 @@ import { PageHeader } from "@/components/dashboard/page-header"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { SortableTableHead } from "@/components/ui/sortable-table-head"
 import { useTableSort } from "@/hooks/use-table-sort"
+import { equipmentPermanentDeleteAllowed } from "@/lib/equipment-deletion-policy"
+import { parseFetchJson } from "@/lib/api/parse-fetch-json"
 
 type WorkstationRow = {
   id: string
@@ -177,10 +179,9 @@ export default function EquipmentPage() {
         fetchEquipmentDashboardList({}),
         fetchEquipmentRegistry(),
         fetchClassroomRegistry(),
-        fetch("/api/workstations", { cache: "no-store" }).then(async (r) => {
-          if (!r.ok) throw new Error("Не удалось загрузить рабочие места")
-          return r.json() as Promise<{ workstations: WorkstationRow[] }>
-        }),
+        fetch("/api/workstations", { cache: "no-store" }).then((r) =>
+          parseFetchJson<{ workstations: WorkstationRow[] }>(r)
+        ),
       ])
       setEquipment(eq)
       setRegistry(reg)
@@ -359,6 +360,10 @@ export default function EquipmentPage() {
       setFormError("Укажите название и инвентарный номер")
       return
     }
+    if (!form.serialNumber.trim()) {
+      setFormError("Укажите серийный номер")
+      return
+    }
     if (!form.categoryId || !form.equipmentKindId) {
       setFormError("Выберите категорию и тип оборудования")
       return
@@ -375,7 +380,7 @@ export default function EquipmentPage() {
       categoryId: form.categoryId,
       equipmentKindId: form.equipmentKindId,
       workstationId,
-      serialNumber: form.serialNumber.trim() || null,
+      serialNumber: form.serialNumber.trim(),
       description: form.description.trim() || null,
     }
 
@@ -446,7 +451,7 @@ export default function EquipmentPage() {
         title="Управление оборудованием"
         description={
           isAdmin
-            ? "Добавление, редактирование и удаление оборудования, привязка к рабочим местам и учёт статусов."
+            ? "Добавление и редактирование, привязка к рабочим местам и учёт статусов. Удаление из учёта — только после списания и не ранее чем через 30 суток."
             : "Просмотр оборудования в аудиториях, за которые вы ответственны."
         }
         actions={
@@ -819,17 +824,24 @@ export default function EquipmentPage() {
                                     </span>
                                   </DropdownMenuItem>
                                 )}
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem
-                                  className="text-destructive focus:text-destructive"
-                                  onClick={() => {
-                                    setSelected(item)
-                                    setDeleteOpen(true)
-                                  }}
-                                >
-                                  <Trash2 className="mr-2 h-4 w-4" />
-                                  Удалить
-                                </DropdownMenuItem>
+                                {equipmentPermanentDeleteAllowed(
+                                  item.status,
+                                  item.decommissionedAt ?? null
+                                ) ? (
+                                  <>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem
+                                      className="text-destructive focus:text-destructive"
+                                      onClick={() => {
+                                        setSelected(item)
+                                        setDeleteOpen(true)
+                                      }}
+                                    >
+                                      <Trash2 className="mr-2 h-4 w-4" />
+                                      Удалить из учёта
+                                    </DropdownMenuItem>
+                                  </>
+                                ) : null}
                               </>
                             )}
                           </DropdownMenuContent>
@@ -1079,11 +1091,14 @@ export default function EquipmentPage() {
               </Select>
             </div>
             <div className="grid gap-2">
-              <Label>Серийный номер</Label>
+              <Label htmlFor="equipment-serial">Серийный номер</Label>
               <Input
+                id="equipment-serial"
                 value={form.serialNumber}
                 onChange={(e) => setForm((f) => ({ ...f, serialNumber: e.target.value }))}
-                placeholder="Необязательно"
+                placeholder="Обязательно"
+                required
+                autoComplete="off"
               />
             </div>
             <div className="grid gap-2">
@@ -1237,15 +1252,17 @@ export default function EquipmentPage() {
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Удалить оборудование?</AlertDialogTitle>
+            <AlertDialogTitle>Удалить из учёта?</AlertDialogTitle>
             <AlertDialogDescription>
-              {selected ? `«${selected.name}» будет удалено безвозвратно.` : ""}
+              {selected
+                ? `Запись «${selected.name}» будет удалена безвозвратно. Доступно только для списанного оборудования не ранее чем через 30 суток после даты списания.`
+                : ""}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Отмена</AlertDialogCancel>
             <AlertDialogAction variant="destructive" onClick={() => void confirmDelete()}>
-              Удалить
+              Удалить из учёта
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1257,7 +1274,7 @@ export default function EquipmentPage() {
             <AlertDialogTitle>Списать оборудование?</AlertDialogTitle>
             <AlertDialogDescription>
               {selected
-                ? `Для «${selected.name}» будет установлен статус «${equipmentStatusLabel(EquipmentStatus.DECOMMISSIONED)}». Запись останется в системе.`
+                ? `Для «${selected.name}» будет установлен статус «${equipmentStatusLabel(EquipmentStatus.DECOMMISSIONED)}». Запись останется в системе; окончательное удаление из учёта возможно не ранее чем через 30 суток.`
                 : ""}
             </AlertDialogDescription>
           </AlertDialogHeader>

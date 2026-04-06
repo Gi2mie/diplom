@@ -15,6 +15,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
+  try {
   const { searchParams } = new URL(request.url)
   const search = searchParams.get("search")?.trim() || undefined
   const statusParam = searchParams.get("status") || undefined
@@ -99,6 +100,7 @@ export async function GET(request: Request) {
     description: e.description,
     purchaseDate: e.purchaseDate ? e.purchaseDate.toISOString().slice(0, 10) : null,
     warrantyUntil: e.warrantyUntil ? e.warrantyUntil.toISOString().slice(0, 10) : null,
+    decommissionedAt: e.decommissionedAt ? e.decommissionedAt.toISOString() : null,
     manufacturer: e.manufacturer,
     model: e.model,
     categoryId: e.categoryId,
@@ -119,6 +121,20 @@ export async function GET(request: Request) {
   }))
 
   return NextResponse.json({ equipment })
+  } catch (e) {
+    console.error("[GET /api/equipment]", e)
+    const msg = e instanceof Error ? e.message : "Ошибка базы данных"
+    const prismaCode =
+      e !== null && typeof e === "object" && "code" in e
+        ? String((e as { code?: string }).code)
+        : ""
+    const needsMigration =
+      /decommissioned_at|decommissionedAt/i.test(msg) || prismaCode === "P2022"
+    const hint = needsMigration
+      ? " Выполните миграцию Prisma (колонка decommissioned_at для equipment)."
+      : ""
+    return NextResponse.json({ error: `${msg}${hint}` }, { status: 500 })
+  }
 }
 
 export async function POST(request: Request) {
@@ -165,13 +181,14 @@ export async function POST(request: Request) {
     }
   }
 
+  const initialStatus = initialEquipmentStatusForCreate(d.workstationId ?? null, d.status)
   const row = await db.$transaction(async (tx) => {
     const created = await tx.equipment.create({
       data: {
         inventoryNumber: d.inventoryNumber.trim(),
         name: d.name.trim(),
         type: kind.mapsToEnum,
-        status: initialEquipmentStatusForCreate(d.workstationId ?? null, d.status),
+        status: initialStatus,
         categoryId: d.categoryId,
         equipmentKindId: d.equipmentKindId,
         workstationId: d.workstationId ?? null,
@@ -181,6 +198,8 @@ export async function POST(request: Request) {
         purchaseDate: d.purchaseDate ?? null,
         warrantyUntil: d.warrantyUntil ?? null,
         description: d.description?.trim() || null,
+        decommissionedAt:
+          initialStatus === EquipmentStatus.DECOMMISSIONED ? new Date() : null,
       },
     })
 

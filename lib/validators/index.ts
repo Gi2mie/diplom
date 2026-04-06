@@ -165,15 +165,29 @@ export const createEquipmentSchema = z.object({
   workstationId: z.string().cuid().optional().nullable(),
   manufacturer: z.string().nullable().optional(),
   model: z.string().nullable().optional(),
-  serialNumber: z.string().nullable().optional(),
+  serialNumber: z.string().trim().min(1, "Серийный номер обязателен"),
   purchaseDate: z.coerce.date().optional().nullable(),
   warrantyUntil: z.coerce.date().optional().nullable(),
   description: z.string().nullable().optional(),
 })
 
-export const updateEquipmentSchema = createEquipmentSchema.partial().extend({
-  isActive: z.boolean().optional(),
-})
+export const updateEquipmentSchema = createEquipmentSchema
+  .partial()
+  .extend({
+    isActive: z.boolean().optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (!Object.prototype.hasOwnProperty.call(data, "serialNumber")) return
+    const raw = data.serialNumber
+    const s = typeof raw === "string" ? raw.trim() : ""
+    if (!s) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Серийный номер обязателен",
+        path: ["serialNumber"],
+      })
+    }
+  })
 
 export const updateEquipmentStatusSchema = z.object({
   status: z.nativeEnum(EquipmentStatus),
@@ -228,6 +242,7 @@ export const createSoftwareSchema = z.object({
     "OTHER",
   ]),
   licenseKind: z.enum(["FREE", "PAID", "EDUCATIONAL"]),
+  licenseType: z.string().optional().nullable(),
   defaultLicenseKey: z.string().optional().nullable(),
   // null / "" не прогоняем через coerce.date — иначе new Date(null) → 1970-01-01
   licenseExpiresAt: z.preprocess(

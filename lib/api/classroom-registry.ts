@@ -1,4 +1,5 @@
 import type { ClassroomListingStatus } from "@prisma/client"
+import { parseFetchJson } from "@/lib/api/parse-fetch-json"
 
 export type ClassroomRegistryStats = {
   totalClassrooms: number
@@ -61,17 +62,9 @@ export type ClassroomRegistryPayload = {
   teachers: RegistryTeacher[]
 }
 
-async function parseJson<T>(response: Response): Promise<T> {
-  const data = await response.json()
-  if (!response.ok) {
-    throw new Error(data?.error || "Request failed")
-  }
-  return data as T
-}
-
 export async function fetchClassroomRegistry(): Promise<ClassroomRegistryPayload> {
   const response = await fetch("/api/classroom-registry", { cache: "no-store" })
-  return parseJson(response)
+  return parseFetchJson(response)
 }
 
 export type CreateClassroomBody = {
@@ -92,7 +85,7 @@ export async function createClassroomApi(body: CreateClassroomBody): Promise<voi
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   })
-  await parseJson<{ ok: boolean }>(response)
+  await parseFetchJson<{ ok: boolean }>(response)
 }
 
 export async function updateClassroomApi(id: string, body: Partial<CreateClassroomBody>): Promise<void> {
@@ -101,12 +94,12 @@ export async function updateClassroomApi(id: string, body: Partial<CreateClassro
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   })
-  await parseJson<{ ok: boolean }>(response)
+  await parseFetchJson<{ ok: boolean }>(response)
 }
 
 export async function deleteClassroomApi(id: string): Promise<void> {
   const response = await fetch(`/api/classrooms/${id}`, { method: "DELETE" })
-  await parseJson<{ ok: boolean }>(response)
+  await parseFetchJson<{ ok: boolean }>(response)
 }
 
 export async function createBuildingApi(body: {
@@ -120,7 +113,7 @@ export async function createBuildingApi(body: {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   })
-  await parseJson<{ ok: boolean }>(response)
+  await parseFetchJson<{ ok: boolean }>(response)
 }
 
 export async function updateBuildingApi(
@@ -132,12 +125,12 @@ export async function updateBuildingApi(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   })
-  await parseJson<{ ok: boolean }>(response)
+  await parseFetchJson<{ ok: boolean }>(response)
 }
 
 export async function deleteBuildingApi(id: string): Promise<void> {
   const response = await fetch(`/api/buildings/${id}`, { method: "DELETE" })
-  await parseJson<{ ok: boolean }>(response)
+  await parseFetchJson<{ ok: boolean }>(response)
 }
 
 export async function createClassroomTypeApi(body: {
@@ -151,7 +144,7 @@ export async function createClassroomTypeApi(body: {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   })
-  await parseJson<{ ok: boolean }>(response)
+  await parseFetchJson<{ ok: boolean }>(response)
 }
 
 export async function updateClassroomTypeApi(
@@ -163,10 +156,10 @@ export async function updateClassroomTypeApi(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   })
-  await parseJson<{ ok: boolean }>(response)
+  await parseFetchJson<{ ok: boolean }>(response)
 }
 
 export async function deleteClassroomTypeApi(id: string): Promise<void> {
   const response = await fetch(`/api/classroom-types/${id}`, { method: "DELETE" })
-  await parseJson<{ ok: boolean }>(response)
+  await parseFetchJson<{ ok: boolean }>(response)
 }

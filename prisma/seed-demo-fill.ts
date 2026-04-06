@@ -1,20 +1,26 @@
 /**
  * Дополнительное наполнение БД демо-данными.
- * Не изменяет: software_requests, issue_reports, repairs.
  *
  * Именование (поле name): префикс по типу + суффикс из кода РМ (101-01):
  * PC, MN, KB, MS, PRINT, PROE, IND, SCAN, NET, OTH.
  * Инвентарные номера: INV-DEMO-… (всегда INV).
  *
  * Перед вставкой: удаляются старые строки этого же сида (INV-DEMO- / SEEDFILL-)
- * и пустые РМ в заполняемых аудиториях. Обращения и ремонты не затрагиваются.
+ * и пустые РМ в целевых аудиториях. Полный сброс и повторное создание:
+ * software_requests, issue_reports, repairs (и связанные записи change_history по ним).
  */
 import {
   PrismaClient,
+  EntityType,
   EquipmentStatus,
   EquipmentType,
+  IssuePriority,
+  IssueStatus,
+  RepairStatus,
   SoftwareCatalogCategory,
   SoftwareLicenseKind,
+  SoftwareRequestKind,
+  SoftwareRequestStatus,
   WorkstationStatus,
   type Prisma,
 } from "@prisma/client"
@@ -22,6 +28,7 @@ import { createComputerConfig, updateComputerConfig } from "../lib/pc-config-per
 import type { PcConfigSavePayload } from "../lib/pc-config-persist"
 import { syncWorkstationKitFromEquipment } from "../lib/workstation-kit-sync"
 import { syncWorkstationStatusFromEquipment } from "../lib/workstation-status-sync"
+import { execSync } from "node:child_process"
 
 const prisma = new PrismaClient()
 
@@ -76,21 +83,268 @@ async function purgePreviousDemoSeed(roomNumbers: string[]): Promise<void> {
   }
 
   if (managedClassroomIds.length > 0) {
-    const emptyWs = await prisma.workstation.deleteMany({
+    const emptyWsRows = await prisma.workstation.findMany({
       where: {
         classroomId: { in: managedClassroomIds },
         equipment: { none: {} },
       },
+      select: { id: true },
     })
-    if (emptyWs.count > 0) {
-      console.log(`Удалено пустых рабочих мест в целевых аудиториях: ${emptyWs.count}`)
+    const emptyWsIds = emptyWsRows.map((w) => w.id)
+    if (emptyWsIds.length > 0) {
+      const relDel = await prisma.relocationLog.deleteMany({
+        where: {
+          OR: [
+            { fromWorkstationId: { in: emptyWsIds } },
+            { toWorkstationId: { in: emptyWsIds } },
+          ],
+        },
+      })
+      if (relDel.count > 0) {
+        console.log(
+          `Удалено записей журнала перемещений, ссылающихся на пустые РМ: ${relDel.count}`,
+        )
+      }
+      const emptyWs = await prisma.workstation.deleteMany({
+        where: { id: { in: emptyWsIds } },
+      })
+      if (emptyWs.count > 0) {
+        console.log(`Удалено пустых рабочих мест в целевых аудиториях: ${emptyWs.count}`)
+      }
     }
   }
+}
+
+/** Полное удаление заявок на ПО, обращений и ремонтов (для демо-перезаполнения). */
+async function purgeSoftwareRequestsIssuesRepairs(): Promise<void> {
+  const hist = await prisma.changeHistory.deleteMany({
+    where: { entityType: { in: [EntityType.ISSUE_REPORT, EntityType.REPAIR] } },
+  })
+  const repairs = await prisma.repair.deleteMany({})
+  const issues = await prisma.issueReport.deleteMany({})
+  const reqs = await prisma.softwareRequest.deleteMany({})
+  console.log(
+    `Сброс заявок/обращений/ремонтов: change_history=${hist.count}, repairs=${repairs.count}, issue_reports=${issues.count}, software_requests=${reqs.count}`,
+  )
 }
 
 function roomDigitsKey(roomNumber: string): string {
   const digits = roomNumber.replace(/\D/g, "")
   return digits || "0"
+}
+
+async function seedDemoRequestsIssuesRepairs(args: {
+  adminId: string
+  teacherId: string
+}): Promise<void> {
+  const { adminId, teacherId } = args
+
+  const classroomByNumber = (number: string) =>
+    prisma.classroom.findUnique({ where: { number }, select: { id: true } })
+
+  const workstationBySeat = async (roomNumber: string, seat: number) => {
+    const rk = roomDigitsKey(roomNumber)
+    const code = `RM-${rk}-${String(seat).padStart(2, "0")}`
+    const c = await classroomByNumber(roomNumber)
+    if (!c) return null
+    return prisma.workstation.findFirst({
+      where: { classroomId: c.id, code },
+      select: { id: true },
+    })
+  }
+
+  const pcBySeat = (roomNumber: string, seat: number) => {
+    const rk = roomDigitsKey(roomNumber)
+    const seatStr = String(seat).padStart(2, "0")
+    return prisma.equipment.findFirst({
+      where: { inventoryNumber: inv("PC", rk, seatStr) },
+      select: { id: true },
+    })
+  }
+
+  const monitorBySeat = (roomNumber: string, seat: number) => {
+    const rk = roomDigitsKey(roomNumber)
+    const seatStr = String(seat).padStart(2, "0")
+    return prisma.equipment.findFirst({
+      where: { inventoryNumber: inv("MN", rk, seatStr) },
+      select: { id: true },
+    })
+  }
+
+  const c112 = await classroomByNumber("112")
+  const c105 = await classroomByNumber("105")
+  const c301 = await classroomByNumber("301")
+  const c401 = await classroomByNumber("401")
+
+  const ws112_02 = await workstationBySeat("112", 2)
+  const ws105_05 = await workstationBySeat("105", 5)
+  const ws301_01 = await workstationBySeat("301", 1)
+
+  if (c112 && ws112_02) {
+    await prisma.softwareRequest.create({
+      data: {
+        kind: SoftwareRequestKind.INSTALL,
+        softwareName: "LibreOffice",
+        softwareVersion: "24.2",
+        description:
+          "Установить офисный пакет на рабочее место студента для курсовой работы (демо-заявка).",
+        classroomId: c112.id,
+        workstationId: ws112_02.id,
+        wholeClassroom: false,
+        priority: IssuePriority.HIGH,
+        status: SoftwareRequestStatus.PENDING,
+        requesterId: teacherId,
+      },
+    })
+  }
+
+  if (c105 && ws105_05) {
+    await prisma.softwareRequest.create({
+      data: {
+        kind: SoftwareRequestKind.UPDATE,
+        softwareName: "Google Chrome",
+        softwareVersion: "131",
+        description: "Обновить браузер до актуальной версии (безопасность, демо).",
+        classroomId: c105.id,
+        workstationId: ws105_05.id,
+        wholeClassroom: false,
+        priority: IssuePriority.MEDIUM,
+        status: SoftwareRequestStatus.IN_PROGRESS,
+        requesterId: teacherId,
+      },
+    })
+  }
+
+  if (c301 && ws301_01) {
+    await prisma.softwareRequest.create({
+      data: {
+        kind: SoftwareRequestKind.UNINSTALL,
+        softwareName: "7-Zip",
+        softwareVersion: "23.01",
+        description: "Удалить архиватор по требованию кафедры (демо-заявка).",
+        classroomId: c301.id,
+        workstationId: ws301_01.id,
+        wholeClassroom: false,
+        priority: IssuePriority.LOW,
+        status: SoftwareRequestStatus.PENDING,
+        requesterId: teacherId,
+      },
+    })
+  }
+
+  if (c401) {
+    await prisma.softwareRequest.create({
+      data: {
+        kind: SoftwareRequestKind.INSTALL,
+        softwareName: "Mozilla Firefox",
+        softwareVersion: "latest",
+        description: "Развернуть Firefox во всей аудитории для лекций (демо: на весь класс).",
+        classroomId: c401.id,
+        workstationId: null,
+        wholeClassroom: true,
+        priority: IssuePriority.MEDIUM,
+        status: SoftwareRequestStatus.PENDING,
+        requesterId: teacherId,
+      },
+    })
+  }
+
+  const eqPc112_3 = await pcBySeat("112", 3)
+  const eqMn112_7 = await monitorBySeat("112", 7)
+  const eqPc105_4 = await pcBySeat("105", 4)
+
+  if (!eqPc112_3 || !eqMn112_7 || !eqPc105_4) {
+    console.warn(
+      "Демо обращения/ремонты: часть оборудования не найдена (пропуск по отсутствующим единицам).",
+    )
+  }
+
+  let issue1: { id: string } | null = null
+  let issue2: { id: string } | null = null
+  let issue3: { id: string } | null = null
+
+  if (eqPc112_3) {
+    issue1 = await prisma.issueReport.create({
+      data: {
+        equipmentId: eqPc112_3.id,
+        reporterId: teacherId,
+        title: "ПК не выходит на загрузку ОС",
+        description:
+          "После обновления драйверов монитор показывает POST, далее чёрный экран. Демо-обращение.",
+        status: IssueStatus.NEW,
+        priority: IssuePriority.CRITICAL,
+      },
+    })
+  }
+
+  if (eqMn112_7) {
+    issue2 = await prisma.issueReport.create({
+      data: {
+        equipmentId: eqMn112_7.id,
+        reporterId: teacherId,
+        title: "Мерцание изображения на мониторе",
+        description: "На ярких участках заметны полосы и мерцание, демо-обращение.",
+        status: IssueStatus.IN_PROGRESS,
+        priority: IssuePriority.HIGH,
+      },
+    })
+  }
+
+  if (eqPc105_4) {
+    issue3 = await prisma.issueReport.create({
+      data: {
+        equipmentId: eqPc105_4.id,
+        reporterId: teacherId,
+        title: "Низкая скорость диска",
+        description: "Система долго откликается, подозрение на накопитель, демо-обращение.",
+        status: IssueStatus.NEW,
+        priority: IssuePriority.MEDIUM,
+      },
+    })
+  }
+
+  if (issue1 && eqPc112_3) {
+    await prisma.repair.create({
+      data: {
+        equipmentId: eqPc112_3.id,
+        issueReportId: issue1.id,
+        assignedToId: adminId,
+        createdById: adminId,
+        status: RepairStatus.IN_PROGRESS,
+        description: "Диагностика цепи питания и видеовыхода",
+        diagnosis: "Предварительно: проверка БП и RAM.",
+        startedAt: new Date(),
+      },
+    })
+  }
+
+  if (issue2 && eqMn112_7) {
+    await prisma.repair.create({
+      data: {
+        equipmentId: eqMn112_7.id,
+        issueReportId: issue2.id,
+        assignedToId: adminId,
+        createdById: adminId,
+        status: RepairStatus.PLANNED,
+        description: "Замена кабеля DisplayPort / проверка видеовыхода",
+      },
+    })
+  }
+
+  if (issue3 && eqPc105_4) {
+    await prisma.repair.create({
+      data: {
+        equipmentId: eqPc105_4.id,
+        issueReportId: issue3.id,
+        assignedToId: adminId,
+        createdById: adminId,
+        status: RepairStatus.PLANNED,
+        description: "Проверка SMART накопителя, при необходимости замена",
+      },
+    })
+  }
+
+  console.log("Добавлены демо-заявки на ПО, обращения о неисправностях и активные ремонты.")
 }
 
 /** Суффикс из кода РМ: RM-101-05 → 101-05 (единообразно для всех префиксов) */
@@ -311,14 +565,32 @@ async function upsertEquip(args: {
 
 async function main() {
   console.log(
-    "Демо-наполнение: максимум РМ с ПК, полные конфигурации ПК, оборудование с префиксами имён, INV… (без заявок на ПО / обращений / ремонтов).",
+    "Демо-наполнение: РМ с ПК, конфигурации, оборудование INV-DEMO…; сброс и новые заявки на ПО / обращения / ремонты.",
   )
 
-  const teacher = await prisma.user.findFirst({ where: { email: "teacher@nhtk" } })
+  let teacher = await prisma.user.findFirst({ where: { email: "teacher@nhtk" } })
   if (!teacher) {
-    console.error("Нет teacher@nhtk. Выполните: npx prisma db seed")
+    console.log("Нет teacher@nhtk — запускаю базовый сид (npx prisma db seed)…")
+    try {
+      execSync("npx prisma db seed", { stdio: "inherit", cwd: process.cwd(), env: process.env })
+    } catch {
+      console.error("Базовый сид завершился с ошибкой. Выполните вручную: npx prisma db seed")
+      process.exit(1)
+    }
+    teacher = await prisma.user.findFirst({ where: { email: "teacher@nhtk" } })
+  }
+  if (!teacher) {
+    console.error("Пользователь teacher@nhtk не найден после базового сида.")
     process.exit(1)
   }
+
+  const admin = await prisma.user.findFirst({ where: { email: "admin@nhtk" } })
+  if (!admin) {
+    console.error("Нет admin@nhtk. Выполните: npx prisma db seed")
+    process.exit(1)
+  }
+
+  await purgeSoftwareRequestsIssuesRepairs()
 
   const typeClassroom = await prisma.classroomType.findUnique({ where: { code: "classroom" } })
   const typeLab = await prisma.classroomType.findUnique({ where: { code: "computer_lab" } })
@@ -774,8 +1046,10 @@ async function main() {
     await syncWorkstationStatusFromEquipment(prisma, wid)
   }
 
+  await seedDemoRequestsIssuesRepairs({ adminId: admin.id, teacherId: teacher.id })
+
   console.log(
-    `Готово: РМ с ПК ≈ ${wsCount}, конфигурации ПК (все поля + компоненты) через справочник, ПО на ПК, оборудование с полными полями. software_requests / issue_reports / repairs не изменялись.`,
+    `Готово: РМ с ПК ≈ ${wsCount}, конфигурации ПК, ПО на ПК, оборудование; заявки на ПО / обращения / ремонты пересозданы демо-данными.`,
   )
 }
 

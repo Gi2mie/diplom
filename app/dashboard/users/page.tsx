@@ -19,6 +19,9 @@ import {
   Clock,
   Ban,
   Loader2,
+  Printer,
+  FileSpreadsheet,
+  FileDown,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -70,6 +73,12 @@ import {
   isValidNhtkEmail,
   sanitizeEmailLocalInput,
 } from "@/lib/user-validation"
+import {
+  buildUsersHandoutExportTable,
+  printSingleUserHandout,
+  printUsersListHandout,
+} from "@/lib/user-credentials-handout"
+import { downloadReportsExcel, downloadReportsPdf } from "@/lib/reports-export-file"
 
 type UserRole = "ADMIN" | "TEACHER"
 type UserStatus = "ACTIVE" | "INACTIVE" | "BLOCKED"
@@ -357,6 +366,48 @@ export default function UsersPage() {
     toggleSort: toggleUserSort,
   } = useTableSort(filteredUsers, userSortGetters, "name")
 
+  const handlePrintUserCredentials = useCallback((user: User) => {
+    const ok = printSingleUserHandout({
+      lastName: user.lastName,
+      firstName: user.firstName,
+      middleName: user.middleName,
+      email: user.email,
+      role: user.role,
+      status: user.status,
+      handoutPasswordPlain: user.handoutPasswordPlain,
+    })
+    if (!ok) {
+      toast.error("Не удалось открыть окно печати. Разрешите всплывающие окна для этого сайта.")
+    }
+  }, [])
+
+  const handlePrintAllCredentials = useCallback(() => {
+    const ok = printUsersListHandout(sortedUsers)
+    if (!ok) {
+      toast.error("Не удалось открыть окно печати. Разрешите всплывающие окна для этого сайта.")
+    }
+  }, [sortedUsers])
+
+  const handleExportHandoutExcel = useCallback(async () => {
+    const table = buildUsersHandoutExportTable(
+      sortedUsers,
+      "Учётные данные для входа (EduControl)"
+    )
+    const stamp = new Date().toISOString().slice(0, 10)
+    await downloadReportsExcel(table, `uchyetnye-dannye-${stamp}.xlsx`, { sheetName: "Пользователи" })
+    toast.success("Файл Excel сохранён")
+  }, [sortedUsers])
+
+  const handleExportHandoutPdf = useCallback(async () => {
+    const table = buildUsersHandoutExportTable(
+      sortedUsers,
+      "Учётные данные для входа (EduControl)"
+    )
+    const stamp = new Date().toISOString().slice(0, 10)
+    await downloadReportsPdf(table, `uchyetnye-dannye-${stamp}.pdf`)
+    toast.success("PDF сохранён")
+  }, [sortedUsers])
+
   const {
     sortedItems: sortedRespTeachers,
     sortKey: respSortKey,
@@ -504,8 +555,48 @@ export default function UsersPage() {
           {/* Таблица пользователей */}
           <Card>
             <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base">Найдено: {sortedUsers.length} из {users.length}</CardTitle>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <CardTitle className="text-base">
+                    Найдено: {sortedUsers.length} из {users.length}
+                  </CardTitle>
+                  {isAdmin ? (
+                    <CardDescription className="mt-1 text-xs">
+                      Печать и файлы формируются по текущей таблице (фильтры и сортировка учитываются).
+                    </CardDescription>
+                  ) : null}
+                </div>
+                {isAdmin ? (
+                  <div className="flex flex-wrap gap-2 shrink-0">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handlePrintAllCredentials()}
+                    >
+                      <Printer className="mr-2 h-4 w-4" />
+                      Печать списка
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void handleExportHandoutExcel()}
+                    >
+                      <FileSpreadsheet className="mr-2 h-4 w-4" />
+                      Excel
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void handleExportHandoutPdf()}
+                    >
+                      <FileDown className="mr-2 h-4 w-4" />
+                      PDF
+                    </Button>
+                  </div>
+                ) : null}
               </div>
             </CardHeader>
             <CardContent className="min-w-0 p-0">
@@ -640,6 +731,14 @@ export default function UsersPage() {
                               {isAdmin && (
                                 <DropdownMenuItem onClick={() => handleEdit(user)}>
                                   <Pencil className="mr-2 h-4 w-4" />Редактировать
+                                </DropdownMenuItem>
+                              )}
+                              {isAdmin && (
+                                <DropdownMenuItem
+                                  onClick={() => handlePrintUserCredentials(user)}
+                                >
+                                  <Printer className="mr-2 h-4 w-4" />
+                                  Печать данных для входа
                                 </DropdownMenuItem>
                               )}
                             </DropdownMenuContent>
