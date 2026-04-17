@@ -431,7 +431,7 @@ export default function UsersPage() {
   const isAdmin = session.user.role === "ADMIN"
 
   return (
-    <div className="space-y-6" data-tour="tour-users-page">
+    <div className="space-y-6">
       <PageHeader
         title="Пользователи"
         description="Управление учётными записями и ответственностью по аудиториям"

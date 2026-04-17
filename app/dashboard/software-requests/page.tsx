@@ -86,6 +86,10 @@ import {
   type SoftwareRequestListRow,
 } from "@/lib/api/software-requests"
 import { requestDashboardNavCountsRefresh } from "@/lib/dashboard-nav-counts-refresh"
+import {
+  softwareRequestDeleteDaysLeft,
+  softwareRequestPermanentDeleteAllowed,
+} from "@/lib/request-deletion-policy"
 
 function classroomLabel(c: RegistryClassroom): string {
   const title = c.name?.trim() || `Аудитория ${c.number}`
@@ -476,11 +480,20 @@ export default function SoftwareRequestsPage() {
   }
 
   const canDeleteRequest = (r: SoftwareRequestListRow) => {
-    if (isAdmin) return false
+    if (isAdmin) {
+      return softwareRequestPermanentDeleteAllowed(r.status, r.updatedAt)
+    }
     return (
       r.status === SoftwareRequestStatus.PENDING &&
       r.requester.id === session.user.id
     )
+  }
+
+  const deleteRequestLabel = (r: SoftwareRequestListRow) => {
+    if (!isAdmin) return "Удалить"
+    const left = softwareRequestDeleteDaysLeft(r.status, r.updatedAt)
+    if (left == null || left <= 0) return "Удалить"
+    return `Удалить (через ${left} дн.)`
   }
 
   return (
@@ -489,7 +502,7 @@ export default function SoftwareRequestsPage() {
         title="Заявки на установку/обновление ПО"
         description={
           isAdmin
-            ? "Все заявки по всем аудиториям и рабочим местам. При создании заявки доступны любые аудитории и РМ."
+            ? "Все заявки по всем аудиториям и рабочим местам. При создании заявки доступны любые аудитории и РМ. Удаление доступно только для «Выполнено» или «Отклонено»."
             : "Заявки по аудиториям, за которые вы ответственны"
         }
         actions={
@@ -786,13 +799,14 @@ export default function SoftwareRequestsPage() {
                                 Статус и важность
                               </DropdownMenuItem>
                             )}
-                            {canDeleteRequest(request) && (
+                            {(isAdmin || canDeleteRequest(request)) && (
                               <DropdownMenuItem
                                 onClick={() => handleDelete(request)}
-                                className="text-destructive"
+                                className={canDeleteRequest(request) ? "text-destructive" : "text-muted-foreground"}
+                                disabled={!canDeleteRequest(request)}
                               >
                                 <Trash2 className="mr-2 h-4 w-4" />
-                                Удалить
+                                {deleteRequestLabel(request)}
                               </DropdownMenuItem>
                             )}
                           </DropdownMenuContent>
@@ -1131,7 +1145,9 @@ export default function SoftwareRequestsPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Удалить заявку?</AlertDialogTitle>
             <AlertDialogDescription>
-              Заявка на «{selectedRequest?.softwareName}» будет удалена безвозвратно.
+              {isAdmin
+                ? `Заявка на «${selectedRequest?.softwareName}» будет удалена безвозвратно. Удаление допустимо только для заявок со статусом «Выполнено» или «Отклонено».`
+                : `Заявка на «${selectedRequest?.softwareName}» будет удалена безвозвратно.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

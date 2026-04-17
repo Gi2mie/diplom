@@ -243,7 +243,6 @@ export function ProfileDialog({ open, onOpenChange, forcedTab }: Props) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        data-tour="profile-dialog-content"
         className="z-[118] flex max-h-[92vh] max-w-lg flex-col gap-0 overflow-hidden p-0 sm:max-w-lg"
         overlayClassName="z-[117]"
       >
@@ -477,7 +476,7 @@ export function ProfileDialog({ open, onOpenChange, forcedTab }: Props) {
               className="mt-0 min-h-0 flex-1 overflow-hidden data-[state=inactive]:hidden"
             >
               <div className={tabBodyScroll}>
-                <div data-tour="profile-password-section" className="space-y-4">
+                <div className="space-y-4">
                   <p className="text-sm text-muted-foreground">
                     Введите текущий пароль и новый (не короче 8 символов). Пароль преподавателя
                     может задать администратор в «Пользователях». Пароль администратора — здесь

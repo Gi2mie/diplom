@@ -41,7 +41,7 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await auth()
@@ -50,14 +50,32 @@ export async function DELETE(
   }
 
   const { id } = await params
+  const unlinkAllEquipment = new URL(request.url).searchParams.get("unlinkAllEquipment") === "1"
+
+  const existing = await db.equipmentCategory.findUnique({ where: { id }, select: { id: true } })
+  if (!existing) {
+    return NextResponse.json({ error: "Категория не найдена" }, { status: 404 })
+  }
+
   const n = await db.equipment.count({ where: { categoryId: id } })
-  if (n > 0) {
+  if (n > 0 && !unlinkAllEquipment) {
     return NextResponse.json(
       { error: "Нельзя удалить категорию, к которой привязано оборудование" },
       { status: 400 }
     )
   }
 
-  await db.equipmentCategory.delete({ where: { id } })
+  if (n > 0 && unlinkAllEquipment) {
+    await db.$transaction([
+      db.equipment.updateMany({
+        where: { categoryId: id },
+        data: { categoryId: null },
+      }),
+      db.equipmentCategory.delete({ where: { id } }),
+    ])
+  } else {
+    await db.equipmentCategory.delete({ where: { id } })
+  }
+
   return NextResponse.json({ ok: true })
 }

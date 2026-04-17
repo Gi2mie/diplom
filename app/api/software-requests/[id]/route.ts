@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { SoftwareRequestStatus, UserRole } from "@prisma/client"
 import { auth } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { assertSoftwareRequestPermanentDeleteAllowed } from "@/lib/request-deletion-policy"
 import { updateSoftwareRequestSchema } from "@/lib/validators"
 
 const listInclude = {
@@ -100,18 +101,27 @@ export async function DELETE(_request: Request, context: { params: Promise<{ id:
       requesterId: true,
       status: true,
       classroomId: true,
+      updatedAt: true,
     },
   })
   if (!existing) {
     return NextResponse.json({ error: "Не найдено" }, { status: 404 })
   }
 
-  if (session.user.role === UserRole.ADMIN) {
-    return NextResponse.json({ error: "Администратор не может удалять заявки" }, { status: 403 })
+  if (session.user.role !== UserRole.ADMIN && session.user.role !== UserRole.TEACHER) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
-  if (session.user.role !== UserRole.TEACHER) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  if (session.user.role === UserRole.ADMIN) {
+    const allowed = assertSoftwareRequestPermanentDeleteAllowed({
+      status: existing.status,
+      updatedAt: new Date(existing.updatedAt),
+    })
+    if (!allowed.ok) {
+      return NextResponse.json({ error: allowed.error }, { status: 400 })
+    }
+    await db.softwareRequest.delete({ where: { id } })
+    return NextResponse.json({ ok: true })
   }
 
   const classroom = await db.classroom.findUnique({

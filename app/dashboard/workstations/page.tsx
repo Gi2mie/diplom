@@ -120,7 +120,6 @@ type WorkstationFormState = {
   numberSuffix: string
   pcName: string
   description: string
-  lastMaintenance: string
 }
 
 const emptyForm = (): WorkstationFormState => ({
@@ -129,7 +128,6 @@ const emptyForm = (): WorkstationFormState => ({
   numberSuffix: "",
   pcName: "",
   description: "",
-  lastMaintenance: "",
 })
 
 /** Сколько единиц физически привязано к РМ (БД). */
@@ -355,7 +353,6 @@ export default function WorkstationsPage() {
       numberSuffix: c ? suffixFromRmCode(ws.code, num) : "",
       pcName: ws.pcName,
       description: ws.description,
-      lastMaintenance: ws.lastMaintenance || "",
     })
     setFormError(null)
     setIsEditDialogOpen(true)
@@ -379,7 +376,6 @@ export default function WorkstationsPage() {
       name: form.name.trim() || null,
       description: form.description.trim() || null,
       pcName: form.pcName.trim() || null,
-      lastMaintenance: form.lastMaintenance || null,
     }
   }
 
@@ -516,7 +512,7 @@ export default function WorkstationsPage() {
   }
 
   return (
-    <div className="space-y-6 md:space-y-8" data-tour="tour-workstations-page">
+    <div className="space-y-6 md:space-y-8">
       <PageHeader
         title="Рабочие места"
         description="Управление рабочими местами в аудиториях: комплектация, статус и перемещения."
@@ -888,16 +884,6 @@ export default function WorkstationsPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="lastMaint">Последнее ТО</Label>
-              <Input
-                id="lastMaint"
-                type="date"
-                value={form.lastMaintenance}
-                onChange={(e) => setForm((f) => ({ ...f, lastMaintenance: e.target.value }))}
-              />
-            </div>
-
-            <div className="space-y-2">
               <Label htmlFor="desc">Примечания</Label>
               <Textarea
                 id="desc"
@@ -995,16 +981,6 @@ export default function WorkstationsPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="edit-lastMaint">Последнее ТО</Label>
-              <Input
-                id="edit-lastMaint"
-                type="date"
-                value={form.lastMaintenance}
-                onChange={(e) => setForm((f) => ({ ...f, lastMaintenance: e.target.value }))}
-              />
-            </div>
-
-            <div className="space-y-2">
               <Label htmlFor="edit-desc">Примечания</Label>
               <Textarea
                 id="edit-desc"
@@ -1069,10 +1045,6 @@ export default function WorkstationsPage() {
                 <div>
                   <p className="text-sm text-muted-foreground">Единиц комплектации (позиций)</p>
                   <p className="font-medium">{kitEquipmentCount(selectedWorkstation)}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Последнее ТО</p>
-                  <p className="font-medium">{selectedWorkstation.lastMaintenance || "—"}</p>
                 </div>
               </div>
 

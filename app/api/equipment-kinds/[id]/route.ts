@@ -41,7 +41,7 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await auth()
@@ -50,6 +50,8 @@ export async function DELETE(
   }
 
   const { id } = await params
+  const unlinkAllEquipment = new URL(request.url).searchParams.get("unlinkAllEquipment") === "1"
+
   const kind = await db.equipmentKind.findUnique({
     where: { id },
     select: { code: true },
@@ -65,13 +67,24 @@ export async function DELETE(
   }
 
   const n = await db.equipment.count({ where: { equipmentKindId: id } })
-  if (n > 0) {
+  if (n > 0 && !unlinkAllEquipment) {
     return NextResponse.json(
       { error: "Нельзя удалить тип, к которому привязано оборудование" },
       { status: 400 }
     )
   }
 
-  await db.equipmentKind.delete({ where: { id } })
+  if (n > 0 && unlinkAllEquipment) {
+    await db.$transaction([
+      db.equipment.updateMany({
+        where: { equipmentKindId: id },
+        data: { equipmentKindId: null },
+      }),
+      db.equipmentKind.delete({ where: { id } }),
+    ])
+  } else {
+    await db.equipmentKind.delete({ where: { id } })
+  }
+
   return NextResponse.json({ ok: true })
 }

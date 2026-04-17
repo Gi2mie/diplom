@@ -357,14 +357,21 @@ export const updateIssueReportSchema = z.object({
   resolution: z.string().optional(),
 })
 
-/** Создание обращения администратором (произвольное оборудование). */
-export const adminCreateIssueReportSchema = z.object({
-  equipmentId: z.string().cuid("Некорректный ID оборудования"),
-  reporterId: z.string().cuid("Выберите заявителя"),
-  title: z.string().min(1, "Заголовок обязателен"),
-  description: z.string().optional().default(""),
-  priority: z.nativeEnum(IssuePriority).optional(),
-})
+/** Создание обращения администратором (те же поля, что у преподавателя). */
+export const adminCreateIssueReportSchema = z
+  .object({
+    classroomId: z.string().cuid("Некорректный ID аудитории"),
+    workstationId: z.string().cuid().optional().nullable(),
+    wholeClassroom: z.boolean(),
+    problemEquipmentKind: teacherProblemEquipmentKindSchema.default("other"),
+    title: z.string().min(1, "Заголовок обязателен"),
+    description: z.string().optional().default(""),
+    priority: z.nativeEnum(IssuePriority),
+  })
+  .refine((d) => d.wholeClassroom || Boolean(d.workstationId), {
+    message: "Выберите рабочее место или отметьте «Все рабочие места»",
+    path: ["workstationId"],
+  })
 
 export const adminUpdateIssueReportSchema = z
   .object({

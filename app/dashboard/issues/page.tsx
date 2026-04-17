@@ -17,6 +17,16 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import {
   Table,
   TableBody,
   TableCell,
@@ -59,8 +69,16 @@ import {
   Wrench,
   XCircle,
   Loader2,
+  Monitor,
+  Keyboard,
+  Mouse,
+  Cpu,
+  Printer,
+  Projector,
+  HelpCircle,
+  LayoutGrid,
 } from "lucide-react"
-import { fetchClassroomRegistry, type RegistryClassroom, type RegistryTeacher } from "@/lib/api/classroom-registry"
+import { fetchClassroomRegistry, type RegistryClassroom } from "@/lib/api/classroom-registry"
 import { fetchWorkstations, type ApiWorkstation } from "@/lib/api/workstations"
 import { fetchEquipmentDashboardList, type DashboardEquipmentRow } from "@/lib/api/equipment-dashboard"
 import { toast } from "sonner"
@@ -72,11 +90,30 @@ import {
   createAdminIssueReport,
   updateAdminIssueReport,
   postRepairsForIssue,
+  deleteAdminIssueReport,
   type AdminIssueReportRow,
 } from "@/lib/api/admin-issue-reports"
 import { fetchDashboardRepairs } from "@/lib/api/repairs-dashboard"
 import { requestDashboardNavCountsRefresh } from "@/lib/dashboard-nav-counts-refresh"
+import { issueDeleteDaysLeft, issuePermanentDeleteAllowed } from "@/lib/request-deletion-policy"
 import { cn } from "@/lib/utils"
+import type { TeacherProblemEquipmentKind } from "@/lib/validators"
+
+const equipmentTypes: {
+  value: TeacherProblemEquipmentKind
+  label: string
+  icon: React.ElementType
+}[] = [
+  { value: "monitor", label: "Монитор", icon: Monitor },
+  { value: "keyboard", label: "Клавиатура", icon: Keyboard },
+  { value: "mouse", label: "Мышь", icon: Mouse },
+  { value: "system_unit", label: "Системный блок", icon: Cpu },
+  { value: "printer", label: "Принтер", icon: Printer },
+  { value: "projector", label: "Проектор", icon: Projector },
+  { value: "network", label: "Сеть / интернет", icon: AlertTriangle },
+  { value: "software", label: "Программное обеспечение", icon: HelpCircle },
+  { value: "other", label: "Другое", icon: HelpCircle },
+]
 
 function personLabel(p: { firstName: string; lastName: string; middleName: string | null }): string {
   const m = p.middleName ? ` ${p.middleName}` : ""
@@ -154,7 +191,6 @@ export default function IssuesPage() {
   const { data: session, status: sessionStatus } = useSession()
   const [issues, setIssues] = useState<AdminIssueReportRow[]>([])
   const [classrooms, setClassrooms] = useState<RegistryClassroom[]>([])
-  const [teachers, setTeachers] = useState<RegistryTeacher[]>([])
   const [workstations, setWorkstations] = useState<ApiWorkstation[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -169,18 +205,18 @@ export default function IssuesPage() {
   const [addOpen, setAddOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const [repairOpen, setRepairOpen] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
   const [selected, setSelected] = useState<AdminIssueReportRow | null>(null)
 
   const [addForm, setAddForm] = useState({
     classroomId: "",
     workstationId: "",
-    equipmentId: "",
-    reporterId: "",
+    wholeClassroom: false,
+    problemEquipmentKind: "" as TeacherProblemEquipmentKind | "",
     title: "",
     description: "",
     priority: IssuePriority.MEDIUM as IssuePriority,
   })
-  const [addEquipment, setAddEquipment] = useState<DashboardEquipmentRow[]>([])
   const [editForm, setEditForm] = useState({
     title: "",
     description: "",
@@ -202,14 +238,9 @@ export default function IssuesPage() {
     setLoading(true)
     setError(null)
     try {
-      const [list, reg, ws] = await Promise.all([
-        fetchAdminIssueReports(),
-        fetchClassroomRegistry(),
-        fetchWorkstations(),
-      ])
+      const [list, reg, ws] = await Promise.all([fetchAdminIssueReports(), fetchClassroomRegistry(), fetchWorkstations()])
       setIssues(list)
       setClassrooms(reg.classrooms)
-      setTeachers(reg.teachers)
       setWorkstations(ws)
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ошибка загрузки")
@@ -229,27 +260,6 @@ export default function IssuesPage() {
       setFilterStatus("all")
     }
   }, [filterStatus])
-
-  useEffect(() => {
-    if (!addForm.classroomId) {
-      setAddEquipment([])
-      return
-    }
-    let cancelled = false
-    fetchEquipmentDashboardList({
-      classroomId: addForm.classroomId,
-      ...(addForm.workstationId ? { workstationId: addForm.workstationId } : {}),
-    })
-      .then((rows) => {
-        if (!cancelled) setAddEquipment(rows)
-      })
-      .catch(() => {
-        if (!cancelled) setAddEquipment([])
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [addForm.classroomId, addForm.workstationId])
 
   const issueAnchorClassroomId = selected?.equipment.workstation?.classroom.id
   const issueAnchorWorkstationId = selected?.equipment.workstation?.id
@@ -397,8 +407,8 @@ export default function IssuesPage() {
     setAddForm({
       classroomId: "",
       workstationId: "",
-      equipmentId: "",
-      reporterId: "",
+      wholeClassroom: false,
+      problemEquipmentKind: "",
       title: "",
       description: "",
       priority: IssuePriority.MEDIUM,
@@ -407,15 +417,18 @@ export default function IssuesPage() {
   }
 
   const submitAdd = async () => {
-    if (!addForm.equipmentId || !addForm.reporterId || !addForm.title.trim()) return
+    if (!addForm.classroomId || !addForm.problemEquipmentKind || !addForm.title.trim()) return
+    if (!addForm.wholeClassroom && !addForm.workstationId) return
     setSaving(true)
     try {
       await createAdminIssueReport({
-        equipmentId: addForm.equipmentId,
-        reporterId: addForm.reporterId,
         title: addForm.title.trim(),
         description: addForm.description.trim(),
         priority: addForm.priority,
+        classroomId: addForm.classroomId,
+        workstationId: addForm.wholeClassroom ? null : addForm.workstationId,
+        wholeClassroom: addForm.wholeClassroom,
+        problemEquipmentKind: addForm.problemEquipmentKind,
       })
       setAddOpen(false)
       await loadAll()
@@ -498,6 +511,41 @@ export default function IssuesPage() {
     }
   }
 
+  const canDeleteIssue = useCallback(
+    (row: AdminIssueReportRow) =>
+      issuePermanentDeleteAllowed(row.status, row.resolvedAt ?? row.updatedAt),
+    []
+  )
+
+  const issueDeleteLabel = useCallback((row: AdminIssueReportRow) => {
+    const left = issueDeleteDaysLeft(row.status, row.resolvedAt ?? row.updatedAt)
+    if (left == null) return "Удалить"
+    if (left <= 0) return "Удалить"
+    return `Удалить (через ${left} дн.)`
+  }, [])
+
+  const openDelete = (row: AdminIssueReportRow) => {
+    setSelected(row)
+    setDeleteOpen(true)
+  }
+
+  const submitDelete = async () => {
+    if (!selected) return
+    setSaving(true)
+    try {
+      await deleteAdminIssueReport(selected.id)
+      setDeleteOpen(false)
+      setSelected(null)
+      await loadAll()
+      requestDashboardNavCountsRefresh()
+      toast.success("Обращение удалено")
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Ошибка")
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const editHasActiveRepairs = Boolean(selected && selected.repairs.length > 0)
 
   const issueSortGetters = useMemo(
@@ -543,7 +591,7 @@ export default function IssuesPage() {
     <div className="space-y-6">
       <PageHeader
         title="Неисправности"
-        description="Обращения по всем аудиториям и рабочим местам. Постановка на ремонт фиксируется в «Активных ремонтах»."
+        description="Обращения по всем аудиториям и рабочим местам. Постановка на ремонт фиксируется в «Активных ремонтах». Удаление доступно только для «Решено/Закрыто/Отклонено»."
         actions={
           <Button onClick={openAdd}>
             <Plus className="mr-2 h-4 w-4" />
@@ -826,6 +874,14 @@ export default function IssuesPage() {
                                 <Wrench className="mr-2 h-4 w-4" />
                                 На ремонт
                               </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => openDelete(row)}
+                                className={canDeleteIssue(row) ? "text-destructive" : "text-muted-foreground"}
+                                disabled={!canDeleteIssue(row)}
+                              >
+                                <XCircle className="mr-2 h-4 w-4" />
+                                {issueDeleteLabel(row)}
+                              </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </TableCell>
@@ -892,7 +948,7 @@ export default function IssuesPage() {
         <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Новое обращение</DialogTitle>
-            <DialogDescription>Выберите аудиторию, рабочее место, оборудование и заявителя</DialogDescription>
+            <DialogDescription>Поля обращения совпадают с формой преподавателя</DialogDescription>
           </DialogHeader>
           <div className="grid gap-3 py-2">
             <div className="grid gap-2">
@@ -900,7 +956,7 @@ export default function IssuesPage() {
               <Select
                 value={addForm.classroomId}
                 onValueChange={(v) =>
-                  setAddForm({ ...addForm, classroomId: v, workstationId: "", equipmentId: "" })
+                  setAddForm({ ...addForm, classroomId: v, workstationId: "", wholeClassroom: false })
                 }
               >
                 <SelectTrigger>
@@ -923,10 +979,9 @@ export default function IssuesPage() {
                   setAddForm({
                     ...addForm,
                     workstationId: v === "__any__" ? "" : v,
-                    equipmentId: "",
                   })
                 }
-                disabled={!addForm.classroomId}
+                disabled={!addForm.classroomId || addForm.wholeClassroom}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Все / выберите РМ" />
@@ -942,41 +997,65 @@ export default function IssuesPage() {
               </Select>
             </div>
             <div className="grid gap-2">
-              <Label>Оборудование</Label>
-              <Select
-                value={addForm.equipmentId}
-                onValueChange={(v) => setAddForm({ ...addForm, equipmentId: v })}
-                disabled={!addForm.classroomId}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Выберите единицу" />
-                </SelectTrigger>
-                <SelectContent>
-                  {addEquipment.map((e) => (
-                    <SelectItem key={e.id} value={e.id}>
-                      {e.name} · {e.inventoryNumber}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="flex flex-wrap items-end justify-between gap-2">
+                <Label>Охват</Label>
+                <Button
+                  type="button"
+                  variant={addForm.wholeClassroom ? "default" : "outline"}
+                  size="sm"
+                  className="gap-1.5"
+                  disabled={!addForm.classroomId}
+                  onClick={() =>
+                    setAddForm((prev) => ({ ...prev, wholeClassroom: true, workstationId: "" }))
+                  }
+                >
+                  <LayoutGrid className="h-4 w-4" />
+                  Все рабочие места
+                </Button>
+              </div>
+              {addForm.wholeClassroom ? (
+                <>
+                  <p className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm text-muted-foreground">
+                    Будет создано одно обращение на выбранную аудиторию.
+                  </p>
+                  <Button
+                    type="button"
+                    variant="link"
+                    className="h-auto w-fit px-0 text-sm"
+                    onClick={() => setAddForm((prev) => ({ ...prev, wholeClassroom: false }))}
+                  >
+                    Выбрать одно рабочее место
+                  </Button>
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground">Выбрано одно рабочее место</p>
+              )}
             </div>
             <div className="grid gap-2">
-              <Label>Заявитель (преподаватель)</Label>
-              <Select
-                value={addForm.reporterId}
-                onValueChange={(v) => setAddForm({ ...addForm, reporterId: v })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Выберите" />
-                </SelectTrigger>
-                <SelectContent>
-                  {teachers.map((t) => (
-                    <SelectItem key={t.id} value={t.id}>
-                      {t.lastName} {t.firstName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label>Тип оборудования *</Label>
+              <div className="grid grid-cols-3 gap-2">
+                {equipmentTypes.map((type) => {
+                  const Icon = type.icon
+                  const isSelected = addForm.problemEquipmentKind === type.value
+                  return (
+                    <button
+                      key={type.value}
+                      type="button"
+                      onClick={() => setAddForm({ ...addForm, problemEquipmentKind: type.value })}
+                      className={`flex cursor-pointer flex-col items-center gap-2 rounded-lg border-2 p-3 transition-all hover:bg-accent ${
+                        isSelected ? "border-primary bg-primary/5" : "border-border"
+                      }`}
+                    >
+                      <Icon
+                        className={`h-5 w-5 ${isSelected ? "text-primary" : "text-muted-foreground"}`}
+                      />
+                      <span className={`text-xs font-medium ${isSelected ? "text-primary" : ""}`}>
+                        {type.label}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
             </div>
             <div className="grid gap-2">
               <Label>Заголовок</Label>
@@ -1014,7 +1093,13 @@ export default function IssuesPage() {
               Отмена
             </Button>
             <Button
-              disabled={saving || !addForm.equipmentId || !addForm.reporterId || !addForm.title.trim()}
+              disabled={
+                saving ||
+                !addForm.classroomId ||
+                !addForm.problemEquipmentKind ||
+                !addForm.title.trim() ||
+                (!addForm.wholeClassroom && !addForm.workstationId)
+              }
               onClick={() => void submitAdd()}
             >
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Создать"}
@@ -1108,6 +1193,24 @@ export default function IssuesPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Удалить обращение?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Обращение «{selected?.title}» будет удалено безвозвратно. Удаление допустимо только
+              для обращений со статусом «Решено», «Закрыто» или «Отклонено».
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Отмена</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={() => void submitDelete()}>
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Удалить"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog open={repairOpen} onOpenChange={setRepairOpen}>
         <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">

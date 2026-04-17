@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { useSession } from "next-auth/react"
 import { EquipmentType } from "@prisma/client"
 import {
@@ -9,7 +9,6 @@ import {
   MoreHorizontal,
   Pencil,
   Trash2,
-  Eye,
   Folder,
   Tags,
   X,
@@ -81,29 +80,6 @@ import {
   type RegistryEquipmentCategory,
   type RegistryEquipmentKind,
 } from "@/lib/api/equipment-registry"
-import {
-  type EduTourMockUiDetail,
-  EDU_TOUR_CATEGORIES_TAB_EVENT,
-  EDU_TOUR_MOCK_UI_EVENT,
-} from "@/lib/site-onboarding"
-
-const TOUR_DEMO_CAT: RegistryEquipmentCategory = {
-  id: "__edu-tour-cat__",
-  name: "Демо-категория",
-  description: "Пример для обучения",
-  color: "#3b82f6",
-  equipmentCount: 0,
-}
-
-const TOUR_DEMO_KIND: RegistryEquipmentKind = {
-  id: "__edu-tour-kind__",
-  name: "Демо-тип",
-  description: "Пример для обучения",
-  mapsToEnum: EquipmentType.OTHER,
-  code: null,
-  equipmentCount: 0,
-}
-
 const COLOR_PRESETS = [
   { name: "Синий", value: "#3b82f6" },
   { name: "Зелёный", value: "#10b981" },
@@ -126,7 +102,6 @@ export default function EquipmentCategoriesPage() {
   const [searchCat, setSearchCat] = useState("")
   const [searchKind, setSearchKind] = useState("")
 
-  const [catView, setCatView] = useState<RegistryEquipmentCategory | null>(null)
   const [catEdit, setCatEdit] = useState<RegistryEquipmentCategory | null>(null)
   const [catDelete, setCatDelete] = useState<RegistryEquipmentCategory | null>(null)
   const [catAddOpen, setCatAddOpen] = useState(false)
@@ -134,7 +109,6 @@ export default function EquipmentCategoriesPage() {
   const [catSaving, setCatSaving] = useState(false)
   const [catFormError, setCatFormError] = useState<string | null>(null)
 
-  const [kindView, setKindView] = useState<RegistryEquipmentKind | null>(null)
   const [kindEdit, setKindEdit] = useState<RegistryEquipmentKind | null>(null)
   const [kindDelete, setKindDelete] = useState<RegistryEquipmentKind | null>(null)
   const [kindAddOpen, setKindAddOpen] = useState(false)
@@ -145,6 +119,8 @@ export default function EquipmentCategoriesPage() {
   })
   const [kindSaving, setKindSaving] = useState(false)
   const [kindFormError, setKindFormError] = useState<string | null>(null)
+  const [catDeleteBusy, setCatDeleteBusy] = useState(false)
+  const [kindDeleteBusy, setKindDeleteBusy] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -163,15 +139,6 @@ export default function EquipmentCategoriesPage() {
   useEffect(() => {
     if (sessionStatus === "authenticated") void load()
   }, [sessionStatus, load])
-
-  useEffect(() => {
-    const fn = (e: Event) => {
-      const d = (e as CustomEvent<{ tab: "categories" | "kinds" }>).detail
-      if (d?.tab === "categories" || d?.tab === "kinds") setActiveTab(d.tab)
-    }
-    window.addEventListener(EDU_TOUR_CATEGORIES_TAB_EVENT, fn as EventListener)
-    return () => window.removeEventListener(EDU_TOUR_CATEGORIES_TAB_EVENT, fn as EventListener)
-  }, [])
 
   const filteredCategories = useMemo(() => {
     const q = searchCat.trim().toLowerCase()
@@ -228,11 +195,6 @@ export default function EquipmentCategoriesPage() {
     sortDir: kindSortDir,
     toggleSort: toggleKindSort,
   } = useTableSort(filteredKinds, kindSortGetters, "name")
-
-  const sortedCategoriesRef = useRef(sortedCategories)
-  sortedCategoriesRef.current = sortedCategories
-  const sortedKindsRef = useRef(sortedKinds)
-  sortedKindsRef.current = sortedKinds
 
   const saveCategory = async (mode: "add" | "edit") => {
     setCatFormError(null)
@@ -302,120 +264,49 @@ export default function EquipmentCategoriesPage() {
     }
   }
 
-  useEffect(() => {
-    const closeTour = () => {
-      setCatView(null)
-      setCatEdit(null)
-      setCatDelete(null)
-      setCatAddOpen(false)
-      setKindView(null)
-      setKindEdit(null)
-      setKindDelete(null)
-      setKindAddOpen(false)
-      setCatFormError(null)
-      setKindFormError(null)
-    }
-
-    const pickCat = (): RegistryEquipmentCategory => {
-      const row = sortedCategoriesRef.current[0]
-      if (row && row.id !== TOUR_DEMO_CAT.id) return row
-      return TOUR_DEMO_CAT
-    }
-    const pickKind = (): RegistryEquipmentKind => {
-      const row = sortedKindsRef.current[0]
-      if (row && row.id !== TOUR_DEMO_KIND.id) return row
-      return TOUR_DEMO_KIND
-    }
-
-    const onMock = (e: Event) => {
-      const detail = (e as CustomEvent<EduTourMockUiDetail>).detail
-      if (!detail) return
-      if ("reset" in detail && detail.reset) {
-        closeTour()
-        return
-      }
-      if ("category" in detail) {
-        closeTour()
-        const row = pickCat()
-        switch (detail.category) {
-          case "view":
-            setCatView(row)
-            break
-          case "edit":
-            setCatAddOpen(false)
-            setCatEdit(row)
-            setCatForm({
-              name: row.name,
-              description: row.description ?? "",
-              color: row.color,
-            })
-            setCatFormError(null)
-            break
-          case "delete":
-            setCatDelete(row)
-            break
-          case "add":
-            setCatForm({ name: "", description: "", color: "#3b82f6" })
-            setCatFormError(null)
-            setCatAddOpen(true)
-            break
-        }
-        return
-      }
-      if ("kind" in detail) {
-        closeTour()
-        const row = pickKind()
-        switch (detail.kind) {
-          case "view":
-            setKindView(row)
-            break
-          case "edit":
-            setKindAddOpen(false)
-            setKindEdit(row)
-            setKindForm({
-              name: row.name,
-              description: row.description ?? "",
-              mapsToEnum: row.mapsToEnum,
-            })
-            setKindFormError(null)
-            break
-          case "delete":
-            setKindDelete(row)
-            break
-          case "add":
-            setKindForm({ name: "", description: "", mapsToEnum: EquipmentType.OTHER })
-            setKindFormError(null)
-            setKindAddOpen(true)
-            break
-        }
-      }
-    }
-
-    window.addEventListener(EDU_TOUR_MOCK_UI_EVENT, onMock as EventListener)
-    return () => window.removeEventListener(EDU_TOUR_MOCK_UI_EVENT, onMock as EventListener)
-  }, [])
-
-  const doDeleteCategory = async () => {
+  const doDeleteCategory = async (unlinkAllEquipment: boolean) => {
     if (!catDelete) return
+    setCatDeleteBusy(true)
+    setError(null)
     try {
-      await deleteEquipmentCategoryApi(catDelete.id)
+      await deleteEquipmentCategoryApi(
+        catDelete.id,
+        unlinkAllEquipment ? { unlinkAllEquipment: true } : undefined
+      )
       setCatDelete(null)
       await load()
-      toast.success("Категория удалена")
+      toast.success(
+        unlinkAllEquipment
+          ? "Оборудование отвязано от категории, категория удалена"
+          : "Категория удалена"
+      )
     } catch (e) {
       setError(e instanceof Error ? e.message : "Не удалось удалить")
+    } finally {
+      setCatDeleteBusy(false)
     }
   }
 
-  const doDeleteKind = async () => {
+  const doDeleteKind = async (unlinkAllEquipment: boolean) => {
     if (!kindDelete) return
+    setKindDeleteBusy(true)
+    setError(null)
     try {
-      await deleteEquipmentKindApi(kindDelete.id)
+      await deleteEquipmentKindApi(
+        kindDelete.id,
+        unlinkAllEquipment ? { unlinkAllEquipment: true } : undefined
+      )
       setKindDelete(null)
       await load()
-      toast.success("Тип удалён")
+      toast.success(
+        unlinkAllEquipment
+          ? "Оборудование отвязано от типа, тип удалён"
+          : "Тип удалён"
+      )
     } catch (e) {
       setError(e instanceof Error ? e.message : "Не удалось удалить")
+    } finally {
+      setKindDeleteBusy(false)
     }
   }
 
@@ -450,26 +341,26 @@ export default function EquipmentCategoriesPage() {
       )}
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList data-tour="categories-tabs">
-          <TabsTrigger value="categories" className="gap-1.5" data-tour="categories-tab-categories">
+        <TabsList>
+          <TabsTrigger value="categories" className="gap-1.5">
             <Folder className="h-4 w-4" />
             Категории
           </TabsTrigger>
-          <TabsTrigger value="kinds" className="gap-1.5" data-tour="categories-tab-kinds">
+          <TabsTrigger value="kinds" className="gap-1.5">
             <Tags className="h-4 w-4" />
             Типы
           </TabsTrigger>
         </TabsList>
 
         <TabsContent value="categories" className="space-y-4">
-          <Card data-tour="categories-cat-card">
+          <Card>
             <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <CardTitle>Категории</CardTitle>
                 <CardDescription>Группировка оборудования по назначению</CardDescription>
               </div>
               {isAdmin && (
-                <span data-tour="categories-cat-add" className="inline-flex">
+                <span className="inline-flex">
                   <Button
                     type="button"
                     onClick={() => {
@@ -485,7 +376,7 @@ export default function EquipmentCategoriesPage() {
               )}
             </CardHeader>
             <CardContent className="space-y-4">
-              <div data-tour="categories-cat-search" className="relative max-w-sm">
+              <div className="relative max-w-sm">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   className="pl-10"
@@ -515,7 +406,7 @@ export default function EquipmentCategoriesPage() {
               ) : sortedCategories.length === 0 ? (
                 <p className="text-sm text-muted-foreground">Нет категорий</p>
               ) : (
-                <div data-tour="categories-cat-table" className="rounded-md border">
+                <div className="rounded-md border">
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -544,7 +435,7 @@ export default function EquipmentCategoriesPage() {
                         >
                           Единиц
                         </SortableTableHead>
-                        <TableHead className="w-12 text-right" />
+                        {isAdmin && <TableHead className="w-12 text-right" />}
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -563,53 +454,43 @@ export default function EquipmentCategoriesPage() {
                             {c.description ?? "—"}
                           </TableCell>
                           <TableCell className="text-right tabular-nums">{c.equipmentCount}</TableCell>
-                          <TableCell className="text-right">
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="icon" type="button">
-                                  <MoreHorizontal className="h-4 w-4" />
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
-                                <DropdownMenuLabel>Действия</DropdownMenuLabel>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem
-                                  onClick={() => {
-                                    setCatView(c)
-                                  }}
-                                >
-                                  <Eye className="mr-2 h-4 w-4" />
-                                  Просмотр
-                                </DropdownMenuItem>
-                                {isAdmin && (
-                                  <>
-                                    <DropdownMenuItem
-                                      onClick={() => {
-                                        setCatEdit(c)
-                                        setCatForm({
-                                          name: c.name,
-                                          description: c.description ?? "",
-                                          color: c.color,
-                                        })
-                                        setCatFormError(null)
-                                      }}
-                                    >
-                                      <Pencil className="mr-2 h-4 w-4" />
-                                      Редактировать
-                                    </DropdownMenuItem>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem
-                                      className="text-destructive focus:text-destructive"
-                                      onClick={() => setCatDelete(c)}
-                                    >
-                                      <Trash2 className="mr-2 h-4 w-4" />
-                                      Удалить
-                                    </DropdownMenuItem>
-                                  </>
-                                )}
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </TableCell>
+                          {isAdmin && (
+                            <TableCell className="text-right">
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button variant="ghost" size="icon" type="button">
+                                    <MoreHorizontal className="h-4 w-4" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  <DropdownMenuLabel>Действия</DropdownMenuLabel>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem
+                                    onClick={() => {
+                                      setCatEdit(c)
+                                      setCatForm({
+                                        name: c.name,
+                                        description: c.description ?? "",
+                                        color: c.color,
+                                      })
+                                      setCatFormError(null)
+                                    }}
+                                  >
+                                    <Pencil className="mr-2 h-4 w-4" />
+                                    Редактировать
+                                  </DropdownMenuItem>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem
+                                    className="text-destructive focus:text-destructive"
+                                    onClick={() => setCatDelete(c)}
+                                  >
+                                    <Trash2 className="mr-2 h-4 w-4" />
+                                    Удалить
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </TableCell>
+                          )}
                         </TableRow>
                       ))}
                     </TableBody>
@@ -621,14 +502,14 @@ export default function EquipmentCategoriesPage() {
         </TabsContent>
 
         <TabsContent value="kinds" className="space-y-4">
-          <Card data-tour="categories-kind-card">
+          <Card>
             <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <CardTitle>Типы оборудования</CardTitle>
                 <CardDescription>Соответствие системной классификации (для отчётов и ПК)</CardDescription>
               </div>
               {isAdmin && (
-                <span data-tour="categories-kind-add" className="inline-flex">
+                <span className="inline-flex">
                   <Button
                     type="button"
                     onClick={() => {
@@ -644,7 +525,7 @@ export default function EquipmentCategoriesPage() {
               )}
             </CardHeader>
             <CardContent className="space-y-4">
-              <div data-tour="categories-kind-search" className="relative max-w-sm">
+              <div className="relative max-w-sm">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   className="pl-10"
@@ -674,7 +555,7 @@ export default function EquipmentCategoriesPage() {
               ) : sortedKinds.length === 0 ? (
                 <p className="text-sm text-muted-foreground">Нет типов</p>
               ) : (
-                <div data-tour="categories-kind-table" className="rounded-md border">
+                <div className="rounded-md border">
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -711,7 +592,7 @@ export default function EquipmentCategoriesPage() {
                         >
                           Единиц
                         </SortableTableHead>
-                        <TableHead className="w-12 text-right" />
+                        {isAdmin && <TableHead className="w-12 text-right" />}
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -732,49 +613,43 @@ export default function EquipmentCategoriesPage() {
                             {k.description ?? "—"}
                           </TableCell>
                           <TableCell className="text-right tabular-nums">{k.equipmentCount}</TableCell>
-                          <TableCell className="text-right">
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="icon" type="button">
-                                  <MoreHorizontal className="h-4 w-4" />
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
-                                <DropdownMenuLabel>Действия</DropdownMenuLabel>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem onClick={() => setKindView(k)}>
-                                  <Eye className="mr-2 h-4 w-4" />
-                                  Просмотр
-                                </DropdownMenuItem>
-                                {isAdmin && (
-                                  <>
-                                    <DropdownMenuItem
-                                      onClick={() => {
-                                        setKindEdit(k)
-                                        setKindForm({
-                                          name: k.name,
-                                          description: k.description ?? "",
-                                          mapsToEnum: k.mapsToEnum,
-                                        })
-                                        setKindFormError(null)
-                                      }}
-                                    >
-                                      <Pencil className="mr-2 h-4 w-4" />
-                                      Редактировать
-                                    </DropdownMenuItem>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem
-                                      className="text-destructive focus:text-destructive"
-                                      onClick={() => setKindDelete(k)}
-                                    >
-                                      <Trash2 className="mr-2 h-4 w-4" />
-                                      Удалить
-                                    </DropdownMenuItem>
-                                  </>
-                                )}
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </TableCell>
+                          {isAdmin && (
+                            <TableCell className="text-right">
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button variant="ghost" size="icon" type="button">
+                                    <MoreHorizontal className="h-4 w-4" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  <DropdownMenuLabel>Действия</DropdownMenuLabel>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem
+                                    onClick={() => {
+                                      setKindEdit(k)
+                                      setKindForm({
+                                        name: k.name,
+                                        description: k.description ?? "",
+                                        mapsToEnum: k.mapsToEnum,
+                                      })
+                                      setKindFormError(null)
+                                    }}
+                                  >
+                                    <Pencil className="mr-2 h-4 w-4" />
+                                    Редактировать
+                                  </DropdownMenuItem>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem
+                                    className="text-destructive focus:text-destructive"
+                                    onClick={() => setKindDelete(k)}
+                                  >
+                                    <Trash2 className="mr-2 h-4 w-4" />
+                                    Удалить
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </TableCell>
+                          )}
                         </TableRow>
                       ))}
                     </TableBody>
@@ -785,38 +660,6 @@ export default function EquipmentCategoriesPage() {
           </Card>
         </TabsContent>
       </Tabs>
-
-      {/* Category view */}
-      <Dialog open={!!catView} onOpenChange={(o) => !o && setCatView(null)}>
-        <DialogContent
-          data-tour="categories-cat-view-dialog"
-          className="z-[115]"
-          overlayClassName="z-[113]"
-        >
-          <DialogHeader>
-            <DialogTitle>{catView?.name}</DialogTitle>
-          </DialogHeader>
-          {catView && (
-            <div className="space-y-2 text-sm">
-              <div className="flex items-center gap-2">
-                <span
-                  className="h-4 w-4 rounded-full"
-                  style={{ backgroundColor: catView.color }}
-                />
-                <span className="text-muted-foreground">Цвет метки</span>
-              </div>
-              <p>
-                <span className="text-muted-foreground">Описание: </span>
-                {catView.description ?? "—"}
-              </p>
-              <p>
-                <span className="text-muted-foreground">Оборудования: </span>
-                {catView.equipmentCount}
-              </p>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
 
       {/* Category add/edit */}
       <Dialog
@@ -829,7 +672,6 @@ export default function EquipmentCategoriesPage() {
         }}
       >
         <DialogContent
-          data-tour={catAddOpen ? "categories-cat-add-dialog" : "categories-cat-edit-dialog"}
           className="z-[115]"
           overlayClassName="z-[113]"
         >
@@ -903,56 +745,44 @@ export default function EquipmentCategoriesPage() {
 
       <AlertDialog open={!!catDelete} onOpenChange={(o) => !o && setCatDelete(null)}>
         <AlertDialogContent
-          data-tour="categories-cat-delete-dialog"
           className="z-[115]"
           overlayClassName="z-[113]"
         >
           <AlertDialogHeader>
             <AlertDialogTitle>Удалить категорию?</AlertDialogTitle>
             <AlertDialogDescription>
-              {catDelete ? `«${catDelete.name}» можно удалить только если к ней не привязано оборудование.` : ""}
+              {catDelete &&
+                (catDelete.equipmentCount > 0
+                  ? `К категории «${catDelete.name}» привязано ${catDelete.equipmentCount} ед. оборудования. Кнопка ниже отвяжет все записи от этой категории и удалит её.`
+                  : `«${catDelete.name}» можно удалить только если к ней не привязано оборудование.`)}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Отмена</AlertDialogCancel>
-            <AlertDialogAction variant="destructive" onClick={() => void doDeleteCategory()}>
-              Удалить
-            </AlertDialogAction>
+          <AlertDialogFooter className="flex-col gap-2 sm:flex-row sm:justify-end">
+            <AlertDialogCancel disabled={catDeleteBusy}>Отмена</AlertDialogCancel>
+            {catDelete && catDelete.equipmentCount > 0 ? (
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={catDeleteBusy}
+                onClick={() => void doDeleteCategory(true)}
+              >
+                {catDeleteBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                Отвязать всё оборудование и удалить
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={catDeleteBusy}
+                onClick={() => void doDeleteCategory(false)}
+              >
+                {catDeleteBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                Удалить
+              </Button>
+            )}
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      {/* Kind view */}
-      <Dialog open={!!kindView} onOpenChange={(o) => !o && setKindView(null)}>
-        <DialogContent
-          data-tour="categories-kind-view-dialog"
-          className="z-[115]"
-          overlayClassName="z-[113]"
-        >
-          <DialogHeader>
-            <DialogTitle>{kindView?.name}</DialogTitle>
-          </DialogHeader>
-          {kindView && (
-            <div className="space-y-2 text-sm">
-              <p>
-                <span className="text-muted-foreground">Системный класс: </span>
-                {equipmentTypeEnumLabel(kindView.mapsToEnum)}
-              </p>
-              <p>
-                <span className="text-muted-foreground">Описание: </span>
-                {kindView.description ?? "—"}
-              </p>
-              <p>
-                <span className="text-muted-foreground">Оборудования: </span>
-                {kindView.equipmentCount}
-              </p>
-              {kindView.code && (
-                <p className="text-xs text-muted-foreground">Код: {kindView.code}</p>
-              )}
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
 
       <Dialog
         open={kindAddOpen || !!kindEdit}
@@ -964,7 +794,6 @@ export default function EquipmentCategoriesPage() {
         }}
       >
         <DialogContent
-          data-tour={kindAddOpen ? "categories-kind-add-dialog" : "categories-kind-edit-dialog"}
           className="z-[115]"
           overlayClassName="z-[113]"
         >
@@ -1035,23 +864,41 @@ export default function EquipmentCategoriesPage() {
 
       <AlertDialog open={!!kindDelete} onOpenChange={(o) => !o && setKindDelete(null)}>
         <AlertDialogContent
-          data-tour="categories-kind-delete-dialog"
           className="z-[115]"
           overlayClassName="z-[113]"
         >
           <AlertDialogHeader>
             <AlertDialogTitle>Удалить тип?</AlertDialogTitle>
             <AlertDialogDescription>
-              {kindDelete
-                ? `«${kindDelete.name}». Системные типы из начальной настройки удалить нельзя.`
-                : ""}
+              {kindDelete &&
+                (kindDelete.equipmentCount > 0
+                  ? `К типу «${kindDelete.name}» привязано ${kindDelete.equipmentCount} ед. оборудования. Кнопка ниже отвяжет все записи от этого типа и удалит его.`
+                  : `«${kindDelete.name}» можно удалить только если к нему не привязано оборудование.`)}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Отмена</AlertDialogCancel>
-            <AlertDialogAction variant="destructive" onClick={() => void doDeleteKind()}>
-              Удалить
-            </AlertDialogAction>
+          <AlertDialogFooter className="flex-col gap-2 sm:flex-row sm:justify-end">
+            <AlertDialogCancel disabled={kindDeleteBusy}>Отмена</AlertDialogCancel>
+            {kindDelete && kindDelete.equipmentCount > 0 ? (
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={kindDeleteBusy}
+                onClick={() => void doDeleteKind(true)}
+              >
+                {kindDeleteBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                Отвязать всё оборудование и удалить
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={kindDeleteBusy}
+                onClick={() => void doDeleteKind(false)}
+              >
+                {kindDeleteBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                Удалить
+              </Button>
+            )}
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

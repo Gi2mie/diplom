@@ -1,4 +1,5 @@
 import type { IssuePriority, IssueStatus } from "@prisma/client"
+import type { TeacherProblemEquipmentKind } from "@/lib/validators"
 
 export type AdminIssueReportRow = {
   id: string
@@ -7,6 +8,7 @@ export type AdminIssueReportRow = {
   status: IssueStatus
   priority: IssuePriority
   resolution: string | null
+  resolvedAt: string | null
   createdAt: string
   updatedAt: string
   reporter: {
@@ -41,11 +43,13 @@ export type AdminIssueReportRow = {
 }
 
 export type CreateAdminIssueBody = {
-  equipmentId: string
-  reporterId: string
   title: string
   description?: string
-  priority?: IssuePriority
+  priority: IssuePriority
+  classroomId: string
+  workstationId?: string | null
+  wholeClassroom: boolean
+  problemEquipmentKind: TeacherProblemEquipmentKind
 }
 
 export type UpdateAdminIssueBody = {
@@ -107,5 +111,10 @@ export async function postRepairsForIssue(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   })
+  return parseJson(res)
+}
+
+export async function deleteAdminIssueReport(issueId: string): Promise<{ ok: true }> {
+  const res = await fetch(`/api/admin/issue-reports/${issueId}`, { method: "DELETE" })
   return parseJson(res)
 }

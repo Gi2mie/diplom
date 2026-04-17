@@ -53,8 +53,12 @@ export async function updateEquipmentCategoryApi(
   await parseFetchJson<{ ok: boolean }>(response)
 }
 
-export async function deleteEquipmentCategoryApi(id: string): Promise<void> {
-  const response = await fetch(`/api/equipment-categories/${id}`, { method: "DELETE" })
+export async function deleteEquipmentCategoryApi(
+  id: string,
+  options?: { unlinkAllEquipment?: boolean }
+): Promise<void> {
+  const qs = options?.unlinkAllEquipment ? "?unlinkAllEquipment=1" : ""
+  const response = await fetch(`/api/equipment-categories/${id}${qs}`, { method: "DELETE" })
   await parseFetchJson<{ ok: boolean }>(response)
 }
 
@@ -83,7 +87,11 @@ export async function updateEquipmentKindApi(
   await parseFetchJson<{ ok: boolean }>(response)
 }
 
-export async function deleteEquipmentKindApi(id: string): Promise<void> {
-  const response = await fetch(`/api/equipment-kinds/${id}`, { method: "DELETE" })
+export async function deleteEquipmentKindApi(
+  id: string,
+  options?: { unlinkAllEquipment?: boolean }
+): Promise<void> {
+  const qs = options?.unlinkAllEquipment ? "?unlinkAllEquipment=1" : ""
+  const response = await fetch(`/api/equipment-kinds/${id}${qs}`, { method: "DELETE" })
   await parseFetchJson<{ ok: boolean }>(response)
 }

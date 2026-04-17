@@ -275,7 +275,7 @@ export default function MovementJournalPage() {
   }
 
   return (
-    <div className="space-y-6 md:space-y-8" data-tour="tour-movement-journal-page">
+    <div className="space-y-6 md:space-y-8">
       <PageHeader
         title="Журнал перемещения"
         description="Перемещения оборудования и целых рабочих мест между аудиториями. После возврата запись сохраняется с датой отката."

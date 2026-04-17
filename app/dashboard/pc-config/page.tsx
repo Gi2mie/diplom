@@ -296,7 +296,7 @@ export default function PCConfigPage() {
   }
 
   return (
-    <div className="space-y-6" data-tour="tour-pc-config-page">
+    <div className="space-y-6">
       <PageHeader
         title="Конфигурация ПК"
         description="Управление характеристиками компьютеров на рабочих местах"

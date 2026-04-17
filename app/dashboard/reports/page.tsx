@@ -526,7 +526,7 @@ export default function ReportsPage() {
   const previewRowsSlice = exportTable?.rows.slice(0, PREVIEW_ROW_LIMIT) ?? []
 
   return (
-    <div className="space-y-6" data-tour="tour-reports-page">
+    <div className="space-y-6">
       <PageHeader
         title="Отчёты и аналитика"
         description={

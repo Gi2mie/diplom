@@ -91,40 +91,8 @@ import { PageHeader } from "@/components/dashboard/page-header"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { SortableTableHead } from "@/components/ui/sortable-table-head"
 import { useTableSort } from "@/hooks/use-table-sort"
-import { type EduTourMockUiDetail, EDU_TOUR_MOCK_UI_EVENT } from "@/lib/site-onboarding"
 import { equipmentPermanentDeleteAllowed } from "@/lib/equipment-deletion-policy"
 import { parseFetchJson } from "@/lib/api/parse-fetch-json"
-
-const TOUR_DEMO_EQUIPMENT_ID = "__edu-tour-equipment__"
-
-const TOUR_DEMO_EQUIPMENT_ROW: DashboardEquipmentRow = {
-  id: TOUR_DEMO_EQUIPMENT_ID,
-  name: "Демонстрационное оборудование",
-  inventoryNumber: "INV-DEMO-1",
-  serialNumber: "SN-DEMO-001",
-  status: EquipmentStatus.OPERATIONAL,
-  description: "Пример для обучения",
-  purchaseDate: null,
-  warrantyUntil: null,
-  manufacturer: null,
-  model: null,
-  categoryId: null,
-  categoryName: "Периферия",
-  categoryColor: "#3b82f6",
-  equipmentKindId: null,
-  kindName: "Монитор",
-  typeEnum: "OTHER",
-  workstationId: "tour-ws-id",
-  workstationCode: "RM-101-01",
-  workstationName: "ПК 1",
-  classroomId: "tour-class",
-  classroomNumber: "101",
-  classroomName: "Аудитория",
-  buildingId: "tour-build",
-  buildingName: "Учебный корпус",
-  relocationRoomsLabel: null,
-  decommissionedAt: null,
-}
 
 type WorkstationRow = {
   id: string
@@ -292,9 +260,6 @@ export default function EquipmentPage() {
     "name"
   )
 
-  const equipmentListRef = useRef(equipment)
-  equipmentListRef.current = equipment
-
   const equipmentCountByWorkstation = useMemo(() => {
     const m = new Map<string, number>()
     for (const e of equipment) {
@@ -388,71 +353,6 @@ export default function EquipmentPage() {
     setFormError(null)
     setEditOpen(true)
   }
-
-  useEffect(() => {
-    const closeTour = () => {
-      setViewOpen(false)
-      setEditOpen(false)
-      setAddOpen(false)
-      setDeleteOpen(false)
-      setWriteOffOpen(false)
-      setMoveOpen(false)
-      setMoveSelected(null)
-      setMoveTargetClassroomId("")
-      setMoveTargetWsId("")
-      setMoveError(null)
-      setSelected(null)
-    }
-
-    const pick = (): DashboardEquipmentRow => {
-      const list = equipmentListRef.current
-      const first = list[0]
-      if (first && first.id !== TOUR_DEMO_EQUIPMENT_ID) return first
-      return TOUR_DEMO_EQUIPMENT_ROW
-    }
-
-    const onMock = (e: Event) => {
-      const detail = (e as CustomEvent<EduTourMockUiDetail>).detail
-      if (!detail) return
-      if ("reset" in detail && detail.reset) {
-        closeTour()
-        return
-      }
-      if (!("equipment" in detail)) return
-      closeTour()
-      const row = pick()
-      setSelected(row)
-      switch (detail.equipment) {
-        case "add":
-          openAdd()
-          break
-        case "view":
-          setViewOpen(true)
-          break
-        case "edit":
-          openEdit(row)
-          break
-        case "move":
-          setMoveSelected(row)
-          setMoveTargetClassroomId("")
-          setMoveTargetWsId("")
-          setMoveError(null)
-          setMoveOpen(true)
-          break
-        case "delete":
-          setDeleteOpen(true)
-          break
-        case "writeoff":
-          setWriteOffOpen(true)
-          break
-        default:
-          break
-      }
-    }
-
-    window.addEventListener(EDU_TOUR_MOCK_UI_EVENT, onMock as EventListener)
-    return () => window.removeEventListener(EDU_TOUR_MOCK_UI_EVENT, onMock as EventListener)
-  }, [])
 
   const submitForm = async (mode: "add" | "edit") => {
     setFormError(null)
@@ -556,7 +456,7 @@ export default function EquipmentPage() {
         }
         actions={
           isAdmin ? (
-            <span data-tour="equipment-btn-add" className="inline-flex">
+            <span className="inline-flex">
               <Button onClick={openAdd}>
                 <Plus className="mr-2 h-4 w-4" />
                 Добавить оборудование
@@ -574,7 +474,7 @@ export default function EquipmentPage() {
         </Alert>
       )}
 
-      <div data-tour="equipment-stats" className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium">Всего</CardTitle>
@@ -629,7 +529,7 @@ export default function EquipmentPage() {
         </Card>
       </div>
 
-      <Card data-tour="equipment-filters">
+      <Card>
         <CardHeader className="pb-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -760,7 +660,7 @@ export default function EquipmentPage() {
         </CardContent>
       </Card>
 
-      <Card data-tour="equipment-table">
+      <Card>
         <CardHeader>
           <CardTitle>Список оборудования</CardTitle>
           <CardDescription>
@@ -960,7 +860,6 @@ export default function EquipmentPage() {
 
       <Dialog open={viewOpen} onOpenChange={setViewOpen}>
         <DialogContent
-          data-tour="equipment-view-dialog"
           className="z-[115] max-w-lg"
           overlayClassName="z-[113]"
         >
@@ -1038,7 +937,6 @@ export default function EquipmentPage() {
         }}
       >
         <DialogContent
-          data-tour={addOpen ? "equipment-add-dialog" : "equipment-edit-dialog"}
           className="z-[115] max-h-[90vh] overflow-y-auto sm:max-w-lg"
           overlayClassName="z-[113]"
         >
@@ -1246,7 +1144,6 @@ export default function EquipmentPage() {
 
       <Dialog open={moveOpen} onOpenChange={setMoveOpen}>
         <DialogContent
-          data-tour="equipment-move-dialog"
           className="z-[115] max-w-md"
           overlayClassName="z-[113]"
         >
@@ -1365,7 +1262,6 @@ export default function EquipmentPage() {
 
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <AlertDialogContent
-          data-tour="equipment-delete-dialog"
           className="z-[115]"
           overlayClassName="z-[113]"
         >

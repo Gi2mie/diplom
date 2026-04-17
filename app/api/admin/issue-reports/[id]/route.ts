@@ -3,6 +3,7 @@ import { IssueStatus, RepairStatus, UserRole } from "@prisma/client"
 import { auth } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { recomputeEquipmentStatus } from "@/lib/equipment-status-sync"
+import { assertIssuePermanentDeleteAllowed } from "@/lib/request-deletion-policy"
 import { adminUpdateIssueReportSchema } from "@/lib/validators"
 
 const listInclude = {
@@ -106,6 +107,49 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   return NextResponse.json({ issue: row })
 }
 
-export async function DELETE() {
-  return NextResponse.json({ error: "Удаление обращений недоступно" }, { status: 403 })
+export async function DELETE(_request: Request, context: { params: Promise<{ id: string }> }) {
+  const session = await auth()
+  if (!session?.user?.id || session.user.role !== UserRole.ADMIN) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
+
+  const { id } = await context.params
+  const existing = await db.issueReport.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      equipmentId: true,
+      status: true,
+      resolvedAt: true,
+      updatedAt: true,
+    },
+  })
+  if (!existing) {
+    return NextResponse.json({ error: "Не найдено" }, { status: 404 })
+  }
+
+  const activeRepairs = await db.repair.count({
+    where: {
+      issueReportId: id,
+      status: { in: [RepairStatus.PLANNED, RepairStatus.IN_PROGRESS] },
+    },
+  })
+  if (activeRepairs > 0) {
+    return NextResponse.json(
+      { error: "Нельзя удалить обращение, пока по нему есть активные ремонты." },
+      { status: 400 }
+    )
+  }
+
+  const allowed = assertIssuePermanentDeleteAllowed(existing)
+  if (!allowed.ok) {
+    return NextResponse.json({ error: allowed.error }, { status: 400 })
+  }
+
+  await db.$transaction(async (tx) => {
+    await tx.issueReport.delete({ where: { id } })
+    await recomputeEquipmentStatus(tx, existing.equipmentId)
+  })
+
+  return NextResponse.json({ ok: true })
 }
