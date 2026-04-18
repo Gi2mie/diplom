@@ -202,7 +202,8 @@ export const createRelocationSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("WORKSTATION"),
     fromWorkstationId: z.string().cuid(),
-    toWorkstationId: z.string().cuid(),
+    /** Аудитория назначения: всё оборудование переносится на её служебное KAB-… */
+    toClassroomId: z.string().cuid(),
   }),
 ])
 

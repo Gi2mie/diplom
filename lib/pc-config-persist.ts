@@ -8,6 +8,7 @@ import {
 } from "@prisma/client"
 import { z } from "zod"
 import { db } from "@/lib/db"
+import { isClassroomPoolWorkstation } from "@/lib/classroom-pool-workstation"
 import { recomputeEquipmentStatus } from "@/lib/equipment-status-sync"
 import { mapComputerEquipment, type ComputerEquipmentWithRelations } from "@/lib/pc-config-map"
 
@@ -217,8 +218,19 @@ async function loadMappedRow(id: string) {
 export async function createComputerConfig(
   p: PcConfigSavePayload
 ): Promise<{ ok: true; computer: ReturnType<typeof mapComputerEquipment> } | { ok: false; error: string; status: number }> {
-  const ws = await db.workstation.findUnique({ where: { id: p.workstationId } })
+  const ws = await db.workstation.findUnique({
+    where: { id: p.workstationId },
+    include: { classroom: { select: { number: true } } },
+  })
   if (!ws) return { ok: false, error: "Рабочее место не найдено", status: 400 }
+  if (isClassroomPoolWorkstation(ws.code, ws.classroom.number)) {
+    return {
+      ok: false,
+      error:
+        "Конфигурация ПК недоступна для служебного рабочего места кабинета (KAB-…). Выберите учебное РМ.",
+      status: 409,
+    }
+  }
 
   const inv = p.inventoryNumber.trim()
   if (!inv) return { ok: false, error: "Укажите инвентарный номер", status: 400 }
@@ -294,8 +306,19 @@ export async function updateComputerConfig(
     return { ok: false, error: "Компьютер не найден", status: 404 }
   }
 
-  const ws = await db.workstation.findUnique({ where: { id: p.workstationId } })
+  const ws = await db.workstation.findUnique({
+    where: { id: p.workstationId },
+    include: { classroom: { select: { number: true } } },
+  })
   if (!ws) return { ok: false, error: "Рабочее место не найдено", status: 400 }
+  if (isClassroomPoolWorkstation(ws.code, ws.classroom.number)) {
+    return {
+      ok: false,
+      error:
+        "Конфигурация ПК недоступна для служебного рабочего места кабинета (KAB-…). Выберите учебное РМ.",
+      status: 409,
+    }
+  }
 
   const inv = p.inventoryNumber.trim()
   if (!inv) return { ok: false, error: "Укажите инвентарный номер", status: 400 }

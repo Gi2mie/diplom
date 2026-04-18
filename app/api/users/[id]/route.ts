@@ -34,7 +34,6 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
       createdAt: true,
       lastLoginAt: true,
       responsibleRooms: userResponsibleRoomsSelect,
-      ...(includeCreds ? { handoutPasswordPlain: true } : {}),
     },
   })
 
@@ -138,9 +137,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
   const passwordTrim = password !== undefined ? String(password).trim() : ""
   const nextHandout =
-    passwordTrim !== ""
-      ? { passwordHash: await bcrypt.hash(passwordTrim, 12), handoutPasswordPlain: passwordTrim }
-      : {}
+    passwordTrim !== "" ? { passwordHash: await bcrypt.hash(passwordTrim, 12) } : {}
 
   const user = await db.user.update({
     where: { id },
@@ -169,10 +166,12 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       department: true,
       createdAt: true,
       lastLoginAt: true,
-      handoutPasswordPlain: true,
       responsibleRooms: userResponsibleRoomsSelect,
     },
   })
 
-  return NextResponse.json({ user: toPublicUserJson(user, { includeCredentials: true }) })
+  const base = toPublicUserJson(user, { includeCredentials: true })
+  return NextResponse.json({
+    user: passwordTrim ? { ...base, handoutPasswordPlain: passwordTrim } : base,
+  })
 }

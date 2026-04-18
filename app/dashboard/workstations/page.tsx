@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useSession } from "next-auth/react"
 import { WorkstationStatus } from "@prisma/client"
+import {
+  classroomPoolWorkstationCode,
+  isClassroomPoolWorkstation,
+} from "@/lib/classroom-pool-workstation"
 import { toast } from "sonner"
 import {
   Plus,
@@ -172,11 +176,11 @@ export default function WorkstationsPage() {
   const [wsMoveOpen, setWsMoveOpen] = useState(false)
   const [wsMoveFrom, setWsMoveFrom] = useState<ApiWorkstation | null>(null)
   const [wsMoveTargetClassroomId, setWsMoveTargetClassroomId] = useState("")
-  const [wsMoveTargetWsId, setWsMoveTargetWsId] = useState("")
   const [wsMoveBusy, setWsMoveBusy] = useState(false)
   const [wsMoveError, setWsMoveError] = useState<string | null>(null)
 
   const isAdmin = session?.user?.role === "ADMIN"
+  const isTeacher = session?.user?.role === "TEACHER"
 
   const loadData = useCallback(async () => {
     try {
@@ -200,37 +204,41 @@ export default function WorkstationsPage() {
     [classrooms]
   )
 
-  const equipmentCountByWorkstation = useMemo(() => {
-    const m = new Map<string, number>()
-    for (const w of workstations) {
-      m.set(w.id, w.equipmentItems.length)
-    }
-    return m
-  }, [workstations])
-
-  const freeWorkstationsForWsMove = useMemo(() => {
-    if (!wsMoveOpen || !wsMoveFrom || !wsMoveTargetClassroomId) return []
-    if (wsMoveTargetClassroomId === wsMoveFrom.classroomId) return []
-    return workstations.filter(
-      (w) =>
-        w.id !== wsMoveFrom.id &&
-        w.classroomId === wsMoveTargetClassroomId &&
-        (equipmentCountByWorkstation.get(w.id) ?? 0) === 0
-    )
-  }, [
-    wsMoveOpen,
-    wsMoveFrom,
-    wsMoveTargetClassroomId,
-    workstations,
-    equipmentCountByWorkstation,
-  ])
+  const isPoolWorkstation = useCallback(
+    (ws: ApiWorkstation) => {
+      const num = getClassroom(ws.classroomId)?.number ?? ws.classroomNumber
+      return Boolean(num && isClassroomPoolWorkstation(ws.code, num))
+    },
+    [getClassroom]
+  )
 
   const countInClassroom = useCallback(
-    (classroomId: string, excludeWorkstationId?: string) =>
-      workstations.filter((w) => w.classroomId === classroomId && w.id !== excludeWorkstationId)
-        .length,
-    [workstations]
+    (classroomId: string, excludeWorkstationId?: string) => {
+      const num = getClassroom(classroomId)?.number
+      if (!num) {
+        return workstations.filter((w) => w.classroomId === classroomId && w.id !== excludeWorkstationId)
+          .length
+      }
+      const poolCode = classroomPoolWorkstationCode(num)
+      return workstations.filter(
+        (w) =>
+          w.classroomId === classroomId &&
+          w.id !== excludeWorkstationId &&
+          w.code !== poolCode
+      ).length
+    },
+    [workstations, getClassroom]
   )
+
+  /** Служебное KAB выбранной аудитории (единственная цель переноса целиком). */
+  const wsMoveTargetKab = useMemo(() => {
+    if (!wsMoveOpen || !wsMoveFrom || !wsMoveTargetClassroomId) return null
+    if (wsMoveTargetClassroomId === wsMoveFrom.classroomId) return null
+    const c = getClassroom(wsMoveTargetClassroomId)
+    if (!c) return null
+    const code = classroomPoolWorkstationCode(c.number)
+    return workstations.find((w) => w.classroomId === wsMoveTargetClassroomId && w.code === code) ?? null
+  }, [wsMoveOpen, wsMoveFrom, wsMoveTargetClassroomId, workstations, getClassroom])
 
   const isClassroomAtCapacity = useCallback(
     (classroomId: string, excludeWorkstationId?: string) => {
@@ -344,6 +352,7 @@ export default function WorkstationsPage() {
   }
 
   const handleEdit = (ws: ApiWorkstation) => {
+    if (isPoolWorkstation(ws)) return
     setSelectedWorkstation(ws)
     const c = getClassroom(ws.classroomId)
     const num = c?.number ?? ws.classroomNumber
@@ -443,6 +452,7 @@ export default function WorkstationsPage() {
   }
 
   const handleDelete = (ws: ApiWorkstation) => {
+    if (isPoolWorkstation(ws)) return
     setSelectedWorkstation(ws)
     setIsDeleteDialogOpen(true)
   }
@@ -515,7 +525,11 @@ export default function WorkstationsPage() {
     <div className="space-y-6 md:space-y-8">
       <PageHeader
         title="Рабочие места"
-        description="Управление рабочими местами в аудиториях: комплектация, статус и перемещения."
+        description={
+          isTeacher
+            ? "Рабочие места аудиторий, за которые вы назначены ответственным: просмотр комплектации и статуса."
+            : "Управление рабочими местами в аудиториях: комплектация, статус и перемещения."
+        }
         actions={
           isAdmin ? (
             <Button onClick={handleAdd} type="button">
@@ -701,8 +715,12 @@ export default function WorkstationsPage() {
                   <TableCell colSpan={7} className="p-0">
                     <EmptyState
                       icon={School}
-                      title="Нет аудиторий"
-                      description="Сначала добавьте аудитории в разделе «Аудитории», затем создавайте рабочие места."
+                      title={isTeacher ? "Нет закреплённых аудиторий" : "Нет аудиторий"}
+                      description={
+                        isTeacher
+                          ? "За вами не назначено ни одной аудитории. Обратитесь к администратору."
+                          : "Сначала добавьте аудитории в разделе «Аудитории», затем создавайте рабочие места."
+                      }
                     />
                   </TableCell>
                 </TableRow>
@@ -752,58 +770,74 @@ export default function WorkstationsPage() {
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" type="button">
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuLabel>Действия</DropdownMenuLabel>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                              onClick={() => {
-                                setSelectedWorkstation(workstation)
-                                setIsViewDialogOpen(true)
-                              }}
-                            >
-                              <Eye className="mr-2 h-4 w-4" />
-                              Просмотр
-                            </DropdownMenuItem>
-                            {isAdmin && (
-                              <DropdownMenuItem onClick={() => handleEdit(workstation)}>
-                                <Pencil className="mr-2 h-4 w-4" />
-                                Редактировать
-                              </DropdownMenuItem>
-                            )}
-                            {isAdmin && physicalEquipmentCount(workstation) > 0 && (
+                        {isAdmin ? (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon" type="button">
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuLabel>Действия</DropdownMenuLabel>
+                              <DropdownMenuSeparator />
                               <DropdownMenuItem
                                 onClick={() => {
-                                  setWsMoveFrom(workstation)
-                                  setWsMoveTargetClassroomId("")
-                                  setWsMoveTargetWsId("")
-                                  setWsMoveError(null)
-                                  setWsMoveOpen(true)
+                                  setSelectedWorkstation(workstation)
+                                  setIsViewDialogOpen(true)
                                 }}
                               >
-                                <ArrowRightLeft className="mr-2 h-4 w-4" />
-                                Переместить РМ целиком
+                                <Eye className="mr-2 h-4 w-4" />
+                                Просмотр
                               </DropdownMenuItem>
-                            )}
-                            {isAdmin && (
-                              <>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem
-                                  onClick={() => handleDelete(workstation)}
-                                  className="text-destructive"
-                                >
-                                  <Trash2 className="mr-2 h-4 w-4" />
-                                  Удалить
+                              {!isPoolWorkstation(workstation) && (
+                                <DropdownMenuItem onClick={() => handleEdit(workstation)}>
+                                  <Pencil className="mr-2 h-4 w-4" />
+                                  Редактировать
                                 </DropdownMenuItem>
-                              </>
-                            )}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
+                              )}
+                              {!isPoolWorkstation(workstation) &&
+                                physicalEquipmentCount(workstation) > 0 && (
+                                  <DropdownMenuItem
+                                    onClick={() => {
+                                      setWsMoveFrom(workstation)
+                                      setWsMoveTargetClassroomId("")
+                                      setWsMoveError(null)
+                                      setWsMoveOpen(true)
+                                    }}
+                                  >
+                                    <ArrowRightLeft className="mr-2 h-4 w-4" />
+                                    Переместить РМ целиком
+                                  </DropdownMenuItem>
+                                )}
+                              {!isPoolWorkstation(workstation) && (
+                                <>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem
+                                    onClick={() => handleDelete(workstation)}
+                                    className="text-destructive"
+                                  >
+                                    <Trash2 className="mr-2 h-4 w-4" />
+                                    Удалить
+                                  </DropdownMenuItem>
+                                </>
+                              )}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="gap-1"
+                            type="button"
+                            onClick={() => {
+                              setSelectedWorkstation(workstation)
+                              setIsViewDialogOpen(true)
+                            }}
+                          >
+                            <Eye className="h-4 w-4" />
+                            Просмотр
+                          </Button>
+                        )}
                       </TableCell>
                     </TableRow>
                   )
@@ -1017,6 +1051,12 @@ export default function WorkstationsPage() {
             const viewStatusBadge = workstationStatusBadgeConfig(selectedWorkstation.status)
             return (
             <div className="space-y-4 py-4">
+              {isPoolWorkstation(selectedWorkstation) ? (
+                <p className="text-sm text-muted-foreground rounded-md border bg-muted/50 px-3 py-2">
+                  Служебное место кабинета (общее оборудование): доступен только просмотр — редактировать,
+                  перемещать или удалить нельзя.
+                </p>
+              ) : null}
               <div className="flex items-center gap-4">
                 <div className="flex h-16 w-16 items-center justify-center rounded-lg bg-primary/10">
                   <MonitorSmartphone className="h-8 w-8 text-primary" />
@@ -1226,11 +1266,11 @@ export default function WorkstationsPage() {
             <Button variant="outline" onClick={() => setIsViewDialogOpen(false)} type="button">
               Закрыть
             </Button>
-            {isAdmin && (
+            {isAdmin && selectedWorkstation && !isPoolWorkstation(selectedWorkstation) && (
               <Button
                 onClick={() => {
                   setIsViewDialogOpen(false)
-                  if (selectedWorkstation) handleEdit(selectedWorkstation)
+                  handleEdit(selectedWorkstation)
                 }}
                 type="button"
               >
@@ -1247,8 +1287,9 @@ export default function WorkstationsPage() {
           <DialogHeader>
             <DialogTitle>Перемещение рабочего места целиком</DialogTitle>
             <DialogDescription className="text-pretty break-words">
-              Всё оборудование с текущего РМ будет привязано к свободному РМ в другой аудитории.
-              Запись появится в журнале перемещений; откат — кнопкой «Вернуть обратно».
+              Всё оборудование с этого РМ будет перенесено на служебное место кабинета (KAB-…) в
+              выбранной аудитории. Другие учебные РМ недоступны. Запись в журнале; откат — «Вернуть
+              обратно».
             </DialogDescription>
           </DialogHeader>
           {wsMoveFrom && (
@@ -1263,10 +1304,7 @@ export default function WorkstationsPage() {
                 <Label>Аудитория назначения</Label>
                 <Select
                   value={wsMoveTargetClassroomId || undefined}
-                  onValueChange={(v) => {
-                    setWsMoveTargetClassroomId(v)
-                    setWsMoveTargetWsId("")
-                  }}
+                  onValueChange={setWsMoveTargetClassroomId}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Выберите аудиторию" />
@@ -1283,35 +1321,21 @@ export default function WorkstationsPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="grid gap-2">
-                <Label>Свободное рабочее место</Label>
-                <Select
-                  value={wsMoveTargetWsId || undefined}
-                  onValueChange={setWsMoveTargetWsId}
-                  disabled={
-                    !wsMoveTargetClassroomId || freeWorkstationsForWsMove.length === 0
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue
-                      placeholder={
-                        !wsMoveTargetClassroomId
-                          ? "Сначала аудитория"
-                          : freeWorkstationsForWsMove.length === 0
-                            ? "Нет свободных РМ"
-                            : "Выберите РМ"
-                      }
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {freeWorkstationsForWsMove.map((w) => (
-                      <SelectItem key={w.id} value={w.id}>
-                        {w.code}
-                        {w.name ? ` · ${w.name}` : ""}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              <div className="grid gap-2 rounded-md border border-border px-3 py-2">
+                <Label className="text-muted-foreground">Служебное место назначения</Label>
+                {!wsMoveTargetClassroomId ? (
+                  <p className="text-sm text-muted-foreground">Сначала выберите аудиторию</p>
+                ) : wsMoveTargetKab ? (
+                  <p className="text-sm font-mono">
+                    {wsMoveTargetKab.code}
+                    {wsMoveTargetKab.name ? ` · ${wsMoveTargetKab.name}` : ""}
+                  </p>
+                ) : (
+                  <p className="text-sm text-destructive">
+                    В этой аудитории нет служебного РМ{" "}
+                    {classroomPoolWorkstationCode(getClassroom(wsMoveTargetClassroomId)?.number ?? "")}.
+                  </p>
+                )}
               </div>
             </div>
           )}
@@ -1322,19 +1346,16 @@ export default function WorkstationsPage() {
             <Button
               type="button"
               disabled={
-                wsMoveBusy ||
-                !wsMoveFrom ||
-                !wsMoveTargetWsId ||
-                freeWorkstationsForWsMove.length === 0
+                wsMoveBusy || !wsMoveFrom || !wsMoveTargetClassroomId || !wsMoveTargetKab
               }
               onClick={() => {
-                if (!wsMoveFrom || !wsMoveTargetWsId) return
+                if (!wsMoveFrom || !wsMoveTargetClassroomId || !wsMoveTargetKab) return
                 setWsMoveBusy(true)
                 setWsMoveError(null)
                 void createRelocationApi({
                   kind: "WORKSTATION",
                   fromWorkstationId: wsMoveFrom.id,
-                  toWorkstationId: wsMoveTargetWsId,
+                  toClassroomId: wsMoveTargetClassroomId,
                 })
                   .then(() => {
                     setWsMoveOpen(false)

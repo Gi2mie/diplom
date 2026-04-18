@@ -37,7 +37,7 @@ export async function fetchRelocationLogs(): Promise<RelocationJournalRow[]> {
 export async function createRelocationApi(
   body:
     | { kind: "EQUIPMENT"; equipmentId: string; toWorkstationId: string }
-    | { kind: "WORKSTATION"; fromWorkstationId: string; toWorkstationId: string }
+    | { kind: "WORKSTATION"; fromWorkstationId: string; toClassroomId: string }
 ): Promise<void> {
   const res = await fetch("/api/relocations", {
     method: "POST",

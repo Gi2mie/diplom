@@ -1,66 +1,66 @@
-import { PrismaClient, UserRole, UserStatus, EquipmentType } from "@prisma/client"
+import { PrismaClient, UserRole, UserStatus, EquipmentType, WorkstationStatus } from "@prisma/client"
 import { hash } from "bcryptjs"
+import { classroomPoolWorkstationCode } from "../lib/classroom-pool-workstation"
 
 const prisma = new PrismaClient()
 
 async function main() {
   console.log("Seeding database...")
 
-  // Create admin user
   const adminPassword = await hash("admin123", 12)
   const admin = await prisma.user.upsert({
     where: { email: "admin@nhtk" },
     update: {
       passwordHash: adminPassword,
-      handoutPasswordPlain: "admin123",
       isActive: true,
       status: UserStatus.ACTIVE,
-      phone: "+7(900) 111-11-11",
-      position: "Системный администратор",
-      department: "ИТ-отдел",
+      phone: "+7(904) 521-09-83",
+      position: "Ведущий системный администратор",
+      department: "Отдел информационных технологий",
     },
     create: {
       email: "admin@nhtk",
       passwordHash: adminPassword,
-      handoutPasswordPlain: "admin123",
-      firstName: "Администратор",
-      lastName: "Системы",
+      firstName: "Денис",
+      lastName: "Николаев",
+      middleName: "Сергеевич",
       status: UserStatus.ACTIVE,
-      position: "Системный администратор",
-      department: "ИТ-отдел",
+      position: "Ведущий системный администратор",
+      department: "Отдел информационных технологий",
       role: UserRole.ADMIN,
       isActive: true,
-      phone: "+7(900) 111-11-11",
+      phone: "+7(904) 521-09-83",
     },
   })
   console.log("Created admin user:", admin.email)
 
-  // Create teacher user
-  const teacherPassword = await hash("teacher123", 12)
+  // Преподаватель (совпадает с первым преподавателем демо-наполнения db:seed:fill)
+  const teacherPassword = await hash("zubenko123", 12)
   const teacher = await prisma.user.upsert({
-    where: { email: "teacher@nhtk" },
+    where: { email: "zubenkomp@nhtk" },
     update: {
       passwordHash: teacherPassword,
-      handoutPasswordPlain: "teacher123",
       isActive: true,
       status: UserStatus.ACTIVE,
-      phone: "+7(900) 222-22-22",
-      position: "Преподаватель",
-      department: "Кафедра информатики",
+      firstName: "Михаил",
+      lastName: "Зубенко",
+      middleName: "Петирович",
+      phone: "+7(904) 118-44-27",
+      position: "Старший преподаватель",
+      department: "Кафедра информатики и вычислительной техники",
     },
     create: {
-      email: "teacher@nhtk",
+      email: "zubenkomp@nhtk",
       passwordHash: teacherPassword,
-      handoutPasswordPlain: "teacher123",
-      firstName: "Иван",
-      lastName: "Петров",
-      middleName: "Сергеевич",
+      firstName: "Михаил",
+      lastName: "Зубенко",
+      middleName: "Петирович",
       status: UserStatus.ACTIVE,
-      position: "Преподаватель",
-      department: "Кафедра информатики",
+      position: "Старший преподаватель",
+      department: "Кафедра информатики и вычислительной техники",
       role: UserRole.TEACHER,
       isActive: true,
-      phone: "+7(900) 222-22-22",
+      phone: "+7(904) 118-44-27",
     },
   })
   console.log("Created teacher user:", teacher.email)
@@ -132,6 +132,32 @@ async function main() {
       isActive: true,
     },
   })
+
+  for (const num of ["301", "105"] as const) {
+    const room = await prisma.classroom.findUnique({
+      where: { number: num },
+      select: { id: true },
+    })
+    if (!room) continue
+    const poolCode = classroomPoolWorkstationCode(num)
+    await prisma.workstation.upsert({
+      where: { classroomId_code: { classroomId: room.id, code: poolCode } },
+      update: {},
+      create: {
+        code: poolCode,
+        classroomId: room.id,
+        name: poolCode,
+        description:
+          "Служебное место: оборудование кабинета без отдельного учебного РМ (не учитывается в вместимости).",
+        status: WorkstationStatus.ACTIVE,
+        hasMonitor: false,
+        hasKeyboard: false,
+        hasMouse: false,
+        hasHeadphones: false,
+        hasOtherEquipment: false,
+      },
+    })
+  }
 
   const equipmentTypeLabels: Record<EquipmentType, string> = {
     COMPUTER: "Компьютер",
@@ -237,7 +263,7 @@ async function main() {
 
   console.log("\n=== Test Credentials ===")
   console.log("Admin: admin@nhtk / admin123")
-  console.log("Teacher: teacher@nhtk / teacher123")
+  console.log("Teacher: zubenkomp@nhtk / zubenko123")
   console.log("========================\n")
 
   console.log("Seeding completed!")

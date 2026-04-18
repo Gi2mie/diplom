@@ -3,7 +3,11 @@ import { IssueStatus, RepairStatus, UserRole, WorkstationStatus } from "@prisma/
 import { auth, isAdminSession } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { createWorkstationSchema } from "@/lib/validators"
-import { workstationCodeMatchesClassroom } from "@/lib/workstation-code"
+import {
+  workstationCodeClassroomErrorHint,
+  workstationCodeMatchesClassroom,
+} from "@/lib/workstation-code"
+import { prismaWorkstationsCountingTowardCapacity } from "@/lib/classroom-pool-workstation"
 import {
   isEquipmentOnService,
   syncWorkstationStatusFromEquipment,
@@ -24,7 +28,9 @@ async function assertCanAddWorkstation(classroomId: string) {
   })
   if (!classroom) return { ok: false as const, error: "Аудитория не найдена" }
   if (classroom.capacity == null) return { ok: true as const, classroom }
-  const count = await db.workstation.count({ where: { classroomId } })
+  const count = await db.workstation.count({
+    where: prismaWorkstationsCountingTowardCapacity(classroomId, classroom.number),
+  })
   if (count >= classroom.capacity) {
     return {
       ok: false as const,
@@ -249,7 +255,7 @@ export async function POST(request: Request) {
 
   if (!workstationCodeMatchesClassroom(data.code, classroom.number)) {
     return NextResponse.json(
-      { error: `Номер должен начинаться с RM-${classroom.number}-` },
+      { error: workstationCodeClassroomErrorHint(classroom.number) },
       { status: 400 }
     )
   }

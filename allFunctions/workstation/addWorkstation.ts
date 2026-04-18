@@ -4,7 +4,11 @@ import { WorkstationStatus } from "@prisma/client"
 import { prisma } from "@/lib/db"
 import { createWorkstationSchema, type CreateWorkstationInput } from "@/lib/validators"
 import type { Workstation } from "@/lib/types"
-import { workstationCodeMatchesClassroom } from "@/lib/workstation-code"
+import {
+  workstationCodeClassroomErrorHint,
+  workstationCodeMatchesClassroom,
+} from "@/lib/workstation-code"
+import { prismaWorkstationsCountingTowardCapacity } from "@/lib/classroom-pool-workstation"
 import { syncWorkstationStatusFromEquipment } from "@/lib/workstation-status-sync"
 
 export type AddWorkstationResult = {
@@ -41,11 +45,13 @@ export async function addWorkstation(input: CreateWorkstationInput): Promise<Add
     }
 
     if (!workstationCodeMatchesClassroom(data.code, classroom.number)) {
-      return { success: false, error: `Номер должен начинаться с RM-${classroom.number}-` }
+      return { success: false, error: workstationCodeClassroomErrorHint(classroom.number) }
     }
 
     if (classroom.capacity != null) {
-      const cnt = await prisma.workstation.count({ where: { classroomId: data.classroomId } })
+      const cnt = await prisma.workstation.count({
+        where: prismaWorkstationsCountingTowardCapacity(data.classroomId, classroom.number),
+      })
       if (cnt >= classroom.capacity) {
         return {
           success: false,

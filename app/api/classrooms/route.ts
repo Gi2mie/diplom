@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server"
-import { ClassroomListingStatus } from "@prisma/client"
+import { ClassroomListingStatus, WorkstationStatus } from "@prisma/client"
 import { auth, isAdminSession } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { createClassroomSchema } from "@/lib/validators"
 import { isActiveFromListingStatus } from "@/lib/classroom-listing-status"
+import { classroomPoolWorkstationCode } from "@/lib/classroom-pool-workstation"
 
 export async function POST(request: Request) {
   const session = await auth()
@@ -54,19 +55,36 @@ export async function POST(request: Request) {
     if (!u) return NextResponse.json({ error: "Ответственный не найден" }, { status: 400 })
   }
 
-  await db.classroom.create({
-    data: {
-      number: data.number,
-      name: data.name ?? null,
-      buildingId: data.buildingId ?? null,
-      classroomTypeId: data.classroomTypeId ?? null,
-      floor: data.floor ?? null,
-      capacity: data.capacity ?? null,
-      description: data.description ?? null,
-      responsibleId: data.responsibleId ?? null,
-      listingStatus,
-      isActive: isActiveFromListingStatus(listingStatus),
-    },
+  await db.$transaction(async (tx) => {
+    const classroom = await tx.classroom.create({
+      data: {
+        number: data.number,
+        name: data.name ?? null,
+        buildingId: data.buildingId ?? null,
+        classroomTypeId: data.classroomTypeId ?? null,
+        floor: data.floor ?? null,
+        capacity: data.capacity ?? null,
+        description: data.description ?? null,
+        responsibleId: data.responsibleId ?? null,
+        listingStatus,
+        isActive: isActiveFromListingStatus(listingStatus),
+      },
+    })
+    const poolCode = classroomPoolWorkstationCode(classroom.number)
+    await tx.workstation.create({
+      data: {
+        code: poolCode,
+        classroomId: classroom.id,
+        name: poolCode,
+        description: "Служебное место: оборудование кабинета без отдельного учебного РМ (не учитывается в вместимости).",
+        status: WorkstationStatus.ACTIVE,
+        hasMonitor: false,
+        hasKeyboard: false,
+        hasMouse: false,
+        hasHeadphones: false,
+        hasOtherEquipment: false,
+      },
+    })
   })
 
   return NextResponse.json({ ok: true }, { status: 201 })

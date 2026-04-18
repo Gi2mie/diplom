@@ -5,13 +5,16 @@
  * PC, MN, KB, MS, PRINT, PROE, IND, SCAN, NET, OTH.
  * Инвентарные номера: INV-DEMO-… (всегда INV).
  *
- * Перед вставкой: удаляются старые строки этого же сида (INV-DEMO- / SEEDFILL-)
- * и пустые РМ в целевых аудиториях. Полный сброс и повторное создание:
- * software_requests, issue_reports, repairs (и связанные записи change_history по ним).
+ * Перед наполнением: полная очистка всех таблиц схемы public (кроме _prisma_migrations),
+ * затем заново создаются справочники, пользователи демо, аудитории, РМ, оборудование INV-DEMO,
+ * заявки на ПО, обращения и ремонты.
+ *
+ * Не требует `prisma db seed`. Нужны миграции и DATABASE_URL.
+ *
+ * Внимание: удаляются все данные приложения в этой БД (не только демо-префиксы).
  */
 import {
   PrismaClient,
-  EntityType,
   EquipmentStatus,
   EquipmentType,
   IssuePriority,
@@ -21,111 +24,383 @@ import {
   SoftwareLicenseKind,
   SoftwareRequestKind,
   SoftwareRequestStatus,
+  UserRole,
+  UserStatus,
   WorkstationStatus,
-  type Prisma,
 } from "@prisma/client"
+import { hash } from "bcryptjs"
 import { createComputerConfig, updateComputerConfig } from "../lib/pc-config-persist"
 import type { PcConfigSavePayload } from "../lib/pc-config-persist"
 import { syncWorkstationKitFromEquipment } from "../lib/workstation-kit-sync"
 import { syncWorkstationStatusFromEquipment } from "../lib/workstation-status-sync"
-import { execSync } from "node:child_process"
+import { classroomPoolWorkstationCode } from "../lib/classroom-pool-workstation"
+import { DEMO_FILL_STAFF_PASSWORDS } from "../lib/demo-fill-user-passwords"
 
 const prisma = new PrismaClient()
 
 const INV = "INV-DEMO"
 
 /**
- * Удаляет предыдущие записи демо-наполнения в рамках этого скрипта.
- * Не трогает: software_requests, issue_reports, repairs (и оборудование, к которому они привязаны).
+ * Полная очистка данных приложения (PostgreSQL). Таблица миграций Prisma не трогается.
+ * Остальные таблицы в `public` обрезаются по списку из каталога — подойдёт при новых моделях.
  */
-async function purgePreviousDemoSeed(roomNumbers: string[]): Promise<void> {
-  const managedClassrooms = await prisma.classroom.findMany({
-    where: { number: { in: roomNumbers } },
-    select: { id: true },
-  })
-  const managedClassroomIds = managedClassrooms.map((c) => c.id)
+async function wipeAllApplicationData(): Promise<void> {
+  const rows = await prisma.$queryRawUnsafe<{ tablename: string }[]>(
+    `SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> '_prisma_migrations'`,
+  )
+  if (rows.length === 0) {
+    console.warn("В схеме public не найдено таблиц — пропуск TRUNCATE.")
+    return
+  }
+  const quoted = rows
+    .map((r) => `"${String(r.tablename).replace(/"/g, '""')}"`)
+    .join(", ")
+  await prisma.$executeRawUnsafe(`TRUNCATE TABLE ${quoted} RESTART IDENTITY CASCADE`)
+  console.log(
+    `База очищена: TRUNCATE CASCADE для ${rows.length} таблиц в public (без _prisma_migrations).`,
+  )
+}
 
-  const demoInventoryWhere: Prisma.EquipmentWhereInput = {
-    OR: [
-      { inventoryNumber: { startsWith: `${INV}-` } },
-      { inventoryNumber: { startsWith: "SEEDFILL-" } },
-    ],
+const FILL_ROOM_NUMBERS = ["101", "105", "112", "202", "222а", "301", "401", "405"] as const
+
+/** 8 преподавателей демо-наполнения (порядок = индекс ответственности за аудиторию). Пароли — демо, не для прода. */
+const FILL_TEACHER_DEFS = [
+  {
+    email: "zubenkomp@nhtk",
+    password: DEMO_FILL_STAFF_PASSWORDS["zubenkomp@nhtk"],
+    firstName: "Михаил",
+    lastName: "Зубенко",
+    middleName: "Петирович",
+    phone: "+7(904) 118-44-27",
+    position: "Старший преподаватель",
+    department: "Кафедра информатики и вычислительной техники",
+  },
+  {
+    email: "yermakovasv@nhtk",
+    password: DEMO_FILL_STAFF_PASSWORDS["yermakovasv@nhtk"],
+    firstName: "Светлана",
+    lastName: "Ермакова",
+    middleName: "Викторовна",
+    phone: "+7(912) 305-61-92",
+    position: "Доцент",
+    department: "Кафедра информатики и вычислительной техники",
+  },
+  {
+    email: "galkinpr@nhtk",
+    password: DEMO_FILL_STAFF_PASSWORDS["galkinpr@nhtk"],
+    firstName: "Павел",
+    lastName: "Галкин",
+    middleName: "Романович",
+    phone: "+7(913) 447-08-15",
+    position: "Преподаватель",
+    department: "Кафедра программной инженерии",
+  },
+  {
+    email: "stepanovaai@nhtk",
+    password: DEMO_FILL_STAFF_PASSWORDS["stepanovaai@nhtk"],
+    firstName: "Анна",
+    lastName: "Степанова",
+    middleName: "Игоревна",
+    phone: "+7(923) 219-77-40",
+    position: "Преподаватель",
+    department: "Кафедра программной инженерии",
+  },
+  {
+    email: "fedorovmy@nhtk",
+    password: DEMO_FILL_STAFF_PASSWORDS["fedorovmy@nhtk"],
+    firstName: "Максим",
+    lastName: "Фёдоров",
+    middleName: "Юрьевич",
+    phone: "+7(902) 864-12-58",
+    position: "Старший преподаватель",
+    department: "Кафедра телекоммуникаций",
+  },
+  {
+    email: "melnikop@nhtk",
+    password: DEMO_FILL_STAFF_PASSWORDS["melnikop@nhtk"],
+    firstName: "Ольга",
+    lastName: "Мельник",
+    middleName: "Павловна",
+    phone: "+7(950) 391-04-33",
+    position: "Преподаватель",
+    department: "Кафедра телекоммуникаций",
+  },
+  {
+    email: "chernovsn@nhtk",
+    password: DEMO_FILL_STAFF_PASSWORDS["chernovsn@nhtk"],
+    firstName: "Сергей",
+    lastName: "Чернов",
+    middleName: "Николаевич",
+    phone: "+7(983) 512-90-21",
+    position: "Доцент",
+    department: "Кафедра электроники и микропроцессорной техники",
+  },
+  {
+    email: "lavroved@nhtk",
+    password: DEMO_FILL_STAFF_PASSWORDS["lavroved@nhtk"],
+    firstName: "Екатерина",
+    lastName: "Лаврова",
+    middleName: "Дмитриевна",
+    phone: "+7(909) 678-45-06",
+    position: "Преподаватель",
+    department: "Кафедра электроники и микропроцессорной техники",
+  },
+] as const
+
+const FILL_ADMIN_DEFS = [
+  {
+    email: "admin@nhtk",
+    password: DEMO_FILL_STAFF_PASSWORDS["admin@nhtk"],
+    firstName: "Денис",
+    lastName: "Николаев",
+    middleName: "Сергеевич",
+    phone: "+7(904) 521-09-83",
+    position: "Ведущий системный администратор",
+    department: "Отдел информационных технологий",
+  },
+  {
+    email: "melnikovaev@nhtk",
+    password: DEMO_FILL_STAFF_PASSWORDS["melnikovaev@nhtk"],
+    firstName: "Екатерина",
+    lastName: "Мельникова",
+    middleName: "Владимировна",
+    phone: "+7(908) 147-22-61",
+    position: "Системный администратор",
+    department: "Отдел информационных технологий",
+  },
+] as const
+
+/** По одной аудитории на преподавателя (индекс в FILL_TEACHER_DEFS) */
+const FILL_ROOM_RESPONSIBLE_TEACHER_IDX: Record<(typeof FILL_ROOM_NUMBERS)[number], number> = {
+  "101": 0,
+  "105": 1,
+  "112": 2,
+  "202": 3,
+  "222а": 4,
+  "301": 5,
+  "401": 6,
+  "405": 7,
+}
+
+/**
+ * Два администратора и восемь преподавателей для демо (реалистичные ФИО и отдельные пароли в константах выше).
+ * Ответственность за аудитории заполняется в teacherIdByRoomNumber.
+ */
+async function ensureFillStaffUsers(): Promise<{
+  teacherIdByRoomNumber: Record<string, string>
+  teachersOrdered: { id: string; email: string }[]
+  adminsOrdered: { id: string; email: string }[]
+}> {
+  for (const a of FILL_ADMIN_DEFS) {
+    const adminPwd = await hash(a.password, 12)
+    await prisma.user.upsert({
+      where: { email: a.email },
+      update: {
+        passwordHash: adminPwd,
+        firstName: a.firstName,
+        lastName: a.lastName,
+        middleName: a.middleName,
+        phone: a.phone,
+        position: a.position,
+        department: a.department,
+        role: UserRole.ADMIN,
+        status: UserStatus.ACTIVE,
+        isActive: true,
+      },
+      create: {
+        email: a.email,
+        passwordHash: adminPwd,
+        firstName: a.firstName,
+        lastName: a.lastName,
+        middleName: a.middleName,
+        phone: a.phone,
+        position: a.position,
+        department: a.department,
+        role: UserRole.ADMIN,
+        status: UserStatus.ACTIVE,
+        isActive: true,
+      },
+    })
   }
 
-  const demoEquipment = await prisma.equipment.findMany({
-    where: demoInventoryWhere,
-    select: {
-      id: true,
-      inventoryNumber: true,
-      _count: { select: { issueReports: true, repairs: true } },
-    },
-  })
+  for (const t of FILL_TEACHER_DEFS) {
+    const teacherPwd = await hash(t.password, 12)
+    await prisma.user.upsert({
+      where: { email: t.email },
+      update: {
+        passwordHash: teacherPwd,
+        firstName: t.firstName,
+        lastName: t.lastName,
+        middleName: t.middleName,
+        phone: t.phone,
+        position: t.position,
+        department: t.department,
+        role: UserRole.TEACHER,
+        status: UserStatus.ACTIVE,
+        isActive: true,
+      },
+      create: {
+        email: t.email,
+        passwordHash: teacherPwd,
+        firstName: t.firstName,
+        lastName: t.lastName,
+        middleName: t.middleName,
+        phone: t.phone,
+        position: t.position,
+        department: t.department,
+        role: UserRole.TEACHER,
+        status: UserStatus.ACTIVE,
+        isActive: true,
+      },
+    })
+  }
 
-  const blocked = demoEquipment.filter(
-    (e) => e._count.issueReports > 0 || e._count.repairs > 0,
-  )
-  for (const e of blocked) {
-    console.warn(
-      `Пропуск удаления ${e.inventoryNumber}: есть обращения или ремонты (данные не трогаем).`,
+  const adminEmails: string[] = [...FILL_ADMIN_DEFS.map((d) => d.email)]
+  const teacherEmails: string[] = [...FILL_TEACHER_DEFS.map((d) => d.email)]
+
+  const [admins, teachers] = await Promise.all([
+    prisma.user.findMany({
+      where: { email: { in: [...adminEmails] } },
+      select: { id: true, email: true },
+    }),
+    prisma.user.findMany({
+      where: { email: { in: [...teacherEmails] } },
+      select: { id: true, email: true },
+    }),
+  ])
+
+  admins.sort((a, b) => adminEmails.indexOf(a.email) - adminEmails.indexOf(b.email))
+  teachers.sort((a, b) => teacherEmails.indexOf(a.email) - teacherEmails.indexOf(b.email))
+
+  if (admins.length !== FILL_ADMIN_DEFS.length) {
+    throw new Error(`Ожидалось ${FILL_ADMIN_DEFS.length} админов демо-наполнения, найдено ${admins.length}`)
+  }
+  if (teachers.length !== FILL_TEACHER_DEFS.length) {
+    throw new Error(
+      `Ожидалось ${FILL_TEACHER_DEFS.length} преподавателей демо-наполнения, найдено ${teachers.length}`,
     )
   }
 
-  const deletableIds = demoEquipment
-    .filter((e) => e._count.issueReports === 0 && e._count.repairs === 0)
-    .map((e) => e.id)
-
-  if (deletableIds.length > 0) {
-    await prisma.installedSoftware.deleteMany({ where: { equipmentId: { in: deletableIds } } })
-    await prisma.component.deleteMany({ where: { equipmentId: { in: deletableIds } } })
-    await prisma.customFieldValue.deleteMany({ where: { equipmentId: { in: deletableIds } } })
-    const del = await prisma.equipment.deleteMany({ where: { id: { in: deletableIds } } })
-    console.log(`Удалено единиц оборудования (INV-DEMO/SEEDFILL, без заявок): ${del.count}`)
+  const teacherIdByRoomNumber: Record<string, string> = {}
+  for (const num of FILL_ROOM_NUMBERS) {
+    const idx = FILL_ROOM_RESPONSIBLE_TEACHER_IDX[num]
+    teacherIdByRoomNumber[num] = teachers[idx]!.id
   }
 
-  if (managedClassroomIds.length > 0) {
-    const emptyWsRows = await prisma.workstation.findMany({
-      where: {
-        classroomId: { in: managedClassroomIds },
-        equipment: { none: {} },
-      },
-      select: { id: true },
-    })
-    const emptyWsIds = emptyWsRows.map((w) => w.id)
-    if (emptyWsIds.length > 0) {
-      const relDel = await prisma.relocationLog.deleteMany({
-        where: {
-          OR: [
-            { fromWorkstationId: { in: emptyWsIds } },
-            { toWorkstationId: { in: emptyWsIds } },
-          ],
-        },
-      })
-      if (relDel.count > 0) {
-        console.log(
-          `Удалено записей журнала перемещений, ссылающихся на пустые РМ: ${relDel.count}`,
-        )
-      }
-      const emptyWs = await prisma.workstation.deleteMany({
-        where: { id: { in: emptyWsIds } },
-      })
-      if (emptyWs.count > 0) {
-        console.log(`Удалено пустых рабочих мест в целевых аудиториях: ${emptyWs.count}`)
-      }
-    }
-  }
+  console.log(
+    `Персонал демо: ${admins.length} админа (${adminEmails.join(", ")}), ${teachers.length} преподавателей; ответственность по аудиториям ${FILL_ROOM_NUMBERS.join(", ")}.`,
+  )
+
+  return { teacherIdByRoomNumber, teachersOrdered: teachers, adminsOrdered: admins }
 }
 
-/** Полное удаление заявок на ПО, обращений и ремонтов (для демо-перезаполнения). */
-async function purgeSoftwareRequestsIssuesRepairs(): Promise<void> {
-  const hist = await prisma.changeHistory.deleteMany({
-    where: { entityType: { in: [EntityType.ISSUE_REPORT, EntityType.REPAIR] } },
+/**
+ * Минимальные справочники для вставки оборудования (раньше ожидались из prisma/seed.ts).
+ */
+async function ensureMinimalCatalogForDemoFill(): Promise<{
+  typeClassroom: { id: string }
+  typeLab: { id: string }
+}> {
+  const typeClassroom = await prisma.classroomType.upsert({
+    where: { code: "classroom" },
+    update: {},
+    create: {
+      name: "Учебная аудитория",
+      code: "classroom",
+      color: "bg-slate-100 text-slate-800",
+      description: "Стандартные аудитории",
+    },
   })
-  const repairs = await prisma.repair.deleteMany({})
-  const issues = await prisma.issueReport.deleteMany({})
-  const reqs = await prisma.softwareRequest.deleteMany({})
+  const typeLab = await prisma.classroomType.upsert({
+    where: { code: "computer_lab" },
+    update: {},
+    create: {
+      name: "Компьютерный класс",
+      code: "computer_lab",
+      color: "bg-green-100 text-green-800",
+      description: "Классы с ПК",
+    },
+  })
+
+  const equipmentTypeLabels: Record<EquipmentType, string> = {
+    COMPUTER: "Компьютер",
+    MONITOR: "Монитор",
+    PRINTER: "Принтер",
+    PROJECTOR: "Проектор",
+    INTERACTIVE_BOARD: "Интерактивная доска",
+    SCANNER: "Сканер",
+    NETWORK_DEVICE: "Сетевое оборудование",
+    PERIPHERAL: "Периферия",
+    OTHER: "Прочее",
+  }
+
+  for (const ev of Object.values(EquipmentType)) {
+    const code = `BUILTIN_${ev}`
+    await prisma.equipmentKind.upsert({
+      where: { code },
+      update: { name: equipmentTypeLabels[ev], mapsToEnum: ev },
+      create: {
+        code,
+        name: equipmentTypeLabels[ev],
+        mapsToEnum: ev,
+      },
+    })
+  }
+
+  const seedCategories: { id: string; name: string; color: string; description: string }[] = [
+    {
+      id: "seed-ecat-computers",
+      name: "Компьютеры и комплектующие",
+      color: "#3b82f6",
+      description: "Системные блоки, комплектующие",
+    },
+    {
+      id: "seed-ecat-monitors",
+      name: "Мониторы и дисплеи",
+      color: "#10b981",
+      description: "Мониторы, панели",
+    },
+    {
+      id: "seed-ecat-peripheral",
+      name: "Периферийные устройства",
+      color: "#f59e0b",
+      description: "Клавиатуры, мыши и т.п.",
+    },
+    {
+      id: "seed-ecat-print",
+      name: "Печать и сканирование",
+      color: "#ef4444",
+      description: "Принтеры, МФУ, сканеры",
+    },
+    {
+      id: "seed-ecat-network",
+      name: "Сетевое оборудование",
+      color: "#8b5cf6",
+      description: "Коммутаторы, точки доступа",
+    },
+  ]
+
+  for (const c of seedCategories) {
+    await prisma.equipmentCategory.upsert({
+      where: { id: c.id },
+      update: { name: c.name, color: c.color, description: c.description },
+      create: {
+        id: c.id,
+        name: c.name,
+        color: c.color,
+        description: c.description,
+      },
+    })
+  }
+
   console.log(
-    `Сброс заявок/обращений/ремонтов: change_history=${hist.count}, repairs=${repairs.count}, issue_reports=${issues.count}, software_requests=${reqs.count}`,
+    "Справочники для демо: типы аудиторий, виды оборудования (BUILTIN_*), категории seed-ecat-*.",
   )
+
+  return {
+    typeClassroom: { id: typeClassroom.id },
+    typeLab: { id: typeLab.id },
+  }
 }
 
 function roomDigitsKey(roomNumber: string): string {
@@ -135,9 +410,15 @@ function roomDigitsKey(roomNumber: string): string {
 
 async function seedDemoRequestsIssuesRepairs(args: {
   adminId: string
-  teacherId: string
+  /** Ответственный за аудиторию — должен совпадать с requester/reporter в заявках по этой аудитории */
+  teacherIdByRoomNumber: Record<string, string>
 }): Promise<void> {
-  const { adminId, teacherId } = args
+  const { adminId, teacherIdByRoomNumber } = args
+  const teacher = (room: string) => {
+    const id = teacherIdByRoomNumber[room]
+    if (!id) throw new Error(`Нет ответственного для аудитории ${room} в teacherIdByRoomNumber`)
+    return id
+  }
 
   const classroomByNumber = (number: string) =>
     prisma.classroom.findUnique({ where: { number }, select: { id: true } })
@@ -193,7 +474,7 @@ async function seedDemoRequestsIssuesRepairs(args: {
         wholeClassroom: false,
         priority: IssuePriority.HIGH,
         status: SoftwareRequestStatus.PENDING,
-        requesterId: teacherId,
+        requesterId: teacher("112"),
       },
     })
   }
@@ -210,7 +491,7 @@ async function seedDemoRequestsIssuesRepairs(args: {
         wholeClassroom: false,
         priority: IssuePriority.MEDIUM,
         status: SoftwareRequestStatus.IN_PROGRESS,
-        requesterId: teacherId,
+        requesterId: teacher("105"),
       },
     })
   }
@@ -227,7 +508,7 @@ async function seedDemoRequestsIssuesRepairs(args: {
         wholeClassroom: false,
         priority: IssuePriority.LOW,
         status: SoftwareRequestStatus.PENDING,
-        requesterId: teacherId,
+        requesterId: teacher("301"),
       },
     })
   }
@@ -244,7 +525,7 @@ async function seedDemoRequestsIssuesRepairs(args: {
         wholeClassroom: true,
         priority: IssuePriority.MEDIUM,
         status: SoftwareRequestStatus.PENDING,
-        requesterId: teacherId,
+        requesterId: teacher("401"),
       },
     })
   }
@@ -267,7 +548,7 @@ async function seedDemoRequestsIssuesRepairs(args: {
     issue1 = await prisma.issueReport.create({
       data: {
         equipmentId: eqPc112_3.id,
-        reporterId: teacherId,
+        reporterId: teacher("112"),
         title: "ПК не выходит на загрузку ОС",
         description:
           "После обновления драйверов монитор показывает POST, далее чёрный экран. Демо-обращение.",
@@ -281,7 +562,7 @@ async function seedDemoRequestsIssuesRepairs(args: {
     issue2 = await prisma.issueReport.create({
       data: {
         equipmentId: eqMn112_7.id,
-        reporterId: teacherId,
+        reporterId: teacher("112"),
         title: "Мерцание изображения на мониторе",
         description: "На ярких участках заметны полосы и мерцание, демо-обращение.",
         status: IssueStatus.IN_PROGRESS,
@@ -294,7 +575,7 @@ async function seedDemoRequestsIssuesRepairs(args: {
     issue3 = await prisma.issueReport.create({
       data: {
         equipmentId: eqPc105_4.id,
-        reporterId: teacherId,
+        reporterId: teacher("105"),
         title: "Низкая скорость диска",
         description: "Система долго откликается, подозрение на накопитель, демо-обращение.",
         status: IssueStatus.NEW,
@@ -388,7 +669,7 @@ async function kindId(t: EquipmentType): Promise<string> {
     where: { code: `BUILTIN_${t}` },
     select: { id: true },
   })
-  if (!row) throw new Error(`Нет BUILTIN_${t}. Выполните prisma db seed.`)
+  if (!row) throw new Error(`Нет BUILTIN_${t}. Запустите скрипт с начала (ensureMinimalCatalogForDemoFill).`)
   return row.id
 }
 
@@ -565,35 +846,21 @@ async function upsertEquip(args: {
 
 async function main() {
   console.log(
-    "Демо-наполнение: РМ с ПК, конфигурации, оборудование INV-DEMO…; сброс и новые заявки на ПО / обращения / ремонты.",
+    "Демо-наполнение: полная очистка БД → тестовые данные (РМ, INV-DEMO, заявки, обращения, ремонты).",
   )
 
-  let teacher = await prisma.user.findFirst({ where: { email: "teacher@nhtk" } })
-  if (!teacher) {
-    console.log("Нет teacher@nhtk — запускаю базовый сид (npx prisma db seed)…")
-    try {
-      execSync("npx prisma db seed", { stdio: "inherit", cwd: process.cwd(), env: process.env })
-    } catch {
-      console.error("Базовый сид завершился с ошибкой. Выполните вручную: npx prisma db seed")
-      process.exit(1)
-    }
-    teacher = await prisma.user.findFirst({ where: { email: "teacher@nhtk" } })
-  }
-  if (!teacher) {
-    console.error("Пользователь teacher@nhtk не найден после базового сида.")
-    process.exit(1)
-  }
+  await wipeAllApplicationData()
 
-  const admin = await prisma.user.findFirst({ where: { email: "admin@nhtk" } })
+  const catalog = await ensureMinimalCatalogForDemoFill()
+
+  const { teacherIdByRoomNumber, adminsOrdered } = await ensureFillStaffUsers()
+  const admin = adminsOrdered[0]
   if (!admin) {
-    console.error("Нет admin@nhtk. Выполните: npx prisma db seed")
+    console.error("Не удалось загрузить администратора демо-наполнения.")
     process.exit(1)
   }
 
-  await purgeSoftwareRequestsIssuesRepairs()
-
-  const typeClassroom = await prisma.classroomType.findUnique({ where: { code: "classroom" } })
-  const typeLab = await prisma.classroomType.findUnique({ where: { code: "computer_lab" } })
+  const { typeClassroom, typeLab } = catalog
 
   const mainBuilding = await prisma.building.upsert({
     where: { id: "seed-building-main" },
@@ -623,7 +890,7 @@ async function main() {
     number: string
     name: string
     buildingId: string
-    classroomTypeId: string | undefined
+    classroomTypeId: string
     floor: number
     capacity: number
     responsibleId?: string | null
@@ -632,72 +899,75 @@ async function main() {
       number: "101",
       name: "Аудитория 101",
       buildingId: mainBuilding.id,
-      classroomTypeId: typeClassroom?.id,
+      classroomTypeId: typeClassroom.id,
       floor: 1,
       capacity: 18,
-      responsibleId: teacher.id,
+      responsibleId: teacherIdByRoomNumber["101"],
     },
     {
       number: "105",
       name: "Компьютерный класс 105",
       buildingId: mainBuilding.id,
-      classroomTypeId: typeLab?.id,
+      classroomTypeId: typeLab.id,
       floor: 1,
       capacity: 22,
+      responsibleId: teacherIdByRoomNumber["105"],
     },
     {
       number: "112",
       name: "Лаборатория 112",
       buildingId: labBuilding.id,
-      classroomTypeId: typeLab?.id,
+      classroomTypeId: typeLab.id,
       floor: 1,
       capacity: 16,
-      responsibleId: teacher.id,
+      responsibleId: teacherIdByRoomNumber["112"],
     },
     {
       number: "202",
       name: "Аудитория 202",
       buildingId: mainBuilding.id,
-      classroomTypeId: typeClassroom?.id,
+      classroomTypeId: typeClassroom.id,
       floor: 2,
       capacity: 20,
+      responsibleId: teacherIdByRoomNumber["202"],
     },
     {
       number: "222а",
       name: "Аудитория 222а",
       buildingId: mainBuilding.id,
-      classroomTypeId: typeClassroom?.id,
+      classroomTypeId: typeClassroom.id,
       floor: 2,
       capacity: 14,
+      responsibleId: teacherIdByRoomNumber["222а"],
     },
     {
       number: "301",
       name: "Аудитория 301",
       buildingId: mainBuilding.id,
-      classroomTypeId: typeClassroom?.id,
+      classroomTypeId: typeClassroom.id,
       floor: 3,
       capacity: 18,
-      responsibleId: teacher.id,
+      responsibleId: teacherIdByRoomNumber["301"],
     },
     {
       number: "401",
       name: "Лекционный зал 401",
       buildingId: mainBuilding.id,
-      classroomTypeId: typeClassroom?.id,
+      classroomTypeId: typeClassroom.id,
       floor: 4,
       capacity: 28,
+      responsibleId: teacherIdByRoomNumber["401"],
     },
     {
       number: "405",
       name: "Аудитория 405",
       buildingId: mainBuilding.id,
-      classroomTypeId: typeClassroom?.id,
+      classroomTypeId: typeClassroom.id,
       floor: 4,
       capacity: 16,
+      responsibleId: teacherIdByRoomNumber["405"],
     },
   ]
-
-  await purgePreviousDemoSeed(roomDefs.map((r) => r.number))
 
   for (const r of roomDefs) {
     await prisma.classroom.upsert({
@@ -722,6 +992,32 @@ async function main() {
         responsibleId: r.responsibleId ?? null,
         listingStatus: "ACTIVE",
         isActive: true,
+      },
+    })
+  }
+
+  for (const r of roomDefs) {
+    const room = await prisma.classroom.findUnique({
+      where: { number: r.number },
+      select: { id: true },
+    })
+    if (!room) continue
+    const poolCode = classroomPoolWorkstationCode(r.number)
+    await prisma.workstation.upsert({
+      where: { classroomId_code: { classroomId: room.id, code: poolCode } },
+      update: {},
+      create: {
+        code: poolCode,
+        classroomId: room.id,
+        name: poolCode,
+        description:
+          "Служебное место: оборудование кабинета без отдельного учебного РМ (не учитывается в вместимости).",
+        status: WorkstationStatus.ACTIVE,
+        hasMonitor: false,
+        hasKeyboard: false,
+        hasMouse: false,
+        hasHeadphones: false,
+        hasOtherEquipment: false,
       },
     })
   }
@@ -1046,7 +1342,7 @@ async function main() {
     await syncWorkstationStatusFromEquipment(prisma, wid)
   }
 
-  await seedDemoRequestsIssuesRepairs({ adminId: admin.id, teacherId: teacher.id })
+  await seedDemoRequestsIssuesRepairs({ adminId: admin.id, teacherIdByRoomNumber })
 
   console.log(
     `Готово: РМ с ПК ≈ ${wsCount}, конфигурации ПК, ПО на ПК, оборудование; заявки на ПО / обращения / ремонты пересозданы демо-данными.`,

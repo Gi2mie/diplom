@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import type { RegistryBuilding, RegistryClassroom } from "@/lib/api/classroom-registry"
 import type { ApiWorkstation } from "@/lib/api/workstations"
+import { isClassroomPoolWorkstation } from "@/lib/classroom-pool-workstation"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -92,10 +93,16 @@ export function PcConfigFormFields({
 
   const workstationsInClassroom = useMemo(() => {
     if (!classroomId) return []
-    return [...workstations.filter((w) => w.classroomId === classroomId)].sort((a, b) =>
-      a.code.localeCompare(b.code, "ru", { numeric: true })
-    )
-  }, [classroomId, workstations])
+    const cls = classrooms.find((c) => c.id === classroomId)
+    const roomNum = cls?.number
+    return [
+      ...workstations.filter((w) => {
+        if (w.classroomId !== classroomId) return false
+        if (roomNum && isClassroomPoolWorkstation(w.code, roomNum)) return false
+        return true
+      }),
+    ].sort((a, b) => a.code.localeCompare(b.code, "ru", { numeric: true }))
+  }, [classroomId, workstations, classrooms])
 
   useEffect(() => {
     if (!form.workstationId) return

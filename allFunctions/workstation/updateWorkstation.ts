@@ -3,7 +3,14 @@
 import { prisma } from "@/lib/db"
 import { updateWorkstationSchema, type UpdateWorkstationInput } from "@/lib/validators"
 import type { Workstation } from "@/lib/types"
-import { workstationCodeMatchesClassroom } from "@/lib/workstation-code"
+import {
+  workstationCodeClassroomErrorHint,
+  workstationCodeMatchesClassroom,
+} from "@/lib/workstation-code"
+import {
+  isClassroomPoolWorkstation,
+  prismaWorkstationsCountingTowardCapacity,
+} from "@/lib/classroom-pool-workstation"
 import { syncWorkstationStatusFromEquipment } from "@/lib/workstation-status-sync"
 
 export type UpdateWorkstationResult = {
@@ -21,10 +28,20 @@ function parseLastMaintenance(v: string | null | undefined): Date | null | undef
 
 export async function updateWorkstation(id: string, input: UpdateWorkstationInput): Promise<UpdateWorkstationResult> {
   try {
-    const existing = await prisma.workstation.findUnique({ where: { id } })
+    const existing = await prisma.workstation.findUnique({
+      where: { id },
+      include: { classroom: { select: { number: true } } },
+    })
 
     if (!existing) {
       return { success: false, error: "Рабочее место не найдено" }
+    }
+
+    if (isClassroomPoolWorkstation(existing.code, existing.classroom.number)) {
+      return {
+        success: false,
+        error: "Служебное рабочее место кабинета (KAB-…) нельзя редактировать.",
+      }
     }
 
     const validationResult = updateWorkstationSchema.safeParse(input)
@@ -48,7 +65,7 @@ export async function updateWorkstation(id: string, input: UpdateWorkstationInpu
 
     const nextCode = data.code ?? existing.code
     if (!workstationCodeMatchesClassroom(nextCode, classroom.number)) {
-      return { success: false, error: `Номер должен начинаться с RM-${classroom.number}-` }
+      return { success: false, error: workstationCodeClassroomErrorHint(classroom.number) }
     }
 
     const mergedHasOther = data.hasOtherEquipment ?? existing.hasOtherEquipment
@@ -60,7 +77,12 @@ export async function updateWorkstation(id: string, input: UpdateWorkstationInpu
 
     if (targetClassroomId !== existing.classroomId && classroom.capacity != null) {
       const cnt = await prisma.workstation.count({
-        where: { classroomId: targetClassroomId, id: { not: existing.id } },
+        where: {
+          AND: [
+            prismaWorkstationsCountingTowardCapacity(targetClassroomId, classroom.number),
+            { id: { not: existing.id } },
+          ],
+        },
       })
       if (cnt >= classroom.capacity) {
         return {

@@ -20,6 +20,7 @@ import {
   Loader2,
   ArrowRightLeft,
   AlertCircle,
+  Boxes,
 } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -91,7 +92,14 @@ import { PageHeader } from "@/components/dashboard/page-header"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { SortableTableHead } from "@/components/ui/sortable-table-head"
 import { useTableSort } from "@/hooks/use-table-sort"
-import { equipmentPermanentDeleteAllowed } from "@/lib/equipment-deletion-policy"
+import {
+  equipmentPermanentDeleteAllowed,
+  equipmentPermanentDeleteFullDaysRemaining,
+} from "@/lib/equipment-deletion-policy"
+import {
+  classroomPoolWorkstationCode,
+  isClassroomPoolWorkstation,
+} from "@/lib/classroom-pool-workstation"
 import { parseFetchJson } from "@/lib/api/parse-fetch-json"
 
 type WorkstationRow = {
@@ -103,15 +111,23 @@ type WorkstationRow = {
   buildingName: string | null
 }
 
-function deriveNameFromWorkstationCode(code: string): string {
-  // RM-101-01 → -101-01 (убираем префикс RM, остальное можно править вручную)
+/** Код РМ: RM-112-14, PM-112-14, KAB-112 — убираем первый буквенный префикс до «-». */
+function stripLeadingWorkstationPrefix(code: string): { rest: string; hadPrefix: boolean } {
   const trimmed = code.trim()
-  return trimmed.replace(/^RM/i, "")
+  const m = trimmed.match(/^([A-Za-zА-Яа-яЁё]+)-(.+)$/)
+  if (m) return { rest: m[2]!, hadPrefix: true }
+  return { rest: trimmed, hadPrefix: false }
+}
+
+function deriveNameFromWorkstationCode(code: string): string {
+  const { rest, hadPrefix } = stripLeadingWorkstationPrefix(code)
+  if (hadPrefix) return `-${rest}`
+  return rest
 }
 
 function deriveInventoryFromWorkstationCode(code: string): string {
-  // RM-101-01 -> INV-101-01
-  return `INV-${code.replace(/^RM-/i, "")}`
+  const { rest } = stripLeadingWorkstationPrefix(code)
+  return rest ? `INV-${rest}` : ""
 }
 
 function classroomLine(row: DashboardEquipmentRow): string {
@@ -121,6 +137,16 @@ function classroomLine(row: DashboardEquipmentRow): string {
     bits.push(row.classroomName ? `${row.classroomNumber} (${row.classroomName})` : row.classroomNumber)
   }
   return bits.length ? bits.join(" · ") : "—"
+}
+
+function equipmentDeleteDropdownLabel(row: DashboardEquipmentRow): string {
+  if (row.status !== EquipmentStatus.DECOMMISSIONED) return "Удалить"
+  const days = equipmentPermanentDeleteFullDaysRemaining(row.status, row.decommissionedAt ?? null)
+  return days != null ? `Удалить (${days}д)` : "Удалить"
+}
+
+function equipmentDeleteDropdownEnabled(row: DashboardEquipmentRow): boolean {
+  return equipmentPermanentDeleteAllowed(row.status, row.decommissionedAt ?? null)
 }
 
 const emptyForm = () => ({
@@ -151,6 +177,8 @@ export default function EquipmentPage() {
   const [filterCategoryId, setFilterCategoryId] = useState("all")
   const [filterKindId, setFilterKindId] = useState("all")
   const [filterRelocatedOnly, setFilterRelocatedOnly] = useState(false)
+  /** Только оборудование на служебном РМ кабинета (KAB-…) */
+  const [filterPoolWorkstationOnly, setFilterPoolWorkstationOnly] = useState(false)
 
   const [viewOpen, setViewOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
@@ -167,6 +195,8 @@ export default function EquipmentPage() {
   const [form, setForm] = useState(emptyForm)
   const [formSaving, setFormSaving] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
+  /** Перерисовка счётчика «дней до удаления» у списанного оборудования */
+  const [, setDeleteCooldownTick] = useState(0)
   /** Не перезаписывать подсказкой при смене РМ, если пользователь уже правил поле */
   const nameEditedManuallyRef = useRef(false)
   const inventoryEditedManuallyRef = useRef(false)
@@ -199,6 +229,17 @@ export default function EquipmentPage() {
     if (sessionStatus === "authenticated") void loadAll()
   }, [sessionStatus, loadAll])
 
+  useEffect(() => {
+    const hasCooldown = equipment.some(
+      (row) =>
+        row.status === EquipmentStatus.DECOMMISSIONED &&
+        equipmentPermanentDeleteFullDaysRemaining(row.status, row.decommissionedAt ?? null) != null
+    )
+    if (!hasCooldown) return
+    const id = window.setInterval(() => setDeleteCooldownTick((t) => t + 1), 60_000)
+    return () => clearInterval(id)
+  }, [equipment])
+
   const filteredClassroomsForFilter = useMemo(() => {
     if (!classroomReg) return []
     if (filterBuildingId === "all") return classroomReg.classrooms
@@ -221,6 +262,13 @@ export default function EquipmentPage() {
       const matchKind = filterKindId === "all" || item.equipmentKindId === filterKindId
       const matchRelocated =
         !filterRelocatedOnly || Boolean(item.relocationRoomsLabel?.trim())
+      const matchPoolWs =
+        !filterPoolWorkstationOnly ||
+        Boolean(
+          item.workstationCode &&
+            item.classroomNumber &&
+            isClassroomPoolWorkstation(item.workstationCode, item.classroomNumber)
+        )
       return (
         matchQ &&
         matchClass &&
@@ -228,7 +276,8 @@ export default function EquipmentPage() {
         matchSt &&
         matchCat &&
         matchKind &&
-        matchRelocated
+        matchRelocated &&
+        matchPoolWs
       )
     })
   }, [
@@ -240,6 +289,7 @@ export default function EquipmentPage() {
     filterCategoryId,
     filterKindId,
     filterRelocatedOnly,
+    filterPoolWorkstationOnly,
   ])
 
   const equipmentSortGetters = useMemo(
@@ -260,31 +310,14 @@ export default function EquipmentPage() {
     "name"
   )
 
-  const equipmentCountByWorkstation = useMemo(() => {
-    const m = new Map<string, number>()
-    for (const e of equipment) {
-      if (e.workstationId) {
-        m.set(e.workstationId, (m.get(e.workstationId) ?? 0) + 1)
-      }
-    }
-    return m
-  }, [equipment])
-
-  const freeWorkstationsForEquipmentMove = useMemo(() => {
+  /** Все РМ целевой аудитории, включая служебное KAB-…; занятые учебные места допускаются. */
+  const moveTargetWorkstationOptions = useMemo(() => {
     if (!moveOpen || !moveSelected?.classroomId || !moveTargetClassroomId) return []
     if (moveTargetClassroomId === moveSelected.classroomId) return []
-    return workstations.filter(
-      (w) =>
-        w.classroomId === moveTargetClassroomId &&
-        (equipmentCountByWorkstation.get(w.id) ?? 0) === 0
-    )
-  }, [
-    moveOpen,
-    moveSelected?.classroomId,
-    moveTargetClassroomId,
-    workstations,
-    equipmentCountByWorkstation,
-  ])
+    return workstations
+      .filter((w) => w.classroomId === moveTargetClassroomId)
+      .sort((a, b) => a.code.localeCompare(b.code, "ru", { numeric: true }))
+  }, [moveOpen, moveSelected?.classroomId, moveTargetClassroomId, workstations])
 
   const stats = useMemo(() => {
     return {
@@ -303,6 +336,7 @@ export default function EquipmentPage() {
     setFilterCategoryId("all")
     setFilterKindId("all")
     setFilterRelocatedOnly(false)
+    setFilterPoolWorkstationOnly(false)
   }
 
   const hasFilters =
@@ -312,7 +346,8 @@ export default function EquipmentPage() {
     filterStatus !== "all" ||
     filterCategoryId !== "all" ||
     filterKindId !== "all" ||
-    filterRelocatedOnly
+    filterRelocatedOnly ||
+    filterPoolWorkstationOnly
 
   const isAdmin = session?.user?.role === "ADMIN"
 
@@ -372,6 +407,20 @@ export default function EquipmentPage() {
     let workstationId: string | null = null
     if (form.workstationId && form.workstationId !== "__none__") {
       workstationId = form.workstationId
+    } else if (form.classroomId) {
+      const cls = classroomsForForm.find((c) => c.id === form.classroomId)
+      if (cls) {
+        const poolCode = classroomPoolWorkstationCode(cls.number)
+        const poolWs = workstations.find((w) => w.classroomId === form.classroomId && w.code === poolCode)
+        if (poolWs) {
+          workstationId = poolWs.id
+        } else {
+          setFormError(
+            `В аудитории нет служебного рабочего места ${poolCode}. Для старых аудиторий выполните повторный seed или создайте РМ с таким кодом вручную.`
+          )
+          return
+        }
+      }
     }
 
     const payload = {
@@ -450,9 +499,7 @@ export default function EquipmentPage() {
       <PageHeader
         title="Управление оборудованием"
         description={
-          isAdmin
-            ? "Добавление и редактирование, привязка к рабочим местам и учёт статусов. Удаление из учёта — только после списания и не ранее чем через 30 суток."
-            : "Просмотр оборудования в аудиториях, за которые вы ответственны."
+          isAdmin ? undefined : "Просмотр оборудования в аудиториях, за которые вы ответственны."
         }
         actions={
           isAdmin ? (
@@ -645,15 +692,26 @@ export default function EquipmentPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex items-end sm:col-span-2 xl:col-span-2">
+            <div className="flex flex-col gap-2 sm:col-span-2 xl:col-span-2 sm:flex-row sm:items-end">
               <Button
                 type="button"
                 variant={filterRelocatedOnly ? "secondary" : "outline"}
-                className="w-full shrink-0"
+                className="w-full shrink-0 sm:flex-1"
                 onClick={() => setFilterRelocatedOnly((v) => !v)}
               >
                 <ArrowRightLeft className="mr-2 h-4 w-4" />
                 {filterRelocatedOnly ? "Только перемещённые" : "Отобразить перемещённое"}
+              </Button>
+              <Button
+                type="button"
+                variant={filterPoolWorkstationOnly ? "secondary" : "outline"}
+                className="w-full shrink-0 sm:flex-1"
+                onClick={() => setFilterPoolWorkstationOnly((v) => !v)}
+              >
+                <Boxes className="mr-2 h-4 w-4" />
+                {filterPoolWorkstationOnly
+                  ? "Только на служебном РМ"
+                  : "На служебном РМ (KAB)"}
               </Button>
             </div>
           </div>
@@ -786,10 +844,12 @@ export default function EquipmentPage() {
                             </DropdownMenuItem>
                             {isAdmin && (
                               <>
-                                <DropdownMenuItem onClick={() => openEdit(item)}>
-                                  <Pencil className="mr-2 h-4 w-4" />
-                                  Редактировать
-                                </DropdownMenuItem>
+                                {item.status !== EquipmentStatus.DECOMMISSIONED && (
+                                  <DropdownMenuItem onClick={() => openEdit(item)}>
+                                    <Pencil className="mr-2 h-4 w-4" />
+                                    Редактировать
+                                  </DropdownMenuItem>
+                                )}
                                 {item.workstationId &&
                                   !item.relocationRoomsLabel &&
                                   item.status !== EquipmentStatus.DECOMMISSIONED && (
@@ -826,24 +886,23 @@ export default function EquipmentPage() {
                                     </span>
                                   </DropdownMenuItem>
                                 )}
-                                {equipmentPermanentDeleteAllowed(
-                                  item.status,
-                                  item.decommissionedAt ?? null
-                                ) ? (
+                                {item.status === EquipmentStatus.DECOMMISSIONED && (
                                   <>
                                     <DropdownMenuSeparator />
                                     <DropdownMenuItem
                                       className="text-destructive focus:text-destructive"
+                                      disabled={!equipmentDeleteDropdownEnabled(item)}
                                       onClick={() => {
+                                        if (!equipmentDeleteDropdownEnabled(item)) return
                                         setSelected(item)
                                         setDeleteOpen(true)
                                       }}
                                     >
                                       <Trash2 className="mr-2 h-4 w-4" />
-                                      Удалить из учёта
+                                      {equipmentDeleteDropdownLabel(item)}
                                     </DropdownMenuItem>
                                   </>
-                                ) : null}
+                                )}
                               </>
                             )}
                           </DropdownMenuContent>
@@ -1066,15 +1125,25 @@ export default function EquipmentPage() {
                 onValueChange={(v) => {
                   setForm((f) => {
                     const next = { ...f, workstationId: v }
+                    const applyFromCode = (wsCode: string) => {
+                      if (!nameEditedManuallyRef.current) {
+                        next.name = deriveNameFromWorkstationCode(wsCode)
+                      }
+                      if (!inventoryEditedManuallyRef.current) {
+                        next.inventoryNumber = deriveInventoryFromWorkstationCode(wsCode)
+                      }
+                    }
                     if (v && v !== "__none__") {
                       const w = workstations.find((x) => x.id === v)
-                      if (w) {
-                        if (!nameEditedManuallyRef.current) {
-                          next.name = deriveNameFromWorkstationCode(w.code)
-                        }
-                        if (!inventoryEditedManuallyRef.current) {
-                          next.inventoryNumber = deriveInventoryFromWorkstationCode(w.code)
-                        }
+                      if (w) applyFromCode(w.code)
+                    } else if (v === "__none__" && f.classroomId && classroomReg) {
+                      const room = classroomReg.classrooms.find((c) => c.id === f.classroomId)
+                      if (room) {
+                        const poolCode = classroomPoolWorkstationCode(room.number)
+                        const poolWs = workstations.find(
+                          (x) => x.classroomId === f.classroomId && x.code === poolCode
+                        )
+                        if (poolWs) applyFromCode(poolWs.code)
                       }
                     }
                     return next
@@ -1088,13 +1157,24 @@ export default function EquipmentPage() {
                   />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="__none__">Не привязано</SelectItem>
-                  {workstationsForForm.map((w) => (
-                    <SelectItem key={w.id} value={w.id}>
-                      {w.code}
-                      {w.name ? ` · ${w.name}` : ""}
-                    </SelectItem>
-                  ))}
+                  <SelectItem value="__none__">
+                    {(() => {
+                      const room = classroomsForForm.find((c) => c.id === form.classroomId)
+                      return room
+                        ? `Общее по кабинету (${classroomPoolWorkstationCode(room.number)})`
+                        : "Общее по кабинету"
+                    })()}
+                  </SelectItem>
+                  {workstationsForForm.map((w) => {
+                    const roomNum = classroomsForForm.find((c) => c.id === form.classroomId)?.number
+                    const isPool = roomNum ? w.code === classroomPoolWorkstationCode(roomNum) : false
+                    return (
+                      <SelectItem key={w.id} value={w.id}>
+                        {w.code}
+                        {isPool ? " — оборудование кабинета" : w.name ? ` · ${w.name}` : ""}
+                      </SelectItem>
+                    )
+                  })}
                 </SelectContent>
               </Select>
             </div>
@@ -1150,8 +1230,9 @@ export default function EquipmentPage() {
           <DialogHeader>
             <DialogTitle>Перемещение оборудования</DialogTitle>
             <DialogDescription className="text-pretty break-words">
-              Выберите аудиторию и свободное рабочее место. После перемещения в списке будет
-              отображаться маршрут вида «401-&gt;101». Отменить перемещение можно в журнале.
+              Выберите аудиторию и рабочее место назначения, в том числе служебное KAB-… (оборудование
+              кабинета). Учебное РМ может быть уже занято другим оборудованием. После перемещения в
+              списке будет маршрут вида «401-&gt;101»; отмена — в журнале.
             </DialogDescription>
           </DialogHeader>
           {moveSelected && (
@@ -1192,25 +1273,25 @@ export default function EquipmentPage() {
                 </Select>
               </div>
               <div className="grid gap-2">
-                <Label>Свободное рабочее место</Label>
+                <Label>Рабочее место назначения</Label>
                 <Select
                   value={moveTargetWsId || undefined}
                   onValueChange={setMoveTargetWsId}
-                  disabled={!moveTargetClassroomId || freeWorkstationsForEquipmentMove.length === 0}
+                  disabled={!moveTargetClassroomId || moveTargetWorkstationOptions.length === 0}
                 >
                   <SelectTrigger>
                     <SelectValue
                       placeholder={
                         !moveTargetClassroomId
                           ? "Сначала аудитория"
-                          : freeWorkstationsForEquipmentMove.length === 0
-                            ? "Нет свободных РМ"
+                          : moveTargetWorkstationOptions.length === 0
+                            ? "Нет РМ в аудитории"
                             : "Выберите РМ"
                       }
                     />
                   </SelectTrigger>
                   <SelectContent>
-                    {freeWorkstationsForEquipmentMove.map((w) => (
+                    {moveTargetWorkstationOptions.map((w) => (
                       <SelectItem key={w.id} value={w.id}>
                         {w.code}
                         {w.name ? ` · ${w.name}` : ""}
@@ -1231,7 +1312,7 @@ export default function EquipmentPage() {
                 moveBusy ||
                 !moveTargetWsId ||
                 !moveSelected ||
-                freeWorkstationsForEquipmentMove.length === 0
+                moveTargetWorkstationOptions.length === 0
               }
               onClick={() => {
                 if (!moveSelected || !moveTargetWsId) return
@@ -1276,7 +1357,7 @@ export default function EquipmentPage() {
           <AlertDialogFooter>
             <AlertDialogCancel>Отмена</AlertDialogCancel>
             <AlertDialogAction variant="destructive" onClick={() => void confirmDelete()}>
-              Удалить из учёта
+              Удалить
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

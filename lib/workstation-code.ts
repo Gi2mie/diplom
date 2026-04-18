@@ -1,10 +1,25 @@
+import {
+  classroomPoolWorkstationCode,
+  isClassroomPoolWorkstation,
+} from "@/lib/classroom-pool-workstation"
+
+export { classroomPoolWorkstationCode, isClassroomPoolWorkstation } from "@/lib/classroom-pool-workstation"
+
+/** Текст подсказки при неверном формате кода РМ. */
+export function workstationCodeClassroomErrorHint(classroomNumber: string): string {
+  return `Укажите «${classroomPoolWorkstationCode(classroomNumber)}» или номер вида RM-${classroomNumber}-…`
+}
+
 /** Префикс номера рабочего места для выбранной аудитории (номер из справочника). */
 export function workstationRmPrefix(classroomNumber: string): string {
   return `RM-${classroomNumber}-`
 }
 
 export function workstationCodeMatchesClassroom(code: string, classroomNumber: string): boolean {
-  return code.startsWith(workstationRmPrefix(classroomNumber))
+  return (
+    code.startsWith(workstationRmPrefix(classroomNumber)) ||
+    isClassroomPoolWorkstation(code, classroomNumber)
+  )
 }
 
 /** PC-301-01 из RM-301-01 для той же аудитории. */

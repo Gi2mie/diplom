@@ -1,8 +1,11 @@
 "use server"
 
+import { WorkstationStatus } from "@prisma/client"
 import { prisma } from "@/lib/db"
 import { createClassroomSchema, type CreateClassroomInput } from "@/lib/validators"
 import type { Classroom } from "@/lib/types"
+import { isActiveFromListingStatus } from "@/lib/classroom-listing-status"
+import { classroomPoolWorkstationCode } from "@/lib/classroom-pool-workstation"
 
 export type AddClassroomResult = {
   success: boolean
@@ -49,21 +52,40 @@ export async function addClassroom(input: CreateClassroomInput): Promise<AddClas
     }
 
     const listingStatus = data.listingStatus ?? "ACTIVE"
-    const isActive = listingStatus !== "INACTIVE"
+    const isActive = isActiveFromListingStatus(listingStatus)
 
-    const classroom = await prisma.classroom.create({
-      data: {
-        number: data.number,
-        name: data.name ?? null,
-        buildingId: data.buildingId ?? null,
-        classroomTypeId: data.classroomTypeId ?? null,
-        floor: data.floor ?? null,
-        capacity: data.capacity ?? null,
-        description: data.description ?? null,
-        responsibleId: data.responsibleId ?? null,
-        listingStatus,
-        isActive,
-      },
+    const classroom = await prisma.$transaction(async (tx) => {
+      const c = await tx.classroom.create({
+        data: {
+          number: data.number,
+          name: data.name ?? null,
+          buildingId: data.buildingId ?? null,
+          classroomTypeId: data.classroomTypeId ?? null,
+          floor: data.floor ?? null,
+          capacity: data.capacity ?? null,
+          description: data.description ?? null,
+          responsibleId: data.responsibleId ?? null,
+          listingStatus,
+          isActive,
+        },
+      })
+      const poolCode = classroomPoolWorkstationCode(c.number)
+      await tx.workstation.create({
+        data: {
+          code: poolCode,
+          classroomId: c.id,
+          name: poolCode,
+          description:
+            "Служебное место: оборудование кабинета без отдельного учебного РМ (не учитывается в вместимости).",
+          status: WorkstationStatus.ACTIVE,
+          hasMonitor: false,
+          hasKeyboard: false,
+          hasMouse: false,
+          hasHeadphones: false,
+          hasOtherEquipment: false,
+        },
+      })
+      return c
     })
 
     return {

@@ -5,7 +5,7 @@ const prisma = new PrismaClient()
 
 async function seedUsers() {
   const adminPasswordHash = await hash("admin123", 12)
-  const teacherPasswordHash = await hash("teacher123", 12)
+  const teacherPasswordHash = await hash("zubenko123", 12)
 
   await prisma.user.upsert({
     where: { email: "admin@nhtk" },
@@ -14,12 +14,12 @@ async function seedUsers() {
       role: UserRole.ADMIN,
       status: UserStatus.ACTIVE,
       isActive: true,
-      firstName: "Администратор",
-      lastName: "Системный",
-      middleName: "Владимирович",
-      phone: "+7(900) 111-11-11",
-      position: "Системный администратор",
-      department: "ИТ-отдел",
+      firstName: "Денис",
+      lastName: "Николаев",
+      middleName: "Сергеевич",
+      phone: "+7(904) 521-09-83",
+      position: "Ведущий системный администратор",
+      department: "Отдел информационных технологий",
     },
     create: {
       email: "admin@nhtk",
@@ -27,47 +27,47 @@ async function seedUsers() {
       role: UserRole.ADMIN,
       status: UserStatus.ACTIVE,
       isActive: true,
-      firstName: "Администратор",
-      lastName: "Системный",
-      middleName: "Владимирович",
-      phone: "+7(900) 111-11-11",
-      position: "Системный администратор",
-      department: "ИТ-отдел",
+      firstName: "Денис",
+      lastName: "Николаев",
+      middleName: "Сергеевич",
+      phone: "+7(904) 521-09-83",
+      position: "Ведущий системный администратор",
+      department: "Отдел информационных технологий",
     },
   })
 
   await prisma.user.upsert({
-    where: { email: "teacher@nhtk" },
+    where: { email: "zubenkomp@nhtk" },
     update: {
       passwordHash: teacherPasswordHash,
       role: UserRole.TEACHER,
       status: UserStatus.ACTIVE,
       isActive: true,
-      firstName: "Иван",
-      lastName: "Петров",
-      middleName: "Сергеевич",
-      phone: "+7(900) 222-22-22",
-      position: "Преподаватель",
-      department: "Кафедра информатики",
+      firstName: "Михаил",
+      lastName: "Зубенко",
+      middleName: "Петирович",
+      phone: "+7(904) 118-44-27",
+      position: "Старший преподаватель",
+      department: "Кафедра информатики и вычислительной техники",
     },
     create: {
-      email: "teacher@nhtk",
+      email: "zubenkomp@nhtk",
       passwordHash: teacherPasswordHash,
       role: UserRole.TEACHER,
       status: UserStatus.ACTIVE,
       isActive: true,
-      firstName: "Иван",
-      lastName: "Петров",
-      middleName: "Сергеевич",
-      phone: "+7(900) 222-22-22",
-      position: "Преподаватель",
-      department: "Кафедра информатики",
+      firstName: "Михаил",
+      lastName: "Зубенко",
+      middleName: "Петирович",
+      phone: "+7(904) 118-44-27",
+      position: "Старший преподаватель",
+      department: "Кафедра информатики и вычислительной техники",
     },
   })
 
   console.log("Users seeded successfully:")
   console.log("  Admin:   admin@nhtk / admin123")
-  console.log("  Teacher: teacher@nhtk / teacher123")
+  console.log("  Teacher: zubenkomp@nhtk / zubenko123")
 }
 
 seedUsers()

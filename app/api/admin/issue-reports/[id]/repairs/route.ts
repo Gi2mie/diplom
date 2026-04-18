@@ -5,6 +5,7 @@ import {
   UserRole,
 } from "@prisma/client"
 import { auth } from "@/lib/auth"
+import { userExistsById } from "@/lib/auth-db"
 import { db } from "@/lib/db"
 import { recomputeEquipmentStatus } from "@/lib/equipment-status-sync"
 import { batchRepairsFromIssueSchema } from "@/lib/validators"
@@ -43,6 +44,15 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const session = await auth()
   if (!session?.user?.id || session.user.role !== UserRole.ADMIN) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
+  if (!(await userExistsById(session.user.id))) {
+    return NextResponse.json(
+      {
+        error:
+          "Сессия устарела: пользователь не найден в базе (часто после сброса БД). Выйдите и войдите снова.",
+      },
+      { status: 401 }
+    )
   }
 
   const { id: issueId } = await context.params

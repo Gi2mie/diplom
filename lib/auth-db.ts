@@ -19,6 +19,12 @@ export async function getUserByEmail(email: string) {
   }
 }
 
+/** При JWT-сессии id в токене может остаться после сброса/пересидивания БД — тогда FK на users падает. */
+export async function userExistsById(userId: string): Promise<boolean> {
+  const row = await db.user.findUnique({ where: { id: userId }, select: { id: true } })
+  return Boolean(row)
+}
+
 export async function verifyPassword(password: string, passwordHash: string): Promise<boolean> {
   try {
     return await bcrypt.compare(password, passwordHash)

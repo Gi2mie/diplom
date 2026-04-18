@@ -141,10 +141,11 @@ const teacherNavigation: NavigationGroup[] = [
     ]
   },
   {
-    title: "Оборудование",
+    title: "Оборудование и аудитории",
     items: [
       { title: "Просмотр оборудования", href: "/dashboard/equipment", icon: Package },
       { title: "Аудитории", href: "/dashboard/classrooms", icon: School },
+      { title: "Рабочие места", href: "/dashboard/workstations", icon: MonitorSmartphone },
     ]
   },
   {

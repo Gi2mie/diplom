@@ -8,6 +8,7 @@ import {
 } from "@prisma/client"
 import { auth } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { isClassroomPoolWorkstation } from "@/lib/classroom-pool-workstation"
 import { equipmentStatusLabel } from "@/lib/equipment-labels"
 import type { Prisma } from "@prisma/client"
 
@@ -518,6 +519,8 @@ export async function GET(request: Request) {
 
   const pcWhere: Prisma.EquipmentWhereInput = {
     type: EquipmentType.COMPUTER,
+    /** В отчёт «Установленное ПО на ПК» только ПК с хотя бы одной записью в установленном ПО */
+    software: { some: {} },
     ...(Object.keys(workstationIs).length > 0 ? { workstation: { is: workstationIs } } : {}),
     ...(workstationId && workstationId !== "all" ? { workstationId } : {}),
     ...(inventorySearch
@@ -544,7 +547,15 @@ export async function GET(request: Request) {
     },
   })
 
-  const pcSoftware = pcs.map((e) => {
+  /** В отчёт «Установленное ПО на ПК» не входят компьютеры на служебном РМ кабинета (KAB-…). */
+  const pcsForSoftwareReport = pcs.filter((e) => {
+    const ws = e.workstation
+    const c = ws?.classroom
+    if (!ws || !c?.number) return true
+    return !isClassroomPoolWorkstation(ws.code, c.number)
+  })
+
+  const pcSoftware = pcsForSoftwareReport.map((e) => {
     const ws = e.workstation
     const c = ws?.classroom
     return {

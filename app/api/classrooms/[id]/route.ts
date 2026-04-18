@@ -3,6 +3,7 @@ import { auth, isAdminSession } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { updateClassroomSchema } from "@/lib/validators"
 import { isActiveFromListingStatus } from "@/lib/classroom-listing-status"
+import { classroomPoolWorkstationCode } from "@/lib/classroom-pool-workstation"
 
 export async function PATCH(
   request: Request,
@@ -104,9 +105,25 @@ export async function PATCH(
     updateData.isActive = data.isActive
   }
 
-  await db.classroom.update({
-    where: { id },
-    data: updateData,
+  await db.$transaction(async (tx) => {
+    await tx.classroom.update({
+      where: { id },
+      data: updateData,
+    })
+    if (data.number !== undefined && data.number !== existing.number) {
+      const oldPool = classroomPoolWorkstationCode(existing.number)
+      const newPool = classroomPoolWorkstationCode(data.number)
+      const poolWs = await tx.workstation.findFirst({
+        where: { classroomId: id, code: oldPool },
+        select: { id: true },
+      })
+      if (poolWs) {
+        await tx.workstation.update({
+          where: { id: poolWs.id },
+          data: { code: newPool, name: newPool },
+        })
+      }
+    }
   })
 
   return NextResponse.json({ ok: true })
@@ -124,14 +141,18 @@ export async function DELETE(
   const { id } = await params
   const existing = await db.classroom.findUnique({
     where: { id },
-    select: { id: true, _count: { select: { workstations: true } } },
+    select: { id: true, number: true },
   })
   if (!existing) {
     return NextResponse.json({ error: "Аудитория не найдена" }, { status: 404 })
   }
-  if (existing._count.workstations > 0) {
+  const poolCode = classroomPoolWorkstationCode(existing.number)
+  const nonPoolCount = await db.workstation.count({
+    where: { classroomId: id, NOT: { code: poolCode } },
+  })
+  if (nonPoolCount > 0) {
     return NextResponse.json(
-      { error: "Нельзя удалить аудиторию с рабочими местами" },
+      { error: "Нельзя удалить аудиторию, пока в ней есть учебные рабочие места (кроме служебного KAB)." },
       { status: 400 }
     )
   }

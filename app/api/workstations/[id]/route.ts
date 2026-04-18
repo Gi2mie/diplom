@@ -2,7 +2,14 @@ import { NextResponse } from "next/server"
 import { auth, isAdminSession } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { updateWorkstationSchema } from "@/lib/validators"
-import { workstationCodeMatchesClassroom } from "@/lib/workstation-code"
+import {
+  workstationCodeClassroomErrorHint,
+  workstationCodeMatchesClassroom,
+} from "@/lib/workstation-code"
+import {
+  isClassroomPoolWorkstation,
+  prismaWorkstationsCountingTowardCapacity,
+} from "@/lib/classroom-pool-workstation"
 import { syncWorkstationStatusFromEquipment } from "@/lib/workstation-status-sync"
 
 function parseLastMaintenance(v: string | null | undefined): Date | null | undefined {
@@ -20,7 +27,12 @@ async function assertCapacityForMove(targetClassroomId: string, excludeId: strin
   if (!classroom) return { ok: false as const, error: "Аудитория не найдена" }
   if (classroom.capacity == null) return { ok: true as const, classroom }
   const count = await db.workstation.count({
-    where: { classroomId: targetClassroomId, id: { not: excludeId } },
+    where: {
+      AND: [
+        prismaWorkstationsCountingTowardCapacity(targetClassroomId, classroom.number),
+        { id: { not: excludeId } },
+      ],
+    },
   })
   if (count >= classroom.capacity) {
     return {
@@ -38,9 +50,18 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
   }
 
   const { id } = await ctx.params
-  const existing = await db.workstation.findUnique({ where: { id } })
+  const existing = await db.workstation.findUnique({
+    where: { id },
+    include: { classroom: { select: { number: true } } },
+  })
   if (!existing) {
     return NextResponse.json({ error: "Рабочее место не найдено" }, { status: 404 })
+  }
+  if (isClassroomPoolWorkstation(existing.code, existing.classroom.number)) {
+    return NextResponse.json(
+      { error: "Служебное рабочее место кабинета (KAB-…) нельзя редактировать." },
+      { status: 409 }
+    )
   }
 
   const body = await request.json()
@@ -66,7 +87,7 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
   const nextCode = data.code ?? existing.code
   if (!workstationCodeMatchesClassroom(nextCode, classroom.number)) {
     return NextResponse.json(
-      { error: `Номер должен начинаться с RM-${classroom.number}-` },
+      { error: workstationCodeClassroomErrorHint(classroom.number) },
       { status: 400 }
     )
   }
@@ -118,10 +139,22 @@ export async function DELETE(_request: Request, ctx: { params: Promise<{ id: str
   const { id } = await ctx.params
   const existing = await db.workstation.findUnique({
     where: { id },
-    include: { _count: { select: { equipment: true } } },
+    include: {
+      _count: { select: { equipment: true } },
+      classroom: { select: { number: true } },
+    },
   })
   if (!existing) {
     return NextResponse.json({ error: "Рабочее место не найдено" }, { status: 404 })
+  }
+  if (isClassroomPoolWorkstation(existing.code, existing.classroom.number)) {
+    return NextResponse.json(
+      {
+        error:
+          "Служебное рабочее место кабинета (KAB-…) нельзя удалить. Удалите аудиторию, если она больше не нужна.",
+      },
+      { status: 409 }
+    )
   }
   if (existing._count.equipment > 0) {
     return NextResponse.json(

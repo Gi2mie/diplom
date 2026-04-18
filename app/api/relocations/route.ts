@@ -92,7 +92,7 @@ export async function POST(request: Request) {
     const log = await relocateWholeWorkstation({
       userId,
       fromWorkstationId: parsed.data.fromWorkstationId,
-      toWorkstationId: parsed.data.toWorkstationId,
+      toClassroomId: parsed.data.toClassroomId,
     })
     return NextResponse.json({ ok: true, id: log.id })
   } catch (e) {

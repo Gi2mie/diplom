@@ -1,4 +1,5 @@
 import type { UserRole, UserStatus } from "@prisma/client"
+import { demoFillHandoutPasswordPlain } from "@/lib/demo-fill-user-passwords"
 
 /** Вложенный select для Prisma: аудитории, за которые отвечает преподаватель */
 export const userResponsibleRoomsSelect = {
@@ -61,7 +62,8 @@ export function toPublicUserJson(
   if (options?.includeCredentials) {
     return {
       ...base,
-      handoutPasswordPlain: handoutPasswordPlain ?? null,
+      handoutPasswordPlain:
+        handoutPasswordPlain ?? demoFillHandoutPasswordPlain(rest.email) ?? null,
     }
   }
   return base

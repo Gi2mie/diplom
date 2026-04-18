@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server"
-import { EquipmentType } from "@prisma/client"
+import { EquipmentStatus, EquipmentType } from "@prisma/client"
 import { auth } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { isClassroomPoolWorkstation } from "@/lib/classroom-pool-workstation"
 import { mapComputerEquipment, type ComputerEquipmentWithRelations } from "@/lib/pc-config-map"
 import { createComputerConfig, parsePcConfigSaveBody } from "@/lib/pc-config-persist"
 
@@ -12,7 +13,11 @@ export async function GET() {
   }
 
   const rows = await db.equipment.findMany({
-    where: { type: EquipmentType.COMPUTER },
+    where: {
+      type: EquipmentType.COMPUTER,
+      status: { not: EquipmentStatus.DECOMMISSIONED },
+      workstationId: { not: null },
+    },
     include: {
       workstation: {
         select: {
@@ -38,7 +43,13 @@ export async function GET() {
     orderBy: [{ updatedAt: "desc" }],
   })
 
-  const computers = rows.map((r) => mapComputerEquipment(r as ComputerEquipmentWithRelations))
+  const computers = rows
+    .filter((r) => {
+      const ws = r.workstation
+      if (!ws?.classroom) return false
+      return !isClassroomPoolWorkstation(ws.code, ws.classroom.number)
+    })
+    .map((r) => mapComputerEquipment(r as ComputerEquipmentWithRelations))
 
   return NextResponse.json({ computers })
 }

@@ -1,5 +1,9 @@
 import { RelocationKind, type Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
+import {
+  classroomPoolWorkstationCode,
+  isClassroomPoolWorkstation,
+} from "@/lib/classroom-pool-workstation"
 import { resolveStatusAfterWorkstationChange } from "@/lib/equipment-workstation-status"
 import { syncWorkstationStatusFromEquipment } from "@/lib/workstation-status-sync"
 import { syncWorkstationKitFromEquipment } from "@/lib/workstation-kit-sync"
@@ -7,13 +11,6 @@ import { syncWorkstationKitFromEquipment } from "@/lib/workstation-kit-sync"
 function assertDifferentClassrooms(fromId: string, toId: string) {
   if (fromId === toId) {
     throw new Error("Целевая аудитория должна отличаться от исходной")
-  }
-}
-
-async function assertWorkstationEmpty(tx: Prisma.TransactionClient, workstationId: string) {
-  const n = await tx.equipment.count({ where: { workstationId } })
-  if (n > 0) {
-    throw new Error("Целевое рабочее место должно быть свободным (без оборудования)")
   }
 }
 
@@ -49,7 +46,6 @@ export async function relocateOneEquipment(params: {
     if (!fromWs || !toWs) throw new Error("Рабочее место не найдено")
 
     assertDifferentClassrooms(fromWs.classroomId, toWs.classroomId)
-    await assertWorkstationEmpty(tx, toWs.id)
 
     const statusUpd = resolveStatusAfterWorkstationChange({
       nextWorkstationId: toWs.id,
@@ -89,21 +85,39 @@ export async function relocateOneEquipment(params: {
 export async function relocateWholeWorkstation(params: {
   userId: string
   fromWorkstationId: string
-  toWorkstationId: string
+  toClassroomId: string
 }) {
   return db.$transaction(async (tx) => {
     const fromWs = await tx.workstation.findUnique({
       where: { id: params.fromWorkstationId },
       include: { classroom: true },
     })
-    const toWs = await tx.workstation.findUnique({
-      where: { id: params.toWorkstationId },
+    if (!fromWs) throw new Error("Рабочее место не найдено")
+
+    if (isClassroomPoolWorkstation(fromWs.code, fromWs.classroom.number)) {
+      throw new Error("Служебное рабочее место кабинета (KAB-…) нельзя перемещать целиком.")
+    }
+
+    const toClassroom = await tx.classroom.findUnique({
+      where: { id: params.toClassroomId },
+    })
+    if (!toClassroom) throw new Error("Аудитория не найдена")
+
+    assertDifferentClassrooms(fromWs.classroomId, toClassroom.id)
+
+    const poolCode = classroomPoolWorkstationCode(toClassroom.number)
+    const toWs = await tx.workstation.findFirst({
+      where: { classroomId: toClassroom.id, code: poolCode },
       include: { classroom: true },
     })
-    if (!fromWs || !toWs) throw new Error("Рабочее место не найдено")
-
-    assertDifferentClassrooms(fromWs.classroomId, toWs.classroomId)
-    await assertWorkstationEmpty(tx, toWs.id)
+    if (!toWs) {
+      throw new Error(
+        `В аудитории ${toClassroom.number} нет служебного рабочего места «${poolCode}».`
+      )
+    }
+    if (!isClassroomPoolWorkstation(toWs.code, toWs.classroom.number)) {
+      throw new Error("Цель переноса целиком может быть только служебным KAB кабинета.")
+    }
 
     const equipmentRows = await tx.equipment.findMany({
       where: { workstationId: fromWs.id },

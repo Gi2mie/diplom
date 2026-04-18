@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { auth, isTeacherSession } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { UserRole, UserStatus } from "@prisma/client"
+import { isClassroomPoolWorkstation } from "@/lib/classroom-pool-workstation"
 
 type ClassroomRow = {
   id: string
@@ -38,12 +39,16 @@ export async function GET() {
       building: { select: { id: true, name: true } },
       classroomType: { select: { id: true, name: true, code: true, color: true } },
       responsible: { select: { id: true, firstName: true, lastName: true, middleName: true } },
-      workstations: { select: { _count: { select: { equipment: true } } } },
+      workstations: {
+        select: { code: true, _count: { select: { equipment: true } } },
+      },
     },
   })
 
   const classrooms: ClassroomRow[] = classroomsRaw.map((c) => {
-    const workstationCount = c.workstations.length
+    const workstationCount = c.workstations.filter(
+      (w) => !isClassroomPoolWorkstation(w.code, c.number)
+    ).length
     const equipmentCount = c.workstations.reduce((s, w) => s + w._count.equipment, 0)
     const responsibleLabel = c.responsible
       ? `${c.responsible.lastName} ${c.responsible.firstName}${c.responsible.middleName ? ` ${c.responsible.middleName}` : ""}`
@@ -119,9 +124,10 @@ export async function GET() {
     })
   }
 
+  const totalWorkstations = classrooms.reduce((s, c) => s + c.workstationCount, 0)
+
   const [
     totalClassrooms,
-    totalWorkstations,
     totalBuildings,
     totalTypes,
     buildings,
@@ -130,7 +136,6 @@ export async function GET() {
     typeCounts,
   ] = await Promise.all([
     db.classroom.count(),
-    db.workstation.count(),
     db.building.count(),
     db.classroomType.count(),
     db.building.findMany({ orderBy: { name: "asc" } }),

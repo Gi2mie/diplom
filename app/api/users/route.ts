@@ -38,7 +38,6 @@ export async function GET() {
         createdAt: true,
         lastLoginAt: true,
         responsibleRooms: userResponsibleRoomsSelect,
-        ...(isAdmin ? { handoutPasswordPlain: true } : {}),
       },
     }),
     db.user.count({ where: { role: UserRole.ADMIN } }),
@@ -133,7 +132,6 @@ export async function POST(request: Request) {
       position: position || null,
       department: department || null,
       passwordHash,
-      handoutPasswordPlain: password,
     },
     select: {
       id: true,
@@ -148,13 +146,17 @@ export async function POST(request: Request) {
       department: true,
       createdAt: true,
       lastLoginAt: true,
-      handoutPasswordPlain: true,
       responsibleRooms: userResponsibleRoomsSelect,
     },
   })
 
   return NextResponse.json(
-    { user: toPublicUserJson(user, { includeCredentials: true }) },
+    {
+      user: {
+        ...toPublicUserJson(user, { includeCredentials: false }),
+        handoutPasswordPlain: password,
+      },
+    },
     { status: 201 }
   )
 }

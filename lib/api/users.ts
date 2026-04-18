@@ -24,7 +24,11 @@ export type UserListItem = {
   responsibleClassrooms: ResponsibleClassroomItem[]
   createdAt: string
   lastLoginAt: string | null
-  /** Только у администратора: пароль для выдачи (последний заданный при создании/смене). */
+  /**
+   * Только у администратора: пароль для бланка. После создания/смены пароля — из ответа API;
+   * при обычной загрузке списка для учёток демо-наполнения подставляется из lib/demo-fill-user-passwords.ts
+   * (в БД хранится только hash).
+   */
   handoutPasswordPlain?: string | null
 }
 

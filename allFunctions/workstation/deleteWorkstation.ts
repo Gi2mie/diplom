@@ -1,6 +1,7 @@
 "use server"
 
 import { prisma } from "@/lib/db"
+import { isClassroomPoolWorkstation } from "@/lib/classroom-pool-workstation"
 
 export type DeleteWorkstationResult = {
   success: boolean
@@ -14,6 +15,7 @@ export async function deleteWorkstation(id: string): Promise<DeleteWorkstationRe
       where: { id },
       include: {
         equipment: true,
+        classroom: { select: { number: true } },
       },
     })
 
@@ -21,6 +23,14 @@ export async function deleteWorkstation(id: string): Promise<DeleteWorkstationRe
       return {
         success: false,
         error: "Рабочее место не найдено",
+      }
+    }
+
+    if (isClassroomPoolWorkstation(existing.code, existing.classroom.number)) {
+      return {
+        success: false,
+        error:
+          "Служебное рабочее место кабинета (KAB-…) нельзя удалить. Удалите аудиторию, если она больше не нужна.",
       }
     }
 

@@ -13,6 +13,23 @@ export function equipmentPermanentDeleteAllowed(
   return Date.now() >= t + EQUIPMENT_DELETE_AFTER_DECOMMISSION_MS
 }
 
+const MS_PER_DAY = 24 * 60 * 60 * 1000
+
+/** Полных суток (с округлением вверх), оставшихся до разрешения удаления; null — если удаление уже можно или дата не задана. */
+export function equipmentPermanentDeleteFullDaysRemaining(
+  status: EquipmentStatus,
+  decommissionedAtIso: string | null | undefined
+): number | null {
+  if (status !== EquipmentStatus.DECOMMISSIONED || !decommissionedAtIso) return null
+  if (equipmentPermanentDeleteAllowed(status, decommissionedAtIso)) return null
+  const t = new Date(decommissionedAtIso).getTime()
+  if (Number.isNaN(t)) return null
+  const eligibleAt = t + EQUIPMENT_DELETE_AFTER_DECOMMISSION_MS
+  const msLeft = eligibleAt - Date.now()
+  if (msLeft <= 0) return null
+  return Math.ceil(msLeft / MS_PER_DAY)
+}
+
 export function equipmentPermanentDeleteEligibleAt(
   decommissionedAt: Date | null
 ): Date | null {
